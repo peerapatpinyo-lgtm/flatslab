@@ -16,9 +16,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     max_h = 1000
     h_min_code = physics.get_min_thickness(ln, pos)
     
-    # Initialize variables to ensure scope
-    res = {}
-    
     while h_current <= max_h:
         # 3.1 Derived Geometry
         d_mm = h_current - cover_mm - 8 # Assume db16 approx
@@ -53,7 +50,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     mo = (qu * ly * ln**2) / 8
     d_cm = d_mm / 10.0
     
-    # Dictionary of coefficients
     strips_config = [
         ("Col. Strip Top (-)", 0.4875, "Top"),
         ("Col. Strip Bot (+)", 0.2100, "Bot"),
@@ -64,7 +60,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     rebar_data = []
     for name, coeff, loc in strips_config:
         mu = coeff * mo
-        # As = Mu_kg.m * 100 / (0.9 * fy * 0.9 * d_cm)
         as_req = (mu * 100) / (0.9 * fy_ksc * 0.9 * d_cm)
         rebar_data.append({
             "name": name, "coeff": coeff, "mu": mu, "as_req": as_req
@@ -75,7 +70,8 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         "inputs": {
             "lx": lx, "ly": ly, "c1_mm": c1_mm, "c2_mm": c2_mm, 
             "pos": pos, "sw": sw, "sdl": sdl, "ll": ll, 
-            "dl_fac": dl_fac, "ll_fac": ll_fac, "fc_mpa": fc_mpa, "fy": fy_ksc, "cover": cover_mm
+            "dl_fac": dl_fac, "ll_fac": ll_fac, "fc_mpa": fc_mpa, "fy": fy_ksc, 
+            "cover": cover_mm  # <--- จุดสำคัญ: ต้องส่งค่านี้กลับมาด้วย
         },
         "results": {
             "h": h_current, "d_mm": d_mm, "bo_mm": bo_m * 1000,
