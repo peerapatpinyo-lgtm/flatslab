@@ -1,6 +1,7 @@
 import physics
 import math
 
+# สังเกตตัวแปรสุดท้ายคือ main_bar_db
 def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos, dl_fac, ll_fac, main_bar_db):
     # 1. Setup
     u = physics.get_units()
@@ -18,7 +19,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     
     while h_current <= max_h:
         # Properties
-        # d depends on cover and bar size (d = h - cov - db/2)
         d_mm = h_current - cover_mm - (main_bar_db / 2.0)
         d_m = d_mm / 1000.0
         
@@ -52,8 +52,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     mo = (qu * ly * ln**2) / 8
     
     # As Min (Temperature & Shrinkage)
-    # As_min = 0.0018 * b * h (where b=100cm, h in cm)
-    # Result in cm2 per meter
     as_min = 0.0018 * 100 * (h_current / 10.0)
     
     strips_config = [
@@ -76,13 +74,12 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         as_design = max(as_req, as_min)
         
         # Spacing Calculation
-        # Spacing = (100 * bar_area) / As_design
         if as_design > 0:
             theo_spacing = (100.0 * bar_area) / as_design
-            # Round down to nearest 2.5 cm for construction practicality (max 30cm)
+            # Round down to nearest 2.5 cm
             use_spacing = math.floor(theo_spacing / 2.5) * 2.5
             use_spacing = min(use_spacing, 30.0)
-            use_spacing = max(use_spacing, 5.0) # Min spacing 5cm
+            use_spacing = max(use_spacing, 5.0) 
         else:
             theo_spacing = 30.0
             use_spacing = 30.0
