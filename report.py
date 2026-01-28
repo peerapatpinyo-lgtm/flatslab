@@ -7,77 +7,72 @@ def render_report(data):
     res = data['results']
     rebar_list = data['rebar']
     
-    # 1. Load Analysis & Geometry
-    st.markdown("## 1. Load Analysis & Geometry")
-    col1, col2 = st.columns(2)
+    # --- Section 0: Traceability Header ---
+    st.markdown("## 1. Design Criteria & Geometry")
     
-    with col1:
-        st.markdown("**Load Calculation:**")
-        st.latex(formatter.fmt_qu_calc(
-            inp['dl_fac'], inp['sw'], inp['sdl'], inp['ll_fac'], inp['ll'], res['qu']
-        ))
+    st.info(f"""
+    **Thickness Traceability:**
+    * Input Thickness: **{inp['h_init']} mm**
+    * Final Design Thickness: **{res['h']} mm**
+    * **Governing Condition:** {res['reason']}
+    """)
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**1.1 Minimum Thickness Check (ACI 318):**")
+        # แสดงสูตร h_min = Ln/33
+        st.latex(formatter.fmt_h_min_check(res['ln'], inp['pos'], res['h_min_code'], res['h']))
         
-    with col2:
-        st.markdown("**Verification Trace ($b_o$):**")
-        st.latex(formatter.fmt_geometry_trace(
-            inp['c1_mm'], inp['c2_mm'], res['d_mm'], res['bo_mm'], inp['pos']
-        ))
+    with c2:
+        st.markdown("**1.2 Effective Depth & Perimeter:**")
+        st.latex(formatter.fmt_geometry_trace(inp['c1_mm'], inp['c2_mm'], res['d_mm'], res['bo_mm'], inp['pos']))
 
-    # 2. Punching Shear
-    st.markdown("## 2. Punching Shear Verification")
+    # --- Section 2: Load ---
+    st.markdown("## 2. Load Analysis (Using Final Thickness)")
+    # ส่ง res['h'] ไปแสดงผลใน Load Calculation
+    st.latex(formatter.fmt_qu_calc(
+        inp['dl_fac'], inp['sw'], inp['sdl'], inp['ll_fac'], inp['ll'], res['qu'], res['h']
+    ))
     
-    # 2.1 Demand (Vu)
-    st.markdown("#### 2.1 Shear Demand ($V_u$)")
-    # เรียกใช้ fmt_vu_trace ที่สร้างใหม่ใน formatter.py
+    # --- Section 3: Punching Shear ---
+    st.markdown("## 3. Punching Shear Verification")
+    
+    st.markdown("**3.1 Shear Demand ($V_u$):**")
     st.latex(formatter.fmt_vu_trace(
         res['qu'], inp['lx'], inp['ly'], res['acrit'], res['gamma_v'], res['vu_kg']
     ))
     
-    # 2.2 Capacity (Vc)
-    st.markdown("#### 2.2 Shear Capacity ($\phi V_c$)")
+    st.markdown("**3.2 Shear Capacity ($\phi V_c$):**")
     st.latex(formatter.fmt_shear_capacity_sub(
         inp['fc_mpa'], res['beta'], res['alpha'], res['d_mm'], res['bo_mm']
     ))
     
-    # 2.3 Table
+    # Compare Table
     df = pd.DataFrame({
-        "Eq": ["Eq.1 (Basic)", "Eq.2 (Rect)", "Eq.3 (Aspect)"],
+        "Eq": ["Eq.1", "Eq.2", "Eq.3"],
         "Stress (MPa)": [res['v1'], res['v2'], res['v3']],
         "Capacity (Ton)": [
             (0.75 * v * res['bo_mm'] * res['d_mm'] / 9806.65) for v in [res['v1'], res['v2'], res['v3']]
         ]
     })
+    st.table(df.style.format("{:.2f}"))
     
-    st.table(df.style.format({
-        "Stress (MPa)": "{:.2f}",
-        "Capacity (Ton)": "{:.2f}"
-    }))
-    
-    # 2.4 Verdict
+    # Verdict
     pass_flag = res['ratio'] <= 1.0
     color = "green" if pass_flag else "red"
-    verdict = "PASS" if pass_flag else "FAIL"
-    st.markdown(f"### Ratio = {res['ratio']:.2f} $\\rightarrow$ :{color}[**{verdict}**]")
+    st.markdown(f"#### Ratio = {res['ratio']:.2f} (Status: :{color}[{'PASS' if pass_flag else 'FAIL'}])")
 
-    # 3. Flexural Design
-    st.markdown("## 3. Flexural Design (4 Strips)")
-    st.latex(r"M_o = \frac{q_u \ell_2 \ell_n^2}{8} = \mathbf{" + f"{res['mo']:,.0f}" + r"} \; kg \cdot m")
+    # --- Section 4: Flexure ---
+    st.markdown("## 4. Flexural Design")
+    st.latex(r"M_o = \frac{q_u \ell_n^2}{8} = \mathbf{" + f"{res['mo']:,.0f}" + r"} \; kg \cdot m")
     
-    # Grid Layout for 4 Rebar Strips
     c1, c2 = st.columns(2)
     c3, c4 = st.columns(2)
     cols = [c1, c2, c3, c4]
     
-    # Loop แสดงผล
     for i, item in enumerate(rebar_list):
-        if i < 4: # ป้องกัน Index Error
+        if i < 4:
             with cols[i]:
                 st.latex(formatter.fmt_flexure_trace(
-                    item['name'], 
-                    item['coeff'], 
-                    res['mo'], 
-                    item['mu'], 
-                    inp['fy'], 
-                    res['d_mm']/10, 
-                    item['as_req']
+                    item['name'], item['coeff'], res['mo'], item['mu'], inp['fy'], res['d_mm']/10, item['as_req']
                 ))
