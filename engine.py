@@ -27,21 +27,26 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         sw = (h_current / 1000.0) * physics.CONCRETE_DENSITY
         qu = (dl_fac * (sw + sdl)) + (ll_fac * ll)
         
-        # 3.3 Physics Calc (Acrit calculated here)
+        # 3.3 Physics Calc
         bo_m, acrit, alpha, beta = physics.get_geometry_properties(c1, c2, d_m, pos)
         v1, v2, v3, vc_mpa = physics.calc_aci_shear_capacity(fc_mpa, beta, alpha, d_m, bo_m)
         
-        # 3.4 Capacity & Demand
-        phi = 0.75
-        phi_vc_n = phi * vc_mpa * (bo_m * 1000) * (d_mm)
-        phi_vc_kg = phi_vc_n / u['grav']
+        # 3.4 Capacity (Newton & Tons)
+        # Calculate raw force in Newtons first for the "Unit Bridge" display
+        vc_gov_mpa = min(v1, v2, v3) # Governing stress
+        vc_newton = vc_gov_mpa * (bo_m * 1000) * d_mm
         
+        phi = 0.75
+        phi_vc_n = phi * vc_newton
+        phi_vc_kg = phi_vc_n / u['grav'] # Convert N to kg (approx / 9.81)
+        
+        # 3.5 Demand
         gamma_v = physics.get_unbalanced_factor(pos)
         vu_kg = qu * ((lx * ly) - acrit) * gamma_v
         
         ratio = vu_kg / phi_vc_kg if phi_vc_kg > 0 else 999
         
-        # 3.5 Check
+        # 3.6 Loop Check
         if (ratio <= 1.0) and (h_current >= h_min_exact):
             break
             
@@ -50,7 +55,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     # Reason Logic
     if h_current == h_init:
         reason = "Input Satisfactory"
-    elif h_current <= h_min_practical + 10 and ratio <= 1.0: # Close to min code
+    elif h_current <= h_min_practical + 10 and ratio <= 1.0:
         reason = "ACI Min. Thickness Limit"
     else:
         reason = "Punching Shear Requirement"
@@ -75,9 +80,11 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         "results": {
             "h": h_current, "h_min_code": h_min_exact, "reason": reason,
             "d_mm": d_mm, "bo_mm": bo_m * 1000, 
-            "acrit": acrit, # <--- ตรวจสอบว่าส่งค่านี้ออกมา
+            "acrit": acrit, 
             "qu": qu, "mo": mo, "ln": ln,
-            "vu_kg": vu_kg, "phi_vc_kg": phi_vc_kg, "ratio": ratio,
+            "vu_kg": vu_kg, 
+            "vc_gov_mpa": vc_gov_mpa, "vc_newton": vc_newton, "phi_vc_kg": phi_vc_kg, # New detailed values
+            "ratio": ratio,
             "v1": v1, "v2": v2, "v3": v3, "beta": beta, "alpha": alpha,
             "gamma_v": gamma_v
         },
