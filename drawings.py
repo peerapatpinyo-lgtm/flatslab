@@ -1,48 +1,36 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def plot_slab_section(h_mm, cover_mm, c1_mm, ln_m, lx_m):
-    # Robust Conversion
-    h = float(h_mm) / 1000.0
-    cover = float(cover_mm) / 1000.0
-    c1 = float(c1_mm) / 1000.0
-    ln_val = float(ln_m)
-
-    fig, ax = plt.subplots(figsize=(10, 5))
+def draw_section(h_mm, cover_mm, c1_mm, ln_m):
+    h = h_mm / 1000.0
+    c1 = c1_mm / 1000.0
+    cover = cover_mm / 1000.0
     
-    # 1. Concrete & Column
-    view_limit = 2.2
-    slab = patches.Rectangle((-view_limit, 0), 2*view_limit, h, facecolor='#f5f5f5', edgecolor='gray')
-    col = patches.Rectangle((-c1/2, -0.6), c1, 0.6, facecolor='#e0e0e0', edgecolor='black', hatch='///')
-    ax.add_patch(slab)
-    ax.add_patch(col)
-
-    # 2. Rebar
-    # Top Bar (Red)
-    ext_len = 0.33 * ln_val
-    top_half = (c1/2) + ext_len
+    fig, ax = plt.subplots(figsize=(10, 4))
+    
+    # Concrete
+    ax.add_patch(patches.Rectangle((-2.0, 0), 4.0, h, facecolor='#f0f0f0', edgecolor='gray'))
+    # Column
+    ax.add_patch(patches.Rectangle((-c1/2, -0.5), c1, 0.5, hatch='///', facecolor='white', edgecolor='black'))
+    
+    # Rebar Top (Red)
+    ext = 0.33 * ln_m
+    top_len = (c1/2) + ext
     y_top = h - cover
-    ax.plot([-top_half, top_half], [y_top, y_top], color='#d62728', linewidth=3, label='Top Bar')
-    # Hook
-    ax.plot([-top_half, -top_half], [y_top, y_top-0.03], color='#d62728', linewidth=2)
-    ax.plot([top_half, top_half], [y_top, y_top-0.03], color='#d62728', linewidth=2)
-    ax.text(top_half, y_top+0.02, f"Ext. {ext_len:.2f}m", ha='center', color='#d62728', fontweight='bold')
-
-    # Bottom Bar (Blue)
+    ax.plot([-top_len, top_len], [y_top, y_top], color='red', linewidth=3)
+    ax.text(top_len, y_top+0.02, f"Ext. {ext:.2f} m", color='red', ha='center')
+    
+    # Rebar Bot (Blue)
     y_bot = cover
-    ax.plot([-view_limit+0.2, view_limit-0.2], [y_bot, y_bot], color='#1f77b4', linewidth=3, label='Bottom Bar')
-
-    # 3. Dimensions
-    # Height
+    ax.plot([-1.8, 1.8], [y_bot, y_bot], color='blue', linewidth=3)
+    
+    # Dimensions (Explicit Values)
     ax.annotate('', xy=(-1.5, 0), xytext=(-1.5, h), arrowprops=dict(arrowstyle='<->'))
-    ax.text(-1.6, h/2, f"h={h_mm:.0f}", rotation=90, va='center')
-    # Cover
-    ax.annotate('', xy=(0, h), xytext=(0, h-cover), arrowprops=dict(arrowstyle='<->', color='purple'))
-    ax.text(0.1, h-cover/2, f"Cov {cover_mm}", color='purple', fontsize=8, va='center')
-
-    ax.set_xlim(-view_limit, view_limit)
+    ax.text(-1.6, h/2, f"h={h_mm:.0f}mm", rotation=90, va='center')
+    
     ax.set_ylim(-0.2, h+0.3)
+    ax.set_xlim(-2.0, 2.0)
     ax.axis('off')
-    ax.set_title(f"SECTION A-A (Ln = {ln_val:.2f} m)", loc='left', fontsize=10)
+    ax.set_title("Cross Section A-A (Construction Detail)")
     
     return fig
