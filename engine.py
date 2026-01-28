@@ -11,28 +11,23 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     c2 = c2_mm / 1000.0
     ln = max(lx - c1, 0.65 * lx)
     
-    # 3. Determine Min Thickness Code Requirement
-    # ln is in meters, returns mm
+    # 3. Min Thickness Check
     h_min_exact = physics.get_min_thickness(ln, pos) 
-    
-    # Round h_min_exact to nearest 10mm ceiling for practical construction
     h_min_practical = math.ceil(h_min_exact / 10.0) * 10
     
-    # Start loop at max(h_init, h_min_practical) to save iterations
-    # But we need to trace *why* it increases, so let's start at h_init and check.
     h_current = h_init
     max_h = 1000
     
     while h_current <= max_h:
         # 3.1 Derived Geometry
-        d_mm = h_current - cover_mm - 8 # Assume db16 approx
+        d_mm = h_current - cover_mm - 8 
         d_m = d_mm / 1000.0
         
-        # 3.2 Load (Recalculate SW with current h)
+        # 3.2 Load
         sw = (h_current / 1000.0) * physics.CONCRETE_DENSITY
         qu = (dl_fac * (sw + sdl)) + (ll_fac * ll)
         
-        # 3.3 Physics Calc
+        # 3.3 Physics Calc (Acrit calculated here)
         bo_m, acrit, alpha, beta = physics.get_geometry_properties(c1, c2, d_m, pos)
         v1, v2, v3, vc_mpa = physics.calc_aci_shear_capacity(fc_mpa, beta, alpha, d_m, bo_m)
         
@@ -46,45 +41,29 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         
         ratio = vu_kg / phi_vc_kg if phi_vc_kg > 0 else 999
         
-        # 3.5 Check Logic
-        # Condition A: Punching Shear Pass?
-        shear_pass = ratio <= 1.0
-        # Condition B: Min Thickness Pass?
-        min_h_pass = h_current >= h_min_exact
-        
-        if shear_pass and min_h_pass:
+        # 3.5 Check
+        if (ratio <= 1.0) and (h_current >= h_min_exact):
             break
             
         h_current += 10
         
-    # 4. Determine Governing Reason (Traceability)
+    # Reason Logic
     if h_current == h_init:
         reason = "Input Satisfactory"
-    elif h_current == h_min_practical:
-         # If it stopped exactly at code min (and implies it passed shear)
+    elif h_current <= h_min_practical + 10 and ratio <= 1.0: # Close to min code
         reason = "ACI Min. Thickness Limit"
     else:
-        # If it went beyond code min, it must be Shear
         reason = "Punching Shear Requirement"
 
-    # 5. Flexural Calculation
+    # Flexure
     mo = (qu * ly * ln**2) / 8
     d_cm = d_mm / 10.0
-    
-    strips_config = [
-        ("Col. Strip Top (-)", 0.4875),
-        ("Col. Strip Bot (+)", 0.2100),
-        ("Mid. Strip Top (-)", 0.1625),
-        ("Mid. Strip Bot (+)", 0.1400)
-    ]
-    
+    strips_config = [("Col. Strip Top (-)", 0.4875), ("Col. Strip Bot (+)", 0.2100), ("Mid. Strip Top (-)", 0.1625), ("Mid. Strip Bot (+)", 0.1400)]
     rebar_data = []
     for name, coeff in strips_config:
         mu = coeff * mo
         as_req = (mu * 100) / (0.9 * fy_ksc * 0.9 * d_cm)
-        rebar_data.append({
-            "name": name, "coeff": coeff, "mu": mu, "as_req": as_req
-        })
+        rebar_data.append({"name": name, "coeff": coeff, "mu": mu, "as_req": as_req})
 
     return {
         "inputs": {
@@ -94,14 +73,13 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
             "cover": cover_mm, "h_init": h_init
         },
         "results": {
-            "h": h_current, # <--- Final Design Thickness
-            "h_min_code": h_min_exact,
-            "reason": reason,
-            "d_mm": d_mm, "bo_mm": bo_m * 1000,
+            "h": h_current, "h_min_code": h_min_exact, "reason": reason,
+            "d_mm": d_mm, "bo_mm": bo_m * 1000, 
+            "acrit": acrit, # <--- ตรวจสอบว่าส่งค่านี้ออกมา
             "qu": qu, "mo": mo, "ln": ln,
             "vu_kg": vu_kg, "phi_vc_kg": phi_vc_kg, "ratio": ratio,
             "v1": v1, "v2": v2, "v3": v3, "beta": beta, "alpha": alpha,
-            "acrit": acrit, "gamma_v": gamma_v
+            "gamma_v": gamma_v
         },
         "rebar": rebar_data
     }
