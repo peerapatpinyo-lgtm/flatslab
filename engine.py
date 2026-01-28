@@ -20,7 +20,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     
     while h_current <= max_h:
         # 3.1 Derived Properties
-        d_mm = h_current - cover_mm - 10 # Approx d (cover + half bar)
+        d_mm = h_current - cover_mm - 10 
         d_m = d_mm / 1000.0
         
         # 3.2 Loads
@@ -33,9 +33,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         vc_mpa = min(v1, v2, v3)
         
         # 3.4 Capacity (MPa -> Tons)
-        # phi * vc(MPa) * bo(mm) * d(mm) / 9806 = Tons
         phi = 0.75
-        # Store raw Newton force for showing substitution
         vc_newton = vc_mpa * (bo_m * 1000) * d_mm
         phi_vc_ton = (phi * vc_newton) / (u['grav'] * 1000)
         phi_vc_kg = phi_vc_ton * 1000
@@ -61,7 +59,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     else:
         reason = "Shear Requirement"
 
-    # 4. Flexure (Prepare Data for Substitution)
+    # 4. Flexure
     mo = (qu * ly * ln**2) / 8
     strips = [
         ("Column Strip Top (-)", 0.49),
@@ -74,8 +72,6 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     d_cm = d_mm / 10.0
     for name, coeff in strips:
         mu = coeff * mo
-        # As formula: (Mu * 10^5) / (0.9 * fy * 0.9 * d_cm)
-        # We calculate exact As to return
         as_req = (mu * 100000) / (0.9 * fy_ksc * 0.9 * d_cm)
         rebar_data.append({
             "name": name, "coeff": coeff, "mu": mu, "as_req": as_req
@@ -93,7 +89,9 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
             "d_mm": d_mm, "bo_mm": bo_m*1000, "acrit": acrit,
             "v1": v1, "v2": v2, "v3": v3, "vc_mpa": vc_mpa,
             "vc_newton": vc_newton,
-            "phi_vc_kg": phi_vc_kg, "vu_kg": vu_kg, "gamma_v": gamma_v,
+            "phi_vc_kg": phi_vc_kg, "vu_kg": vu_kg, 
+            "gamma_v": gamma_v, # <--- ตรวจสอบว่าบรรทัดนี้มีอยู่
+            "qu": qu,           # <--- เพิ่มบรรทัดนี้เพื่อให้ report เรียกใช้ได้
             "ratio": ratio, "mo": mo, "ln": ln
         },
         "rebar": rebar_data
