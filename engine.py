@@ -1,117 +1,84 @@
 import numpy as np
 
 def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos="Interior"):
-    # --- 1. การเตรียมข้อมูลและหน่วย (Initial Setup) ---
+    # --- 1. การเตรียมข้อมูลและหน่วย ---
     h = h_mm / 1000
-    c1 = c1_mm / 1000  # ด้านขนาน lx
-    c2 = c2_mm / 1000  # ด้านขนาน ly
-    d = (h_mm - cover_mm - 12) / 1000  # Effective depth (assume DB12)
-    
-    # แปลงหน่วยเป็น SI สำหรับการคำนวณมาตรฐาน
+    c1 = c1_mm / 1000
+    c2 = c2_mm / 1000
+    d = (h_mm - cover_mm - 12) / 1000
     fc_mpa = fc_ksc * 0.0980665
-    fy_mpa = fy_ksc * 0.0980665
     g = 9.80665
 
-    # Check DDM Limitation
-    ratio = max(lx, ly) / min(lx, ly)
-    ddm_warning = "DDM Limits OK" if ratio <= 2.0 else "Ratio exceeds DDM limits (L/W > 2)"
-
-    # --- 2. การคำนวณน้ำหนัก (Loading) ---
+    # --- 2. Loading Detailed ---
     sw = h * 2400
-    qu = (1.2 * (sw + sdl)) + (1.6 * ll)
+    w_dl_factored = 1.2 * (sw + sdl)
+    w_ll_factored = 1.6 * ll
+    qu = w_dl_factored + w_ll_factored
 
-    # --- 3. การคำนวณโมเมนต์ (Static Moment Mo) ---
-    # ตรวจสอบ ln >= 0.65lx
-    ln_raw = lx - c1
-    ln = max(ln_raw, 0.65 * lx)
+    # --- 3. Geometry & Mo ---
+    ln = max(lx - c1, 0.65 * lx)
     mo = (qu * ly * (ln**2)) / 8
 
-    # --- 4. การคำนวณแรงเฉือนทะลุ (Punching Shear Logic) ---
-    def check_punching(current_h_mm):
-        curr_h = current_h_mm / 1000
-        curr_d = (current_h_mm - cover_mm - 12) / 1000
+    # --- 4. Punching Shear Check (Governing Case) ---
+    def get_punching_data(temp_h_mm):
+        t_h = temp_h_mm / 1000
+        t_d = (temp_h_mm - cover_mm - 12) / 1000
         
-        # กำหนด bo และ Tributary Area (Atrib) ตามตำแหน่งเสา
         if pos == "Interior":
-            bo = 2 * ((c1 + curr_d) + (c2 + curr_d))
-            a_crit = (c1 + curr_d) * (c2 + curr_d)
+            bo = 2 * ((c1 + t_d) + (c2 + t_d))
+            a_crit = (c1 + t_d) * (c2 + t_d)
             alpha_s = 40
         elif pos == "Edge":
-            # สมมติเสาอยู่ที่ขอบด้าน ly (ด้าน lx สั้นลง)
-            bo = (2 * (c1 + curr_d/2)) + (c2 + curr_d)
-            a_crit = (c1 + curr_d/2) * (c2 + curr_d)
+            bo = (2 * (c1 + t_d/2)) + (c2 + t_d)
+            a_crit = (c1 + t_d/2) * (c2 + t_d)
             alpha_s = 30
         else: # Corner
-            bo = (c1 + curr_d/2) + (c2 + curr_d/2)
-            a_crit = (c1 + curr_d/2) * (c2 + curr_d/2)
+            bo = (c1 + t_d/2) + (c2 + t_d/2)
+            a_crit = (c1 + t_d/2) * (c2 + t_d/2)
             alpha_s = 20
 
         beta = max(c1, c2) / min(c1, c2)
+        # 3 Formulas in MPa
+        v1 = 0.33 * np.sqrt(fc_mpa)
+        v2 = 0.17 * (1 + 2/beta) * np.sqrt(fc_mpa)
+        v3 = 0.083 * (2 + (alpha_s * t_d / bo)) * np.sqrt(fc_mpa)
+        vc_mpa = min(v1, v2, v3)
         
-        # คำนวณ Vc (MPa) 3 สูตรของ ACI
-        f1 = 0.33 * np.sqrt(fc_mpa)
-        f2 = 0.17 * (1 + 2/beta) * np.sqrt(fc_mpa)
-        f3 = 0.083 * (2 + (alpha_s * curr_d / bo)) * np.sqrt(fc_mpa)
-        vc_mpa = min(f1, f2, f3)
+        vu_kg = qu * ((lx * ly) - a_crit)
+        phi_vc_kg = (0.75 * vc_mpa * (bo * 1000 * t_d * 1000)) / g
         
-        # แรงเฉือนต้านทาน (kg)
-        # Newton = MPa * Area(mm2) -> kg = Newton / g
-        phi_vc_kg = (0.75 * vc_mpa * (bo * 1000 * curr_d * 1000)) / g
-        
-        # แรงเฉือนที่เกิดขึ้น Vu (kg)
-        curr_qu = (1.2 * ((curr_h * 2400) + sdl)) + (1.6 * ll)
-        vu_kg = curr_qu * ((lx * ly) - a_crit)
-        
-        return vu_kg, phi_vc_kg, bo, curr_d
-
-    # วนลูปหาความหนาที่เหมาะสม (Iterative Design)
-    current_h = h_mm
-    status = "Success"
-    while True:
-        vu, phi_vc, bo_final, d_final = check_punching(current_h)
-        if vu <= phi_vc:
-            break
-        current_h += 10
-        if current_h > 600:
-            status = "Failed (Slab too thick > 600mm)"
-            break
-
-    # --- 5. การกระจายโมเมนต์และเหล็กเสริม (Moment & Rebar) ---
-    # Distribution factors
-    m_neg_total = 0.65 * mo
-    m_pos_total = 0.35 * mo
-    
-    moments = {
-        "CS_Neg": 0.75 * m_neg_total,
-        "MS_Neg": 0.25 * m_neg_total,
-        "CS_Pos": 0.60 * m_pos_total,
-        "MS_Pos": 0.40 * m_pos_total
-    }
-
-    # คำนวณ As (Required vs Min)
-    # As_min = 0.0018 * b * h (cm2)
-    as_min_per_m = 0.0018 * 100 * (current_h / 10) 
-    
-    rebar_results = {}
-    phi_flex = 0.9
-    for key, M in moments.items():
-        # b สำหรับ strip (m) - พิจารณาเฉลี่ยต่อเมตรเพื่อความง่ายใน UI
-        # As = M / (phi * fy * j * d) โดย j ประมาณ 0.9
-        as_req = (M * 100) / (phi_flex * fy_ksc * (d_final * 100 * 0.9))
-        rebar_results[key] = {
-            "As_req": max(as_req / ly, as_min_per_m), # cm2/m
-            "As_min": as_min_per_m
+        return {
+            "vu": vu_kg, "phi_vc": phi_vc_kg, "bo": bo, "d": t_d,
+            "v1": v1, "v2": v2, "v3": v3, "vc_mpa": vc_mpa, "beta": beta
         }
 
+    # Search for safe thickness
+    current_h = h_mm
+    while True:
+        p = get_punching_data(current_h)
+        if p['vu'] <= p['phi_vc'] or current_h >= 600:
+            break
+        current_h += 10
+
+    # --- 5. Rebar Calculation ---
+    as_min = 0.0018 * 100 * (current_h / 10)
+    phi_flex = 0.9
+    m_coeffs = {"CS_Neg": 0.75*0.65, "MS_Neg": 0.25*0.65, "CS_Pos": 0.60*0.35, "MS_Pos": 0.40*0.35}
+    
+    rebar_out = {}
+    for key, coeff in m_coeffs.items():
+        m_strip = coeff * mo
+        # Simple flexure: As = M / (phi * fy * 0.9d)
+        as_req = (m_strip * 100) / (phi_flex * fy_ksc * (p['d'] * 100 * 0.9))
+        as_final = max(as_req / ly, as_min)
+        rebar_out[key] = as_final
+
     return {
-        "status": status,
-        "ddm_warning": ddm_warning,
-        "qu": qu,
+        "loading": {"dl_fact": w_dl_factored, "ll_fact": w_ll_factored, "qu": qu, "sw": sw},
+        "geo": {"ln": ln, "beta": p['beta'], "bo": p['bo'], "d": p['d']},
+        "punching": p,
         "mo": mo,
-        "vu": vu,
-        "phi_vc": phi_vc,
         "h_final": current_h,
-        "bo": bo_final,
-        "rebar": rebar_results,
-        "ratio": vu / phi_vc if phi_vc > 0 else 0
+        "rebar": rebar_out,
+        "as_min": as_min
     }
