@@ -9,14 +9,12 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
     fc_mpa = fc_ksc * 0.0980665
     g = 9.80665
 
-    # --- 2. ACI Minimum Thickness Check (ACI 318-19 Table 8.3.1.1) ---
-    # สำหรับ Flat Plate (ไม่มี Drop Panel) และ fy = 4200 ksc (ใกล้เคียง 4000)
-    # สูตรทั่วไป h_min = ln / 30 สำหรับแผงนอก และ ln / 33 สำหรับแผงใน
+    # --- 2. ACI Minimum Thickness Check ---
     ln_clear = max(lx, ly) - (c1_mm/1000)
     h_min_req = (ln_clear * 1000) / 30 if pos != "Interior" else (ln_clear * 1000) / 33
     h_warning = ""
     if h_mm < h_min_req:
-        h_warning = f"Warning: Thickness ({h_mm}mm) is less than ACI min recommendation ({h_min_req:.0f}mm). Deflection check required."
+        h_warning = f"Warning: Thickness ({h_mm}mm) is less than ACI min recommendation ({h_min_req:.0f}mm)."
 
     # --- 3. Loading Detailed ---
     sw = h * 2400
@@ -55,7 +53,18 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         vu_kg = qu * ((lx * ly) - a_crit)
         phi_vc_kg = (0.75 * vc_mpa * (bo * 1000 * t_d * 1000)) / g
         
-        return {"vu": vu_kg, "phi_vc": phi_vc_kg, "bo": bo, "d": t_d, "vc_mpa": vc_mpa, "v1":v1, "v2":v2, "v3":v3}
+        # *** FIX: เพิ่ม beta ลงใน return dictionary ตรงนี้ครับ ***
+        return {
+            "vu": vu_kg, 
+            "phi_vc": phi_vc_kg, 
+            "bo": bo, 
+            "d": t_d, 
+            "vc_mpa": vc_mpa, 
+            "v1":v1, 
+            "v2":v2, 
+            "v3":v3,
+            "beta": beta  # <--- จุดที่เพิ่ม
+        }
 
     current_h = h_mm
     while True:
@@ -64,7 +73,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
             break
         current_h += 10
 
-    # --- 6. Rebar Calculation with Max Spacing ---
+    # --- 6. Rebar Calculation ---
     as_min = 0.0018 * 100 * (current_h / 10)
     phi_flex = 0.9
     m_coeffs = {"CS_Neg": 0.4875, "MS_Neg": 0.1625, "CS_Pos": 0.21, "MS_Pos": 0.14}
@@ -80,7 +89,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
 
     return {
         "loading": {"qu": qu, "sw": sw, "dl_fact": w_dl_factored, "ll_fact": w_ll_factored},
-        "geo": {"ln": ln, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req},
+        "geo": {"ln": ln, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req, "d": p['d']}, # Pass d for display context
         "punching": p,
         "mo": mo,
         "h_final": current_h,
