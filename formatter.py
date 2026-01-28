@@ -23,7 +23,46 @@ def fmt_acrit_calc(c1_mm, c2_mm, d_mm, pos, acrit_val):
     \end{aligned}
     """
 
-# --- ฟังก์ชันเดิม (คงไว้) ---
+def fmt_vu_trace(qu, lx, ly, acrit, gamma_v, vu_kg):
+    area_tot = lx * ly
+    # Show substitution explicitly
+    sub_str = f"{qu:.0f} \\times ({area_tot:.2f} - {acrit:.3f}) \\times {gamma_v:.2f}"
+    
+    return r"""
+    \begin{aligned}
+    V_u &= q_u \times (Area_{total} - A_{crit}) \times \gamma_v \\
+        &= """ + sub_str + r""" \\
+        &= \mathbf{""" + f"{vu_kg:,.0f}" + r"""} \; kg
+    \end{aligned}
+    """
+
+def fmt_shear_capacity_sub(fc, beta, alpha, d, bo, v1, v2, v3):
+    # Show sqrt substitution
+    sqrt_term = r"\sqrt{" + f"{fc:.1f}" + r"}"
+    
+    return r"""
+    \begin{aligned}
+    v_{c1} &= 0.33""" + sqrt_term + r""" = \mathbf{""" + f"{v1:.2f}" + r"""} \; MPa \\
+    v_{c2} &= 0.17(1 + 2/""" + f"{beta:.2f}" + r""")""" + sqrt_term + r""" = \mathbf{""" + f"{v2:.2f}" + r"""} \; MPa \\
+    v_{c3} &= 0.083(2 + \frac{""" + f"{alpha:.0f}" + r""" \cdot """ + f"{d:.0f}" + r"""}{""" + f"{bo:.0f}" + r"""})""" + sqrt_term + r""" = \mathbf{""" + f"{v3:.2f}" + r"""} \; MPa
+    \end{aligned}
+    """
+
+def fmt_force_conversion(vc_gov_mpa, bo_mm, d_mm, vc_newton, phi_vc_kg):
+    # Unit Bridge Calculation
+    return r"""
+    \begin{aligned}
+    \text{Governing Stress } v_c &= \mathbf{""" + f"{vc_gov_mpa:.2f}" + r"""} \; MPa \\
+    V_c (Newton) &= v_c \times b_o \times d \\
+    &= """ + f"{vc_gov_mpa:.2f}" + r""" \times """ + f"{bo_mm:.0f}" + r""" \times """ + f"{d_mm:.0f}" + r""" \\
+    &= """ + f"{vc_newton:,.0f}" + r""" \; N \\
+    \phi V_c (Capacity) &= \frac{0.75 \times V_c}{9.80665 \times 1000} \\
+    &= \frac{0.75 \times """ + f"{vc_newton:,.0f}" + r"""}{9806.65} \\
+    &= \mathbf{""" + f"{phi_vc_kg/1000:,.2f}" + r"""} \; \text{Tons} \approx \mathbf{""" + f"{phi_vc_kg:,.0f}" + r"""} \; kg
+    \end{aligned}
+    """
+
+# --- Keep existing functions ---
 def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
     denom = 33 if pos == "Interior" else 30
     ln_str = f"{ln_m:.3f}"
@@ -60,26 +99,6 @@ def fmt_geometry_trace(c1_mm, c2_mm, d_mm, bo_mm, pos):
     d &= h - \text{cover} - d_b/2 = \mathbf{""" + f"{d:.0f}" + r"""} \; mm \\
     b_o &= """ + formula + r""" \\
         &= """ + sub + r""" = \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm
-    \end{aligned}
-    """
-
-def fmt_vu_trace(qu, lx, ly, acrit, gamma_v, vu_kg):
-    area_tot = lx * ly
-    return r"""
-    \begin{aligned}
-    V_u &= q_u(L_x L_y - A_{crit})\gamma_v \\
-        &= """ + f"{qu:.0f}" + r"""(""" + f"{area_tot:.2f}" + r""" - """ + f"{acrit:.4f}" + r""")(""" + f"{gamma_v:.2f}" + r""") \\
-        &= \mathbf{""" + f"{vu_kg:.0f}" + r"""} \; kg
-    \end{aligned}
-    """
-
-def fmt_shear_capacity_sub(fc, beta, alpha, d, bo):
-    v1_val = 0.33 * (fc**0.5)
-    return r"""
-    \begin{aligned}
-    v_{c1} &= 0.33\sqrt{f_c'} = \mathbf{""" + f"{v1_val:.2f}" + r"""} \; MPa \\
-    v_{c2} &= 0.17(1 + 2/\beta)\sqrt{f_c'} \\
-    v_{c3} &= 0.083(2 + \alpha_s d/b_o)\sqrt{f_c'}
     \end{aligned}
     """
 
