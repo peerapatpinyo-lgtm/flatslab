@@ -3,7 +3,7 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 from engine import calculate_detailed_slab
-from drawings import plot_slab_section  # <-- Import ไฟล์ใหม่
+from drawings import plot_slab_section
 
 # --- Page Config ---
 st.set_page_config(page_title="Flat Slab Pro Design", page_icon="🏗️", layout="wide")
@@ -28,7 +28,7 @@ with st.sidebar:
         lx = st.number_input("Span Lx (m)", 6.0, step=0.5)
         ly = st.number_input("Span Ly (m)", 6.0, step=0.5)
         h_init = st.number_input("Thickness (mm)", 200, step=10)
-        c1 = st.number_input("Col Width c1 (mm)", 400)
+        c1 = st.number_input("Col Width c1 (mm)", 400) # ตัวแปร c1 ต้นฉบับ (int/float)
         c2 = st.number_input("Col Depth c2 (mm)", 400)
     
     with st.expander("2. Load & Materials", expanded=True):
@@ -63,13 +63,13 @@ with tab1:
     # Load Summary Table (Tons)
     L = data['loading']
     
-    col1, col2 = st.columns([1, 1.5])
-    with col1:
+    col_load1, col_load2 = st.columns([1, 1.5])
+    with col_load1:
         st.markdown(f"**Load Factors:** $DL \\times {dl_fac}, LL \\times {ll_fac}$")
         st.metric("Tributary Area ($A_t$)", f"{L['trib_area']:.2f} m²")
         st.metric("Total Column Load ($P_u$)", f"{L['total_load_ton']:.2f} Tons", delta="Factored Load")
     
-    with col2:
+    with col_load2:
         st.markdown("##### Load Breakdown Table")
         df_load = pd.DataFrame({
             "Type": ["Self Weight (SW)", "Superimposed DL", "Live Load (LL)", "Total Factored ($q_u$)"],
@@ -83,14 +83,17 @@ with tab1:
 with tab2:
     st.subheader("2. Punching Shear Check")
     P = data['punching']
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Vu (Shear Force)", f"{P['vu']/1000:.2f} Tons")
-    c2.metric("Phi Vc (Capacity)", f"{P['phi_vc']/1000:.2f} Tons")
-    c3.metric("D/C Ratio", f"{data['ratio']:.2f}", delta_color="inverse" if data['ratio']>1 else "normal")
+    
+    # *** แก้ไข: เปลี่ยนชื่อตัวแปร c1, c2, c3 เป็น col_p1, col_p2, col_p3 เพื่อไม่ให้ทับตัวแปร c1 (เสา) ***
+    col_p1, col_p2, col_p3 = st.columns(3) 
+    
+    col_p1.metric("Vu (Shear Force)", f"{P['vu']/1000:.2f} Tons")
+    col_p2.metric("Phi Vc (Capacity)", f"{P['phi_vc']/1000:.2f} Tons")
+    col_p3.metric("D/C Ratio", f"{data['ratio']:.2f}", delta_color="inverse" if data['ratio']>1 else "normal")
     
     st.info(f"Critical Perimeter ($b_o$): {P['bo']*1000:.0f} mm | Effective Depth ($d$): {P['d']*1000:.0f} mm")
 
-# --- TAB 3: Detailing (New!) ---
+# --- TAB 3: Detailing ---
 with tab3:
     st.subheader("3. Reinforcement & Detailing")
     
@@ -98,7 +101,7 @@ with tab3:
     
     with col_plot:
         st.markdown("##### Detailed Cross Section")
-        # เรียกใช้ฟังก์ชันวาดรูปจาก drawings.py
+        # ตอนนี้ c1 จะเป็นตัวเลข (400) จาก Sidebar เหมือนเดิม ไม่ใช่ st.column แล้ว
         fig_section = plot_slab_section(data['h_final'], 20, c1, data['geo']['ln'], lx)
         st.pyplot(fig_section)
         st.caption("ภาพหน้าตัดแสดงระยะการวางเหล็กและระยะหุ้ม (Cover)")
