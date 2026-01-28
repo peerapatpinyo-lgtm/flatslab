@@ -9,13 +9,15 @@ def get_units():
     }
 
 def get_min_thickness_limit(ln, pos):
-    # ACI 318 Table: ln/33 for Interior, ln/30 for Exterior
+    # ACI 318 Table: ln/33 (Interior), ln/30 (Exterior)
     denom = 33.0 if pos == "Interior" else 30.0
     return (ln * 1000) / denom, denom
 
 def get_geometry(c1, c2, d, pos):
-    # Inputs in meters
+    # Inputs: c1, c2, d in meters
     # Returns: bo(m), acrit(m2), alpha, beta
+    
+    # Critical section distances
     c1_d = c1 + d
     c2_d = c2 + d
     
@@ -24,7 +26,7 @@ def get_geometry(c1, c2, d, pos):
         acrit = c1_d * c2_d
         alpha = 40
     elif pos == "Edge":
-        # Simplified ACI for edge (parallel to c2)
+        # ACI approx for Edge (Perpendicular to edge)
         # bo = 2(c1 + d/2) + (c2 + d)
         bo = (2 * (c1 + d/2)) + (c2 + d)
         acrit = (c1 + d/2) * (c2 + d)
@@ -47,6 +49,6 @@ def get_vc_stress(fc_mpa, beta, alpha, d, bo):
 
 def get_gamma_v(pos):
     if pos == "Interior": return 1.0
-    if pos == "Edge": return 1.1 # Approx
-    if pos == "Corner": return 1.2 # Approx
+    if pos == "Edge": return 1.10 # Approximation
+    if pos == "Corner": return 1.20 # Approximation
     return 1.0
