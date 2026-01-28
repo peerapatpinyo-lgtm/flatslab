@@ -20,7 +20,6 @@ def render_report(data):
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**1.1 Minimum Thickness Check (ACI 318):**")
-        # แสดงสูตร h_min = Ln/33
         st.latex(formatter.fmt_h_min_check(res['ln'], inp['pos'], res['h_min_code'], res['h']))
         
     with c2:
@@ -29,7 +28,6 @@ def render_report(data):
 
     # --- Section 2: Load ---
     st.markdown("## 2. Load Analysis (Using Final Thickness)")
-    # ส่ง res['h'] ไปแสดงผลใน Load Calculation
     st.latex(formatter.fmt_qu_calc(
         inp['dl_fac'], inp['sw'], inp['sdl'], inp['ll_fac'], inp['ll'], res['qu'], res['h']
     ))
@@ -55,7 +53,12 @@ def render_report(data):
             (0.75 * v * res['bo_mm'] * res['d_mm'] / 9806.65) for v in [res['v1'], res['v2'], res['v3']]
         ]
     })
-    st.table(df.style.format("{:.2f}"))
+    
+    # --- จุดที่แก้ไข: ระบุ Dict เพื่อ Format เฉพาะคอลัมน์ตัวเลข ---
+    st.table(df.style.format({
+        "Stress (MPa)": "{:.2f}",
+        "Capacity (Ton)": "{:.2f}"
+    }))
     
     # Verdict
     pass_flag = res['ratio'] <= 1.0
