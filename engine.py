@@ -1,6 +1,6 @@
 import numpy as np
 
-def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos="Interior"):
+def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos="Interior", dl_factor=1.2, ll_factor=1.6):
     # --- 1. การเตรียมข้อมูลและหน่วย ---
     h = h_mm / 1000
     c1 = c1_mm / 1000
@@ -10,20 +10,26 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
     g = 9.80665
 
     # --- 2. ACI Minimum Thickness Check ---
-    ln_clear = max(lx, ly) - (c1_mm/1000)
-    h_min_req = (ln_clear * 1000) / 30 if pos != "Interior" else (ln_clear * 1000) / 33
+    ln_check = max(lx, ly) - (c1_mm/1000)
+    h_min_req = (ln_check * 1000) / 30 if pos != "Interior" else (ln_check * 1000) / 33
     h_warning = ""
     if h_mm < h_min_req:
         h_warning = f"Warning: Thickness ({h_mm}mm) is less than ACI min recommendation ({h_min_req:.0f}mm)."
 
-    # --- 3. Loading Detailed ---
+    # --- 3. Loading Detailed (ใช้ Custom Factors) ---
     sw = h * 2400
-    w_dl_factored = 1.2 * (sw + sdl)
-    w_ll_factored = 1.6 * ll
+    w_dl_factored = dl_factor * (sw + sdl)
+    w_ll_factored = ll_factor * ll
     qu = w_dl_factored + w_ll_factored
+    
+    # *** New: Tributary Logic ***
+    tributary_area = lx * ly
+    total_load_kg = qu * tributary_area
 
     # --- 4. Geometry & Mo ---
-    ln = max(lx - c1, 0.65 * lx)
+    # ln (Clear Span) calculation
+    ln_calc = lx - c1
+    ln = max(ln_calc, 0.65 * lx)
     mo = (qu * ly * (ln**2)) / 8
 
     # --- 5. Punching Shear Check ---
@@ -50,6 +56,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         v3 = 0.083 * (2 + (alpha_s * t_d / bo)) * np.sqrt(fc_mpa)
         vc_mpa = min(v1, v2, v3)
         
+        # Vu คำนวณจากน้ำหนักทั้งหมด ลบด้วยน้ำหนักที่ลงในพื้นที่ A_crit (แรงที่ถ่ายเข้าเสาโดยตรง)
         vu_kg = qu * ((lx * ly) - a_crit)
         phi_vc_kg = (0.75 * vc_mpa * (bo * 1000 * t_d * 1000)) / g
         
@@ -60,7 +67,8 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
             "d": t_d, 
             "vc_mpa": vc_mpa, 
             "v1":v1, "v2":v2, "v3":v3,
-            "beta": beta # Key required for table display
+            "beta": beta,
+            "acrit": a_crit
         }
 
     current_h = h_mm
@@ -84,12 +92,15 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         as_final = max(as_req / ly, as_min)
         rebar_out[key] = as_final
 
-    # Calculate final ratio for UI
     final_ratio = p['vu'] / p['phi_vc'] if p['phi_vc'] > 0 else 0
 
     return {
-        "loading": {"qu": qu, "sw": sw, "dl_fact": w_dl_factored, "ll_fact": w_ll_factored},
-        "geo": {"ln": ln, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req},
+        "loading": {
+            "qu": qu, "sw": sw, "dl_fact": w_dl_factored, "ll_fact": w_ll_factored,
+            "trib_area": tributary_area, "total_load": total_load_kg,
+            "factors": {"dl": dl_factor, "ll": ll_factor} # Return factors for display
+        },
+        "geo": {"ln": ln, "ln_calc": ln_calc, "c1": c1, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req},
         "punching": p,
         "mo": mo,
         "h_final": current_h,
@@ -97,5 +108,5 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         "rebar": rebar_out,
         "as_min": as_min,
         "max_spacing_cm": max_spacing_mm / 10,
-        "ratio": final_ratio  # <--- FIXED: Added this key
+        "ratio": final_ratio
     }
