@@ -1,29 +1,31 @@
 import streamlit as st
 
 def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
-    # กำหนดตัวหารตาม ACI 318
     denom = 33 if pos == "Interior" else 30
+    # แยกตัวแปรออกมาคำนวณก่อนเพื่อความปลอดภัยของ Syntax
+    ln_str = f"{ln_m:.3f}"
     
     return r"""
     \begin{aligned}
-    \text{Code Req:} \; h_{min} &= \frac{\ell_n}{""" + str(denom) + r"""} = \frac{""" + f"{ln_m:.3f} \times 1000}{""" + str(denom) + r"""} \\
+    \text{Code Req:} \; h_{min} &= \frac{\ell_n}{""" + str(denom) + r"""} = \frac{""" + ln_str + r""" \times 1000}{""" + str(denom) + r"""} \\
     &= \mathbf{""" + f"{h_min_code:.2f}" + r"""} \; mm \\
     \text{Design Use:} \; h &= \mathbf{""" + f"{h_selected:.0f}" + r"""} \; mm
     \end{aligned}
     """
 
 def fmt_qu_calc(dl_fac, sw, sdl, ll_fac, ll, qu_val, h_final):
-    # เพิ่ม h_final ในสมการเพื่อยืนยันว่าใช้ค่าสุดท้ายคำนวณ
+    h_m = h_final / 1000.0
+    sw_show = f"{h_m:.2f} \\times 2400"
+    
     return r"""
     \begin{aligned}
-    SW &= h_{final} \times 2400 = (""" + f"{h_final/1000:.2f}" + r""" \times 2400) = \mathbf{""" + f"{sw:.0f}" + r"""} \; kg/m^2 \\
-    q_u &= """ + f"{dl_fac}(SW + SDL) + {ll_fac}(LL) \\\\" + r"""
-        &= """ + f"{dl_fac}({sw:.0f} + {sdl:.0f}) + {ll_fac}({ll:.0f}) \\\\" + r"""
+    SW &= h_{final} \times 2400 = (""" + sw_show + r""") = \mathbf{""" + f"{sw:.0f}" + r"""} \; kg/m^2 \\
+    q_u &= """ + f"{dl_fac}" + r"""(SW + SDL) + """ + f"{ll_fac}" + r"""(LL) \\
+        &= """ + f"{dl_fac}" + r"""(""" + f"{sw:.0f}" + r""" + """ + f"{sdl:.0f}" + r""") + """ + f"{ll_fac}" + r"""(""" + f"{ll:.0f}" + r""") \\
         &= \mathbf{""" + f"{qu_val:.0f}" + r"""} \; kg/m^2
     \end{aligned}
     """
 
-# --- Functions เดิม (คงไว้เพื่อความสมบูรณ์) ---
 def fmt_geometry_trace(c1_mm, c2_mm, d_mm, bo_mm, pos):
     d = d_mm
     if pos == "Interior":
@@ -49,8 +51,9 @@ def fmt_vu_trace(qu, lx, ly, acrit, gamma_v, vu_kg):
     area_tot = lx * ly
     return r"""
     \begin{aligned}
-    V_u &= q_u(L_x L_y - A_{crit})\gamma_v \\\\
-        &= """ + f"{qu:.0f}({area_tot:.2f} - {acrit:.4f})({gamma_v}) \\\\ &= \mathbf{""" + f"{vu_kg:.0f}" + r"""} \; kg
+    V_u &= q_u(L_x L_y - A_{crit})\gamma_v \\
+        &= """ + f"{qu:.0f}" + r"""(""" + f"{area_tot:.2f}" + r""" - """ + f"{acrit:.4f}" + r""")(""" + f"{gamma_v:.2f}" + r""") \\
+        &= \mathbf{""" + f"{vu_kg:.0f}" + r"""} \; kg
     \end{aligned}
     """
 
