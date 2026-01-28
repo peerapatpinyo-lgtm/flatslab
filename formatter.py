@@ -1,14 +1,35 @@
 import streamlit as st
 
-def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
-    denom = 33 if pos == "Interior" else 30
-    # แยกตัวแปรออกมาคำนวณก่อนเพื่อความปลอดภัยของ Syntax
-    ln_str = f"{ln_m:.3f}"
+def fmt_acrit_calc(c1_mm, c2_mm, d_mm, pos, acrit_val):
+    c1 = c1_mm / 1000.0
+    c2 = c2_mm / 1000.0
+    d = d_mm / 1000.0
     
+    if pos == "Interior":
+        eq = r"(c_1 + d)(c_2 + d)"
+        sub = f"({c1:.2f} + {d:.2f})({c2:.2f} + {d:.2f})"
+    elif pos == "Edge":
+        eq = r"(c_1 + d/2)(c_2 + d)"
+        sub = f"({c1:.2f} + {d/2:.2f})({c2:.2f} + {d:.2f})"
+    else: # Corner
+        eq = r"(c_1 + d/2)(c_2 + d/2)"
+        sub = f"({c1:.2f} + {d/2:.2f})({c2:.2f} + {d/2:.2f})"
+        
     return r"""
     \begin{aligned}
-    \text{Code Req:} \; h_{min} &= \frac{\ell_n}{""" + str(denom) + r"""} = \frac{""" + ln_str + r""" \times 1000}{""" + str(denom) + r"""} \\
-    &= \mathbf{""" + f"{h_min_code:.2f}" + r"""} \; mm \\
+    A_{crit} &= """ + eq + r""" \\
+             &= """ + sub + r""" \\
+             &= \mathbf{""" + f"{acrit_val:.4f}" + r"""} \; m^2
+    \end{aligned}
+    """
+
+# --- ฟังก์ชันเดิม (คงไว้) ---
+def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
+    denom = 33 if pos == "Interior" else 30
+    ln_str = f"{ln_m:.3f}"
+    return r"""
+    \begin{aligned}
+    \text{Code Req:} \; h_{min} &= \frac{\ell_n}{""" + str(denom) + r"""} = \frac{""" + ln_str + r""" \times 1000}{""" + str(denom) + r"""} = \mathbf{""" + f"{h_min_code:.2f}" + r"""} \; mm \\
     \text{Design Use:} \; h &= \mathbf{""" + f"{h_selected:.0f}" + r"""} \; mm
     \end{aligned}
     """
@@ -16,13 +37,10 @@ def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
 def fmt_qu_calc(dl_fac, sw, sdl, ll_fac, ll, qu_val, h_final):
     h_m = h_final / 1000.0
     sw_show = f"{h_m:.2f} \\times 2400"
-    
     return r"""
     \begin{aligned}
     SW &= h_{final} \times 2400 = (""" + sw_show + r""") = \mathbf{""" + f"{sw:.0f}" + r"""} \; kg/m^2 \\
-    q_u &= """ + f"{dl_fac}" + r"""(SW + SDL) + """ + f"{ll_fac}" + r"""(LL) \\
-        &= """ + f"{dl_fac}" + r"""(""" + f"{sw:.0f}" + r""" + """ + f"{sdl:.0f}" + r""") + """ + f"{ll_fac}" + r"""(""" + f"{ll:.0f}" + r""") \\
-        &= \mathbf{""" + f"{qu_val:.0f}" + r"""} \; kg/m^2
+    q_u &= """ + f"{dl_fac}" + r"""(SW + SDL) + """ + f"{ll_fac}" + r"""(LL) = \mathbf{""" + f"{qu_val:.0f}" + r"""} \; kg/m^2
     \end{aligned}
     """
 
@@ -37,13 +55,11 @@ def fmt_geometry_trace(c1_mm, c2_mm, d_mm, bo_mm, pos):
     else: # Corner
         formula = r"(c_1 + d/2) + (c_2 + d/2)"
         sub = f"({c1_mm:.0f} + {d/2:.0f}) + ({c2_mm:.0f} + {d/2:.0f})"
-        
     return r"""
     \begin{aligned}
     d &= h - \text{cover} - d_b/2 = \mathbf{""" + f"{d:.0f}" + r"""} \; mm \\
     b_o &= """ + formula + r""" \\
-        &= """ + sub + r""" \\
-        &= \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm
+        &= """ + sub + r""" = \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm
     \end{aligned}
     """
 
