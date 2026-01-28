@@ -20,7 +20,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     
     while h_current <= max_h:
         # 3.1 Derived Properties
-        d_mm = h_current - cover_mm - 10 
+        d_mm = h_current - cover_mm - 10 # Approx d (cover + half bar db20)
         d_m = d_mm / 1000.0
         
         # 3.2 Loads
@@ -33,6 +33,7 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         vc_mpa = min(v1, v2, v3)
         
         # 3.4 Capacity (MPa -> Tons)
+        # Formula: phi * vc(MPa) * bo(mm) * d(mm) / 9806.65
         phi = 0.75
         vc_newton = vc_mpa * (bo_m * 1000) * d_mm
         phi_vc_ton = (phi * vc_newton) / (u['grav'] * 1000)
@@ -45,23 +46,25 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
         
         ratio = vu_kg / phi_vc_kg if phi_vc_kg > 0 else 999
         
-        # 3.6 Check
+        # 3.6 Loop Break Condition
         if ratio <= 1.0 and h_current >= h_min_val:
             break
             
         h_current += 10
         
-    # Reason
+    # Reason Logic
     if h_current == h_init:
-        reason = "Input Satisfactory"
+        reason = "Initial Input Satisfactory"
     elif h_current <= h_min_practical + 10 and ratio <= 1.0:
-        reason = "ACI Min Thickness"
+        reason = "ACI Min. Thickness Limit"
     else:
-        reason = "Shear Requirement"
+        reason = "Punching Shear Requirement"
 
-    # 4. Flexure
+    # 4. Flexure Design (ACI Coefficients)
     mo = (qu * ly * ln**2) / 8
-    strips = [
+    
+    # Define Strips & Coefficients
+    strips_config = [
         ("Column Strip Top (-)", 0.49),
         ("Column Strip Bot (+)", 0.21),
         ("Middle Strip Top (-)", 0.16),
@@ -70,17 +73,26 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
     
     rebar_data = []
     d_cm = d_mm / 10.0
-    for name, coeff in strips:
-        mu = coeff * mo
-        as_req = (mu * 100000) / (0.9 * fy_ksc * 0.9 * d_cm)
+    for name, coeff in strips_config:
+        mu = coeff * mo # kg-m
+        # As = (Mu * 100) / (0.9 * fy * 0.9 * d) -> Result in cm2
+        # Note: 100 converts kg-m to kg-cm
+        denom = 0.9 * fy_ksc * 0.9 * d_cm
+        as_req = (mu * 100) / denom
+        
         rebar_data.append({
-            "name": name, "coeff": coeff, "mu": mu, "as_req": as_req
+            "name": name, 
+            "coeff": coeff, 
+            "mu": mu, 
+            "as_req": as_req,
+            "denom_val": denom # Pass for formatting
         })
 
     return {
         "inputs": {
             "lx": lx, "ly": ly, "c1": c1, "c2": c2, "pos": pos,
-            "sw": sw, "sdl": sdl, "ll": ll, "qu": qu,
+            "sw": sw, "sdl": sdl, "ll": ll, 
+            "dl_fac": dl_fac, "ll_fac": ll_fac,
             "fc_mpa": fc_mpa, "fy": fy_ksc, "h_denom": h_denom,
             "h_init": h_init
         },
@@ -89,9 +101,10 @@ def run_design_cycle(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cove
             "d_mm": d_mm, "bo_mm": bo_m*1000, "acrit": acrit,
             "v1": v1, "v2": v2, "v3": v3, "vc_mpa": vc_mpa,
             "vc_newton": vc_newton,
-            "phi_vc_kg": phi_vc_kg, "vu_kg": vu_kg, 
-            "gamma_v": gamma_v, # <--- ตรวจสอบว่าบรรทัดนี้มีอยู่
-            "qu": qu,           # <--- เพิ่มบรรทัดนี้เพื่อให้ report เรียกใช้ได้
+            "phi_vc_kg": phi_vc_kg, 
+            "vu_kg": vu_kg, 
+            "qu": qu,
+            "gamma_v": gamma_v,
             "ratio": ratio, "mo": mo, "ln": ln
         },
         "rebar": rebar_data
