@@ -25,6 +25,7 @@ def render_report(data):
     st.markdown("### 2. Punching Shear (Substitution)")
     
     st.markdown("**Step 2.1: Shear Demand ($V_u$)**")
+    # ใช้ r['qu'] ซึ่งตอนนี้มีอยู่ใน engine แล้ว
     st.latex(formatter.fmt_shear_demand(
         r['qu'], i['lx'], i['ly'], r['acrit'], r['gamma_v'], r['vu_kg']
     ))
