@@ -1,196 +1,178 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import math
 from engine import calculate_detailed_slab
 
-# --- 1. System Config & Helper Functions ---
+# --- Page Config ---
 st.set_page_config(page_title="Flat Slab Expert Design", page_icon="🏗️", layout="wide")
 
+# --- Helper: Dynamic Plotting Functions ---
+def plot_punching_shear(c1, c2, d, pos):
+    """วาดรูป Critical Section ตามขนาดจริง"""
+    fig, ax = plt.subplots(figsize=(5, 5))
+    
+    # Setup dimensions
+    margin = 0.5 + d
+    ax.set_xlim(-margin, c1 + margin)
+    ax.set_ylim(-margin, c2 + margin)
+    ax.set_aspect('equal')
+    ax.axis('off') # ปิดแกน
+    
+    # Draw Column (Solid Red)
+    col_rect = patches.Rectangle((0, 0), c1, c2, linewidth=2, edgecolor='black', facecolor='#ffcccc', label='Column')
+    ax.add_patch(col_rect)
+    
+    # Draw Critical Section (Dashed Blue) at d/2
+    d_half = d / 2
+    
+    if pos == "Interior":
+        crit_rect = patches.Rectangle((-d_half, -d_half), c1+d, c2+d, linewidth=2, edgecolor='blue', linestyle='--', fill=False, label='Critical Section (d/2)')
+        ax.add_patch(crit_rect)
+    elif pos == "Edge":
+        # วาด 3 ด้าน (สมมติขอบอยู่ด้านซ้าย x=0)
+        # เส้นบน
+        ax.plot([-d_half, c1+d_half], [c2+d_half, c2+d_half], 'b--', linewidth=2)
+        # เส้นขวา
+        ax.plot([c1+d_half, c1+d_half], [-d_half, c2+d_half], 'b--', linewidth=2)
+        # เส้นล่าง
+        ax.plot([c1+d_half, -d_half], [-d_half, -d_half], 'b--', linewidth=2, label='Critical Section (d/2)')
+    elif pos == "Corner":
+        # วาด 2 ด้าน (สมมติมุมซ้ายล่าง)
+        ax.plot([c1+d_half, c1+d_half], [0, c2+d_half], 'b--', linewidth=2) # ขวา
+        ax.plot([0, c1+d_half], [c2+d_half, c2+d_half], 'b--', linewidth=2, label='Critical Section (d/2)')
+        
+    ax.legend(loc='upper right', fontsize='small')
+    ax.set_title(f"{pos} Column Punching Check", fontsize=10)
+    return fig
+
+def plot_strip_layout(lx, ly, strip_width):
+    """วาดรูปการแบ่ง Column Strip / Middle Strip"""
+    fig, ax = plt.subplots(figsize=(6, 4))
+    
+    # Draw Slab Panel
+    ax.set_xlim(0, lx)
+    ax.set_ylim(0, ly)
+    ax.set_aspect('equal')
+    ax.set_xlabel("Span Lx (m)")
+    ax.set_ylabel("Span Ly (m)")
+    
+    # Color Zones
+    # Column Strip (Left & Right)
+    cs_color = '#e6f2ff' # Light Blue
+    ms_color = '#ffffff' # White
+    
+    # Left CS
+    ax.add_patch(patches.Rectangle((0, 0), strip_width, ly, facecolor=cs_color, edgecolor='gray', alpha=0.5))
+    # Right CS
+    ax.add_patch(patches.Rectangle((lx-strip_width, 0), strip_width, ly, facecolor=cs_color, edgecolor='gray', alpha=0.5))
+    # Middle Strip
+    ax.add_patch(patches.Rectangle((strip_width, 0), lx - 2*strip_width, ly, facecolor=ms_color, edgecolor='gray', alpha=0.5))
+    
+    # Text Labels
+    ax.text(strip_width/2, ly/2, "Column\nStrip", ha='center', va='center', fontsize=8, color='blue')
+    ax.text(lx - strip_width/2, ly/2, "Column\nStrip", ha='center', va='center', fontsize=8, color='blue')
+    ax.text(lx/2, ly/2, "Middle Strip", ha='center', va='center', fontsize=10, fontweight='bold')
+    
+    ax.set_title(f"Strip Distribution (CS Width = {strip_width:.2f} m)", fontsize=10)
+    return fig
+
 def get_rebar_spec(as_req, max_spacing_cm):
-    """เลือกเหล็กเสริม DB12 หรือ DB16 และปัดเศษระยะห่างให้ทำงานง่าย"""
     area_db12 = (math.pi * 1.2**2) / 4
     area_db16 = (math.pi * 1.6**2) / 4
-    
-    # Try DB12 first
     s12 = (area_db12 * 100) / as_req
-    if s12 < 10: # ถ้าถี่เกินไป ให้ขยับไปใช้ DB16
+    if s12 < 10:
         s16 = (area_db16 * 100) / as_req
-        spacing = min(s16, max_spacing_cm)
-        return f"DB16 @ {int(spacing)} cm"
-    else:
-        spacing = min(s12, max_spacing_cm)
-        return f"DB12 @ {int(spacing)} cm"
+        return f"DB16 @ {int(min(s16, max_spacing_cm))} cm"
+    return f"DB12 @ {int(min(s12, max_spacing_cm))} cm"
 
 def highlight_min_row(s):
-    """Highlight ค่าที่ต่ำที่สุดใน Series (สำหรับหา Governing Case)"""
     is_min = s == s.min()
     return ['background-color: #d1e7dd; color: #0f5132; font-weight: bold' if v else '' for v in is_min]
 
-# --- 2. Sidebar Input ---
+# --- Sidebar ---
 with st.sidebar:
     st.header("🏗️ Design Parameters")
-    st.info("ACI 318-19 (Metric Unit)")
-    
-    with st.expander("1. Geometry (ขนาดโครงสร้าง)", expanded=True):
+    with st.expander("1. Geometry", expanded=True):
         pos = st.selectbox("Column Position", ["Interior", "Edge", "Corner"])
         lx = st.number_input("Span Lx (m)", value=6.0, step=0.5)
         ly = st.number_input("Span Ly (m)", value=6.0, step=0.5)
         h_init = st.number_input("Slab Thickness (mm)", value=200, step=10)
         c1 = st.number_input("Col Width c1 (mm)", value=400)
         c2 = st.number_input("Col Depth c2 (mm)", value=400)
-
-    with st.expander("2. Loads & Materials (วัสดุและน้ำหนัก)", expanded=True):
-        fc = st.number_input("Concrete f'c (ksc)", value=280)
-        fy = st.number_input("Rebar fy (ksc)", value=4000)
+    with st.expander("2. Loads & Materials", expanded=True):
+        fc = st.number_input("f'c (ksc)", value=280)
+        fy = st.number_input("fy (ksc)", value=4000)
         sdl = st.number_input("SDL (kg/m²)", value=150)
         ll = st.number_input("Live Load (kg/m²)", value=300)
-    
-    st.markdown("---")
-    st.caption("Engine v1.2 | Refactored for Explainability")
 
-# --- 3. Execute Engine ---
+# --- Calculation ---
 data = calculate_detailed_slab(lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 20, pos)
 
-# --- 4. Main Report Display ---
+# --- Main Report ---
 st.title("📑 Structural Design Report: RC Flat Slab")
 st.markdown(f"**Status:** {'✅ PASSED' if data['ratio'] <= 1.0 else '❌ FAILED'} | **Final Thickness:** {data['h_final']} mm")
 
-# Warning Banner
 if data['h_warning']:
     st.warning(f"⚠️ {data['h_warning']}")
 
 tab1, tab2, tab3 = st.tabs(["📘 1. Load & Moment", "🛡️ 2. Punching Shear", "🏗️ 3. Reinforcement"])
 
-# ==========================================
-# TAB 1: Load Analysis & Static Moment
-# ==========================================
+# --- TAB 1 ---
 with tab1:
-    st.subheader("1.1 Load Analysis (การวิเคราะห์น้ำหนัก)")
-    col_img1, col_calc1 = st.columns([1, 2])
-    
-    with col_img1:
-        # Placeholder for Diagram
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Slab_load_distribution.svg/300px-Slab_load_distribution.svg.png", caption="Uniform Load Distribution", use_container_width=True)
-    
-    with col_calc1:
+    st.subheader("1. Load Analysis")
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.info("Concept: Load -> Moment -> Strip")
+    with col2:
         L = data['loading']
-        st.markdown("##### Factored Load ($q_u$)")
-        st.write("น้ำหนักบรรทุกประลัยคำนวณจาก $1.2DL + 1.6LL$:")
-        
-        # Detailed Substitution
-        st.latex(rf"""
-        \begin{{aligned}}
-        q_u &= 1.2(SW + SDL) + 1.6(LL) \\
-            &= 1.2({L['sw']:.0f} + {sdl}) + 1.6({ll}) \\
-            &= {L['dl_fact']:.2f} + {L['ll_fact']:.2f} \\
-            &= \mathbf{{{L['qu']:.2f}}} \; \text{{kg/m}}^2
-        \end{{aligned}}
-        """)
+        st.latex(rf"q_u = 1.2({L['sw']:.0f} + {sdl}) + 1.6({ll}) = \mathbf{{{L['qu']:.2f}}} \; kg/m^2")
+        G = data['geo']
+        st.latex(rf"M_o = \frac{{{L['qu']:.2f} \cdot {ly} \cdot {G['ln']:.2f}^2}}{{8}} = \mathbf{{{data['mo']:,.2f}}} \; kg-m")
 
-    st.divider()
-    
-    st.subheader("1.2 Static Moment ($M_o$)")
-    G = data['geo']
-    st.markdown("##### Direct Design Method (DDM)")
-    
-    st.latex(rf"L_n = L_x - c_1 = {lx} - {c1/1000} = \mathbf{{{G['ln']:.2f}}} \; \text{{m}}")
-    
-    st.latex(rf"""
-    \begin{{aligned}}
-    M_o &= \frac{{q_u L_y L_n^2}}{{8}} \\
-        &= \frac{{{L['qu']:.2f} \cdot {ly} \cdot {G['ln']:.2f}^2}}{{8}} \\
-        &= \mathbf{{{data['mo']:,.2f}}} \; \text{{kg-m}}
-    \end{{aligned}}
-    """)
-    st.info("💡 $M_o$ คือโมเมนต์รวมที่จะถูกกระจายเข้าสู่ Column Strip และ Middle Strip ในขั้นตอนต่อไป")
-
-# ==========================================
-# TAB 2: Punching Shear (Detailed)
-# ==========================================
+# --- TAB 2 ---
 with tab2:
-    st.subheader("2.1 Punching Shear Check (แรงเฉือนทะลุ)")
-    P = data['punching']
-    
-    col_vis, col_check = st.columns([1, 2])
+    st.subheader("2. Punching Shear Verification")
+    col_vis, col_data = st.columns([1, 1.5])
     
     with col_vis:
-        st.markdown(f"**Position: {pos}**")
-        # Logic to switch images based on position
-        if pos == "Interior":
-            img_url = "https://www.researchgate.net/publication/283289066/figure/fig1/AS:614343542255622@1523482650829/Critical-perimeter-b-0-according-to-ACI-318-10.png"
-        elif pos == "Edge":
-            img_url = "https://ars.els-cdn.com/content/image/1-s2.0-S235201242030046X-gr1.jpg" # Representative
-        else:
-            img_url = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS_J5_T6pE3QjJ6_4_g2_qg_Ff_X5_H5_X5_Q&s" # Representative
-            
-        st.image(img_url, caption=f"Critical Section at d/2 ({P['d']*1000/2:.0f} mm)", use_container_width=True)
-        st.metric("Critical Perimeter ($b_o$)", f"{P['bo']:.2f} m")
+        # ** เรียกใช้ฟังก์ชันวาดกราฟิกที่นี่ **
+        fig_punch = plot_punching_shear(c1/1000, c2/1000, data['geo']['d'], pos)
+        st.pyplot(fig_punch)
+        st.caption(f"Critical Perimeter at d/2 = {data['geo']['d']*1000/2:.0f} mm")
 
-    with col_check:
-        st.markdown("##### Step A: Compare $v_c$ Formulas (ACI 318-19)")
-        st.write("เปรียบเทียบหน่วยแรงต้านทานทั้ง 3 สมการ เพื่อหาค่าที่น้อยที่สุด (Governing Case):")
-        
-        # Create Comparison DataFrame
+    with col_data:
+        P = data['punching']
         df_vc = pd.DataFrame({
-            'Condition': ['1. Limit (Normal)', '2. Shape (Beta)', '3. Size (Alpha)'],
+            'Condition': ['Limit', 'Shape (Beta)', 'Size (Alpha)'],
             'Formula': [r'$0.33\sqrt{f_c}$', r'$0.17(1+\frac{2}{\beta})\sqrt{f_c}$', r'$0.083(2+\frac{\alpha d}{b_o})\sqrt{f_c}$'],
             'Value (MPa)': [P['v1'], P['v2'], P['v3']]
         })
+        st.dataframe(df_vc.style.apply(highlight_min_row, subset=['Value (MPa)']).format({"Value (MPa)": "{:.2f}"}), use_container_width=True)
         
-        # Display with Highlight
-        st.dataframe(
-            df_vc.style.apply(highlight_min_row, subset=['Value (MPa)'])
-            .format({"Value (MPa)": "{:.2f}"}),
-            use_container_width=True,
-            hide_index=True
-        )
+        vu_stress = (P['vu'] * 9.80665) / (P['bo'] * 1000 * P['d'] * 1000)
+        phi_vc = 0.75 * P['vc_mpa']
         
-        governing_vc = P['vc_mpa']
-        st.latex(rf"\therefore v_{{c,allow}} = \mathbf{{{governing_vc:.2f}}} \; \text{{MPa}}")
+        c1, c2 = st.columns(2)
+        c1.metric("Actual Stress ($v_u$)", f"{vu_stress:.2f} MPa")
+        c2.metric("Capacity ($\phi v_c$)", f"{phi_vc:.2f} MPa", delta_color="normal" if vu_stress<=phi_vc else "inverse")
 
-    st.markdown("---")
-    
-    st.subheader("2.2 Final Verification")
-    
-    # Calculate Stresses
-    vu_stress = (P['vu'] * 9.80665) / (P['bo'] * 1000 * P['d'] * 1000) # MPa
-    phi_vc_stress = 0.75 * governing_vc
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Actual Stress ($v_u$)", f"{vu_stress:.2f} MPa")
-    c2.metric("Design Capacity ($\phi v_c$)", f"{phi_vc_stress:.2f} MPa")
-    c3.metric("Ratio ($v_u / \phi v_c$)", f"{vu_stress/phi_vc_stress:.2f}", delta_color="inverse")
-
-    if vu_stress <= phi_vc_stress:
-        st.success(f"✅ **PASS:** ความหนา {data['h_final']} mm เพียงพอรับแรงเฉือนทะลุ")
-    else:
-        st.error(f"❌ **FAIL:** หน้าตัดรับแรงไม่ไหว (Ratio {vu_stress/phi_vc_stress:.2f})")
-        st.markdown("👉 **คำแนะนำ:** เพิ่มความหนาพื้น, เพิ่ม Drop Panel, หรือใส่เหล็กเสริมรับแรงเฉือน (Shear Studs)")
-
-# ==========================================
-# TAB 3: Reinforcement
-# ==========================================
+# --- TAB 3 ---
 with tab3:
-    st.subheader("3. Reinforcement Detail (รายละเอียดเหล็กเสริม)")
+    st.subheader("3. Reinforcement Layout")
+    col_plot, col_tab = st.columns([1, 1.5])
     
-    col_layout, col_table = st.columns([1, 2])
-    
-    with col_layout:
-        st.image("https://theconstructor.org/wp-content/uploads/2017/04/design-strip.jpg", caption="Column Strip vs Middle Strip", use_container_width=True)
-        st.info("**Design Criteria:**\n\n* Min Steel: $0.0018bh$\n* Max Spacing: $2h$ or 30 cm")
-
-    with col_table:
-        st.write("ตารางสรุปเหล็กเสริม (คำนวณตามปริมาณที่ต้องการเทียบกับขั้นต่ำ):")
+    with col_plot:
+        # ** เรียกใช้ฟังก์ชันวาดกราฟิก Strip **
+        strip_w = min(lx, ly) / 4
+        fig_strip = plot_strip_layout(lx, ly, strip_w)
+        st.pyplot(fig_strip)
         
+    with col_tab:
         rebar_data = []
         for loc, val in data['rebar'].items():
             loc_name = loc.replace("CS", "Column Strip").replace("MS", "Middle Strip").replace("_", " ")
             spec = get_rebar_spec(val, data['max_spacing_cm'])
             rebar_data.append([loc_name, f"{val:.2f}", f"{data['as_min']:.2f}", spec])
-            
-        df_rebar = pd.DataFrame(rebar_data, columns=["Location", "Req. As (cm²/m)", "Min As (cm²/m)", "Recommended Bar"])
-        
-        st.table(df_rebar)
-        
-    st.markdown("---")
-    st.caption("Note: Top bars for negative moment supports, Bottom bars for positive moment span.")
+        st.table(pd.DataFrame(rebar_data, columns=["Zone", "Req. As", "Min As", "Selection"]))
