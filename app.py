@@ -21,8 +21,11 @@ with st.sidebar:
     st.divider()
     h_init = st.number_input("Start h (mm)", 100, 500, 200)
 
-# Run Engine
-data = engine.run_design_cycle(lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.2, 1.6)
+# กำหนด Cover ที่นี่ (หรือรับจาก Sidebar ก็ได้)
+cover_val = 25 
+
+# Run Engine (ส่ง cover_val เข้าไป)
+data = engine.run_design_cycle(lx, ly, h_init, c1, c2, fc, fy, sdl, ll, cover_val, pos, 1.2, 1.6)
 
 # Main Dashboard
 st.title("🛡️ Flat Slab Design: Numerical Integrity Edition")
@@ -43,6 +46,7 @@ with t1:
     report.render_report(data)
 
 with t2:
-    # Consistency Check: Use 'res' from engine, not sidebar inputs
-    fig = drawings.draw_section(res['h'], data['inputs']['cover'], c1, res['ln'])
+    # ใช้ .get() เพื่อป้องกัน Error หาก key หายไปในอนาคต
+    cover_to_draw = data['inputs'].get('cover', cover_val)
+    fig = drawings.draw_section(res['h'], cover_to_draw, c1, res['ln'])
     st.pyplot(fig)
