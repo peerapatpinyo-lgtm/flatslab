@@ -6,54 +6,32 @@ def render_report(data):
     r = data['results']
     bars = data['rebar']
     
-    st.markdown("## 🏗️ Detailed Calculation Report")
+    st.markdown("## 🏗️ Detailed Construction Calculation")
     
-    # --- Check Traceability (Start vs Final h) ---
-    st.markdown("### 1. Thickness Verification ($h$)")
-    if i['h_init'] != r['h']:
-        st.warning(f"⚠️ **Thickness Increased:** Start {i['h_init']} mm $\\rightarrow$ Final {r['h']} mm")
-        st.caption(f"Reason: **{r['reason']}** (Calculated loop adjusted thickness automatically)")
-    else:
-        st.success(f"✅ **Thickness OK:** Designed at {r['h']} mm matches input.")
-
-    st.latex(fr"d = h - cov - d_b/2 = {r['d_mm']:.0f} \; mm")
+    # 1. Geometry & Load
+    st.markdown("### 1. Design Parameters")
+    st.info(f"Final Thickness: **{r['h']} mm** | Effective Depth d: **{r['d_mm']:.1f} mm**")
+    st.latex(formatter.fmt_load_trace(i['dl_fac'], i['sw'], i['sdl'], i['ll_fac'], i['ll'], r['qu']))
     
-    # --- Step 2: Loads ---
-    st.markdown("### 2. Load Analysis ($q_u$)")
-    st.latex(formatter.fmt_load_trace(
-        i['dl_fac'], i['sw'], i['sdl'], i['ll_fac'], i['ll'], r['qu']
-    ))
+    # 2. Shear
+    st.markdown("### 2. Punching Shear Check")
+    st.latex(formatter.fmt_vu_detailed(r['qu'], i['lx'], i['ly'], r['acrit'], r['gamma_v'], r['vu_kg']))
+    st.latex(formatter.fmt_vc_conversion_detailed(0.75, r['vc_mpa'], r['bo_mm'], r['d_mm'], r['phi_vc_kg']/1000.0))
     
-    # --- Step 3: Punching Shear ---
-    st.markdown("### 3. Punching Shear Analysis")
-    
-    st.markdown("**3.1 Critical Section Geometry ($A_{crit}$)**")
-    st.latex(formatter.fmt_acrit_detailed(
-        i['c1'], i['c2'], r['d_mm']/1000.0, r['acrit'], i['pos']
-    ))
-    
-    st.markdown("**3.2 Shear Demand ($V_u$)**")
-    st.latex(formatter.fmt_vu_detailed(
-        r['qu'], i['lx'], i['ly'], r['acrit'], r['gamma_v'], r['vu_kg']
-    ))
-    
-    st.markdown("**3.3 Shear Capacity ($\phi V_c$)**")
-    st.markdown("First, determine governing stress ($v_c$):")
-    st.latex(fr"v_c = \min({r['v1']:.2f}, {r['v2']:.2f}, {r['v3']:.2f}) = \mathbf{{{r['vc_mpa']:.2f}}} \; MPa")
-    
-    st.markdown("Then, convert stress to force (Tons):")
-    st.latex(formatter.fmt_vc_conversion_detailed(
-        0.75, r['vc_mpa'], r['bo_mm'], r['d_mm'], r['phi_vc_kg']/1000.0
-    ))
-    
-    # Ratio Verdict
     pass_flag = r['ratio'] <= 1.0
-    status_color = "green" if pass_flag else "red"
-    st.markdown(f"#### Ratio = $V_u / \phi V_c$ = {r['ratio']:.2f} (:{status_color}[{'SAFE' if pass_flag else 'FAIL'}])")
-
-    # --- Step 4: Flexure ---
-    st.markdown("### 4. Flexural Design ($A_s$)")
-    st.latex(fr"M_o = \frac{{q_u \ell_n^2}}{{8}} = \frac{{{r['qu']:.0f} \times {r['ln']:.2f}^2}}{{8}} = \mathbf{{{r['mo']:,.0f}}} \; kg \cdot m")
+    st.markdown(f"**Ratio:** {r['ratio']:.2f} ({'SAFE' if pass_flag else 'FAIL'})")
+    
+    # 3. Flexural Design
+    st.markdown("### 3. Flexural Design & Detailing")
+    
+    # 3.1 As Min Check
+    st.markdown("**3.1 Minimum Reinforcement ($A_{s,min}$)**")
+    st.latex(formatter.fmt_as_min_calc(100, r['h']/10.0, r['as_min']))
+    st.caption("Standard: ACI 318 Temperature & Shrinkage Reinforcement")
+    
+    # 3.2 Strips Calculation
+    st.markdown("**3.2 Strip Design (Moment $\\rightarrow$ Spacing)**")
+    st.latex(fr"M_o = \mathbf{{{r['mo']:,.0f}}} \; kg \cdot m \quad (\text{{Static Moment}})")
     
     c1, c2 = st.columns(2)
     c3, c4 = st.columns(2)
@@ -62,7 +40,10 @@ def render_report(data):
     for idx, bar in enumerate(bars):
         if idx < 4:
             with cols[idx]:
-                st.latex(formatter.fmt_flexure_detailed(
+                st.latex(formatter.fmt_flexure_design(
                     bar['name'], bar['coeff'], r['mo'], bar['mu'], 
-                    i['fy'], r['d_mm']/10.0, bar['denom_val'], bar['as_req']
+                    i['fy'], r['d_mm']/10.0, 
+                    bar['as_req'], r['as_min'], bar['as_design'],
+                    i['bar_area'], bar['theo_spacing'], bar['use_spacing'],
+                    int(i['main_bar_db'])
                 ))
