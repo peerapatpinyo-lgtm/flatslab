@@ -1,75 +1,54 @@
 import streamlit as st
 
-def fmt_geometry_step(c1_mm, c2_mm, d_mm, bo_mm, acrit, pos):
-    d = d_mm
-    c1 = c1_mm / 1000.0
-    c2 = c2_mm / 1000.0
-    
-    # Determine formula text based on Position
-    if pos == "Interior":
-        bo_eq = r"2(c_1 + d) + 2(c_2 + d)"
-        ac_eq = r"(c_1 + d)(c_2 + d)"
-    elif pos == "Edge":
-        bo_eq = r"2(c_1 + d/2) + (c_2 + d)"
-        ac_eq = r"(c_1 + d/2)(c_2 + d)"
-    else: # Corner
-        bo_eq = r"(c_1 + d/2) + (c_2 + d/2)"
-        ac_eq = r"(c_1 + d/2)(c_2 + d/2)"
-
+def fmt_min_thickness(ln, denom, h_min, h_actual):
     return r"""
     \begin{aligned}
-    d &= h - cov - d_b/2 = \mathbf{""" + f"{d:.0f}" + r"""} \; mm \\
-    b_o &= """ + bo_eq + r""" = \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm \\
-    A_{crit} &= """ + ac_eq + r""" = \mathbf{""" + f"{acrit:.4f}" + r"""} \; m^2
+    h_{min} &= \frac{\ell_n}{""" + f"{denom:.0f}" + r"""} = \frac{""" + f"{ln*1000:.0f}" + r"""}{""" + f"{denom:.0f}" + r"""} = \mathbf{""" + f"{h_min:.1f}" + r"""} \; mm \\
+    h_{use} &= \mathbf{""" + f"{h_actual:.0f}" + r"""} \; mm \quad (\text{Selected})
     \end{aligned}
     """
 
-def fmt_load_step(dl_fac, sw, sdl, ll_fac, ll, qu, h_final):
-    # Detailed Load Calc
-    h_m = h_final / 1000.0
+def fmt_shear_demand(qu, lx, ly, acrit, gamma, vu):
+    # Substitution string
+    area_calc = f"({lx} \\times {ly} - {acrit:.3f})"
+    sub_line = f"{qu:.0f} \\times {area_calc} \\times {gamma:.1f}"
+    
     return r"""
     \begin{aligned}
-    SW &= """ + f"{h_m:.2f}" + r""" \times 2400 = \mathbf{""" + f"{sw:.0f}" + r"""} \; kg/m^2 \\
-    q_u &= """ + f"{dl_fac}({sw:.0f} + {sdl:.0f}) + {ll_fac}({ll:.0f})" + r""" \\
-        &= \mathbf{""" + f"{qu:.0f}" + r"""} \; kg/m^2
+    V_u &= q_u \times (L_x L_y - A_{crit}) \times \gamma_{unb} \\
+        &= """ + sub_line + r""" \\
+        &= \mathbf{""" + f"{vu:,.0f}" + r"""} \; kg
     \end{aligned}
     """
 
-def fmt_shear_detailed(qu, lx, ly, acrit, gamma, vu, phi, vc_mpa, bo, d, phi_vc, ratio):
-    # 1. Vu Substitution
-    area = lx * ly
-    vu_sub = f"{qu:.0f} \\times ({area:.2f} - {acrit:.3f}) \\times {gamma:.2f}"
-    
-    # 2. PhiVc Substitution
-    # phi * vc * bo * d / 9.81
-    vc_sub = f"0.75 \\times {vc_mpa:.2f} \\times {bo:.0f} \\times {d:.0f}"
-    
-    status = "SAFE" if ratio <= 1.0 else "FAIL"
-    color = "green" if ratio <= 1.0 else "red"
+def fmt_shear_capacity(phi, vc_mpa, bo_mm, d_mm, phi_vc_ton):
+    # Substitution string for Unit Conversion
+    # (0.75 * vc * bo * d) / (9.81 * 1000)
+    numerator = f"{phi} \\times {vc_mpa:.2f} \\times {bo_mm:.0f} \\times {d_mm:.0f}"
+    denominator = r"9.80665 \times 1000"
     
     return r"""
     \begin{aligned}
-    V_u &= q_u \times (Area - A_{crit}) \times \gamma_{unb} \\
-        &= """ + vu_sub + r""" \\
-        &= \mathbf{""" + f"{vu:,.0f}" + r"""} \; kg \\[0.8em]
-    \phi V_c &= \frac{0.75 \times v_{min} \times b_o \times d}{9.80665} \\
-             &= \frac{""" + vc_sub + r"""}{9.80665} \\
-             &= \mathbf{""" + f"{phi_vc:,.0f}" + r"""} \; kg \\[0.8em]
-    Ratio &= \frac{V_u}{\phi V_c} = \frac{""" + f"{vu:,.0f}" + r"""}{""" + f"{phi_vc:,.0f}" + r"""} \\
-          &= \mathbf{""" + f"{ratio:.2f}" + r"""} \; (\text{""" + status + r"""})
+    \phi V_c &= \frac{\phi \cdot v_{min} \cdot b_o \cdot d}{g \cdot 1000} \\
+             &= \frac{""" + numerator + r"""}{""" + denominator + r"""} \\
+             &= \mathbf{""" + f"{phi_vc_ton:,.2f}" + r"""} \; Tons \approx \mathbf{""" + f"{phi_vc_ton*1000:,.0f}" + r"""} \; kg
     \end{aligned}
     """
 
-def fmt_flexure_calc(strip_name, coeff, mo, mu, fy, d_cm, as_req):
-    # As = (Mu * 100) / (0.9 * fy * 0.9 * d)
-    # Numerical sub for As
-    denom = f"0.9 \\times {fy:.0f} \\times 0.9 \\times {d_cm:.1f}"
+def fmt_flexure_strip(name, coeff, mo, mu, fy, d_cm, as_req):
+    # 1. Moment Sub
+    mu_sub = f"{coeff} \\times {mo:,.0f}"
+    
+    # 2. As Sub
+    # As = (Mu * 10^5) / (0.9 * fy * 0.9 * d)
+    num = f"{mu:,.0f} \\times 10^5"
+    den = f"0.9 \\times {fy:.0f} \\times 0.9 \\times {d_cm:.1f}"
     
     return r"""
-    \underline{\text{""" + strip_name + r"""}} \\
+    \textbf{""" + name + r"""} \\
     \begin{aligned}
-    M_u &= """ + f"{coeff}" + r""" \times M_o = \mathbf{""" + f"{mu:,.0f}" + r"""} \; kg \cdot m \\
-    A_s &= \frac{M_u \times 100}{\phi f_y j d} = \frac{""" + f"{mu:,.0f}" + r""" \times 100}{""" + denom + r"""} \\
+    M_{strip} &= C \times M_o = """ + mu_sub + r""" = \mathbf{""" + f"{mu:,.0f}" + r"""} \; kg \cdot m \\
+    A_s &= \frac{M_{strip} \times 10^5}{0.9 f_y (0.9 d)} = \frac{""" + num + r"""}{""" + den + r"""} \\
         &= \mathbf{""" + f"{as_req:.2f}" + r"""} \; cm^2
     \end{aligned}
     """
