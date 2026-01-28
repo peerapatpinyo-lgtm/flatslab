@@ -1,6 +1,8 @@
 import numpy as np
 
+# เพิ่ม dl_factor=1.2, ll_factor=1.6 ในบรรทัดนี้ เพื่อให้รับค่าจาก app.py ได้
 def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos="Interior", dl_factor=1.2, ll_factor=1.6):
+    
     # --- 1. การเตรียมข้อมูลและหน่วย ---
     h = h_mm / 1000
     c1 = c1_mm / 1000
@@ -10,6 +12,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
     g = 9.80665
 
     # --- 2. ACI Minimum Thickness Check ---
+    # ใช้ค่า ln ในการเช็ค (โดยประมาณ)
     ln_check = max(lx, ly) - (c1_mm/1000)
     h_min_req = (ln_check * 1000) / 30 if pos != "Interior" else (ln_check * 1000) / 33
     h_warning = ""
@@ -18,6 +21,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
 
     # --- 3. Loading Detailed (ใช้ Custom Factors) ---
     sw = h * 2400
+    # ใช้ตัวแปร dl_factor และ ll_factor ที่รับเข้ามา
     w_dl_factored = dl_factor * (sw + sdl)
     w_ll_factored = ll_factor * ll
     qu = w_dl_factored + w_ll_factored
@@ -98,7 +102,7 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         "loading": {
             "qu": qu, "sw": sw, "dl_fact": w_dl_factored, "ll_fact": w_ll_factored,
             "trib_area": tributary_area, "total_load": total_load_kg,
-            "factors": {"dl": dl_factor, "ll": ll_factor} # Return factors for display
+            "factors": {"dl": dl_factor, "ll": ll_factor} # ส่งค่า Factor กลับไปโชว์ที่ UI
         },
         "geo": {"ln": ln, "ln_calc": ln_calc, "c1": c1, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req},
         "punching": p,
