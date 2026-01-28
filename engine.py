@@ -53,17 +53,14 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         vu_kg = qu * ((lx * ly) - a_crit)
         phi_vc_kg = (0.75 * vc_mpa * (bo * 1000 * t_d * 1000)) / g
         
-        # *** FIX: เพิ่ม beta ลงใน return dictionary ตรงนี้ครับ ***
         return {
             "vu": vu_kg, 
             "phi_vc": phi_vc_kg, 
             "bo": bo, 
             "d": t_d, 
             "vc_mpa": vc_mpa, 
-            "v1":v1, 
-            "v2":v2, 
-            "v3":v3,
-            "beta": beta  # <--- จุดที่เพิ่ม
+            "v1":v1, "v2":v2, "v3":v3,
+            "beta": beta # Key required for table display
         }
 
     current_h = h_mm
@@ -87,14 +84,18 @@ def calculate_detailed_slab(lx, ly, h_mm, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll,
         as_final = max(as_req / ly, as_min)
         rebar_out[key] = as_final
 
+    # Calculate final ratio for UI
+    final_ratio = p['vu'] / p['phi_vc'] if p['phi_vc'] > 0 else 0
+
     return {
         "loading": {"qu": qu, "sw": sw, "dl_fact": w_dl_factored, "ll_fact": w_ll_factored},
-        "geo": {"ln": ln, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req, "d": p['d']}, # Pass d for display context
+        "geo": {"ln": ln, "bo": p['bo'], "d": p['d'], "h_min_req": h_min_req},
         "punching": p,
         "mo": mo,
         "h_final": current_h,
         "h_warning": h_warning,
         "rebar": rebar_out,
         "as_min": as_min,
-        "max_spacing_cm": max_spacing_mm / 10
+        "max_spacing_cm": max_spacing_mm / 10,
+        "ratio": final_ratio  # <--- FIXED: Added this key
     }
