@@ -13,15 +13,17 @@ def render_report(data):
     st.latex(formatter.fmt_mo_calc(res['qu'], inp['ly'], inp['ln'], res['mo']))
     
     st.markdown("## 3. Punching Shear Check")
-    # Table Comparison
+    # แสดงค่า bo และ d
     st.write(f"**Critical Perimeter ($b_o$):** {res['bo_mm']:.0f} mm | **Effective Depth ($d$):** {res['d_mm']:.0f} mm")
     
     st.markdown("#### 3.1 ACI Shear Capacity Formulas (Substitution)")
     st.latex(formatter.fmt_shear_capacity_sub(inp['fc_mpa'], res['beta'], res['alpha_s'], res['d_mm'], res['bo_mm']))
     
-    # Comparison Table
+    # --- ส่วนที่แก้ไข (Fixed Formatting Error) ---
+    st.markdown("#### 3.2 Capacity Comparison Table")
+    
     df = pd.DataFrame({
-        "Formula": ["Eq 1 (Basic)", "Eq 2 (Geometry)", "Eq 3 (Perimeter)"],
+        "Formula": ["Eq 1 (Basic)", "Eq 2 (Geometry)", "Eq 3 (Perimeter)"], # คอลัมน์นี้เป็น Text ห้าม Format เป็นตัวเลข
         "Stress Capacity (MPa)": [res['v1'], res['v2'], res['v3']],
         "Phi Vc (Tons)": [
             (0.75 * res['v1'] * res['bo_mm'] * res['d_mm'] / 9806.65),
@@ -29,7 +31,13 @@ def render_report(data):
             (0.75 * res['v3'] * res['bo_mm'] * res['d_mm'] / 9806.65)
         ]
     })
-    st.table(df.style.format("{:.2f}"))
+    
+    # ใช้ Dictionary เพื่อระบุว่าให้ Format เฉพาะคอลัมน์ที่เป็นตัวเลขเท่านั้น
+    st.table(df.style.format({
+        "Stress Capacity (MPa)": "{:.2f}",
+        "Phi Vc (Tons)": "{:.2f}"
+    }))
+    # -------------------------------------------
     
     col1, col2 = st.columns(2)
     col1.metric("Vu (Demand)", f"{res['vu_kg']/1000:.2f} Tons")
