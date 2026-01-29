@@ -8,14 +8,13 @@ import ddm_plots
 # ========================================================
 def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
     st.markdown("## 2. Interactive Direct Design Method")
-    st.info("💡 **Calculation Mode:** แสดงที่มาของตัวเลขทุกขั้นตอนตั้งแต่ $M_o$ จนถึงการเลือกเหล็ก")
+    st.info("💡 **Design Mode:** Complete analysis according to ACI 318 / EIT Standards.")
 
     tab_x, tab_y = st.tabs([
         f"🏗️ Design X-Dir ({data_x['L_span']}m)", 
         f"🏗️ Design Y-Dir ({data_y['L_span']}m)"
     ])
     
-    # ส่ง w_u ลงไปด้วยเพื่อใช้แสดงวิธีทำ
     with tab_x:
         render_interactive_direction(data_x, h_slab, d_eff, fc, fy, "X", w_u)
     with tab_y:
@@ -32,7 +31,8 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id, w_u):
     Mo = data['Mo']
     m_vals = data['M_vals']
     
-    # Strip Widths
+    # Strip Widths (ACI 318 Definition)
+    # Column Strip width = 2 * (min(L1, L2)/4) = min(L1, L2)/2
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
     
@@ -40,185 +40,184 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id, w_u):
     Ln = L_span - (c_para / 100.0)
 
     # ----------------------------------------------------
-    # 📝 PART A: STEP-BY-STEP CALCULATION (NEW!)
+    # 📝 PART A: DETAILED CALCULATION (STEP-BY-STEP)
     # ----------------------------------------------------
-    st.markdown(f"### 📐 Step-by-Step Calculation: {axis_id}-Direction")
+    st.markdown(f"### 📐 Detailed Calculation: {axis_id-Direction}")
     
-    with st.expander("📝 ดูวิธีทำละเอียด (Calculation Details)", expanded=True):
+    with st.expander("📝 Show Engineering Calculations (แสดงรายการคำนวณ)", expanded=False):
+        # 1. Geometry
         st.markdown("#### 1. Geometry & Static Moment ($M_o$)")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.write(f"- **Span Length ($L_1$):** {L_span:.2f} m")
-            st.write(f"- **Transverse Width ($L_2$):** {L_width:.2f} m")
-            st.write(f"- **Column Dimension ($c_1$):** {c_para/100:.2f} m")
-            st.write(f"- **Clear Span ($l_n = L_1 - c_1$):** {Ln:.2f} m")
+            st.metric("Span ($L_1$)", f"{L_span:.2f} m")
+            st.metric("Width ($L_2$)", f"{L_width:.2f} m")
         with c2:
-            st.write(f"- **Factored Load ($w_u$):** {w_u:,.2f} kg/m²")
+            st.metric("Column ($c_1$)", f"{c_para/100:.2f} m")
+            st.metric("Clear Span ($l_n$)", f"{Ln:.2f} m")
+        with c3:
+            st.metric("Load ($w_u$)", f"{w_u:,.0f} kg/m²")
         
-        st.markdown("---")
-        st.markdown("**Formula for Total Static Moment:**")
+        st.markdown("**Total Static Moment (ACI 318 Eq. 8.10.3.2):**")
         st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
-        
-        st.markdown("**Substitution:**")
         st.latex(f"M_o = \\frac{{{w_u:,.0f} \\times {L_width:.2f} \\times {Ln:.2f}^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
 
-        st.markdown("#### 2. Moment Distribution (ACI 318 / EIT)")
-        st.write("การกระจายโมเมนต์จาก $M_o$ เข้าสู่ Column Strip (CS) และ Middle Strip (MS):")
+        # 2. Distribution Factors
+        st.markdown("#### 2. Moment Distribution Coefficients")
+        st.caption("ตรวจสอบสัมประสิทธิ์การกระจายโมเมนต์ (Distribution Factors) เทียบกับมาตรฐาน ACI/วสท.")
         
-        # Create a detailed breakdown table
-        # Factors (Estimated based on typical flat plate DDM)
-        # Neg Total = 0.65, Pos Total = 0.35
-        # CS Neg = 0.75, CS Pos = 0.60
+        # Calculate Implicit Factors for verification
+        f_neg_total = (m_vals['M_cs_neg'] + m_vals['M_ms_neg']) / Mo
+        f_pos_total = (m_vals['M_cs_pos'] + m_vals['M_ms_pos']) / Mo
         
-        # Recalculate percentages relative to Mo for display clarity
-        per_neg_total = (m_vals['M_cs_neg'] + m_vals['M_ms_neg']) / Mo * 100
-        per_pos_total = (m_vals['M_cs_pos'] + m_vals['M_ms_pos']) / Mo * 100
-        
-        calc_data = [
-            ["Negative Moment (-)", f"{per_neg_total:.0f}%", 
-             f"{m_vals['M_cs_neg']/Mo*100:.1f}% ($M_{{cs}}^-$)", 
-             f"{m_vals['M_ms_neg']/Mo*100:.1f}% ($M_{{ms}}^-$)", 
-             f"{m_vals['M_cs_neg']:,.0f}", f"{m_vals['M_ms_neg']:,.0f}"],
-             
-            ["Positive Moment (+)", f"{per_pos_total:.0f}%", 
-             f"{m_vals['M_cs_pos']/Mo*100:.1f}% ($M_{{cs}}^+$)", 
-             f"{m_vals['M_ms_pos']/Mo*100:.1f}% ($M_{{ms}}^+$)", 
-             f"{m_vals['M_cs_pos']:,.0f}", f"{m_vals['M_ms_pos']:,.0f}"]
+        f_cs_neg = m_vals['M_cs_neg'] / (m_vals['M_cs_neg'] + m_vals['M_ms_neg']) if (m_vals['M_cs_neg'] + m_vals['M_ms_neg']) > 0 else 0
+        f_cs_pos = m_vals['M_cs_pos'] / (m_vals['M_cs_pos'] + m_vals['M_ms_pos']) if (m_vals['M_cs_pos'] + m_vals['M_ms_pos']) > 0 else 0
+
+        # Create Verification Table
+        dist_data = [
+            ["Total Negative (-)", f"{f_neg_total:.2f} $M_o$", f"{Mo*f_neg_total:,.0f}", "100%", "Check ACI Table 8.10.4.2"],
+            ["... Column Strip", f"{f_cs_neg:.2f} $M_{{neg}}$", f"{m_vals['M_cs_neg']:,.0f}", f"{(m_vals['M_cs_neg']/Mo)*100:.1f}%", "Typically 75%"],
+            ["... Middle Strip", f"{1-f_cs_neg:.2f} $M_{{neg}}$", f"{m_vals['M_ms_neg']:,.0f}", f"{(m_vals['M_ms_neg']/Mo)*100:.1f}%", "Remainder (25%)"],
+            ["Total Positive (+)", f"{f_pos_total:.2f} $M_o$", f"{Mo*f_pos_total:,.0f}", "100%", "Check ACI Table 8.10.4.2"],
+            ["... Column Strip", f"{f_cs_pos:.2f} $M_{{pos}}$", f"{m_vals['M_cs_pos']:,.0f}", f"{(m_vals['M_cs_pos']/Mo)*100:.1f}%", "Typically 60%"],
+            ["... Middle Strip", f"{1-f_cs_pos:.2f} $M_{{pos}}$", f"{m_vals['M_ms_pos']:,.0f}", f"{(m_vals['M_ms_pos']/Mo)*100:.1f}%", "Remainder (40%)"],
         ]
+        df_dist = pd.DataFrame(dist_data, columns=["Section", "Coeff.", "Moment (kg-m)", "% of Mo", "Note"])
+        st.table(df_dist)
+
+    # ----------------------------------------------------
+    # 🎛️ PART B: INTERACTIVE REBAR DESIGN
+    # ----------------------------------------------------
+    # Calculation Helper
+    def calc_rebar_status(M_u, b_width, d_bar, s_bar):
+        b_cm = b_width * 100
+        h_cm = h_slab
+        d_eff_local = h_cm - 3.0 # Approx cover 2.5 + 0.5 bar
         
-        df_calc = pd.DataFrame(calc_data, columns=["Zone", "% of Mo", "% to CS", "% to MS", "Moment CS (kg-m)", "Moment MS (kg-m)"])
-        st.table(df_calc)
-
-    # ----------------------------------------------------
-    # 🎛️ PART B: INTERACTIVE DESIGN (UNCHANGED)
-    # ----------------------------------------------------
-    # Helper: Estimate Req Area
-    def get_as_req(M_val, b_width_m):
-        b_cm = b_width_m * 100
-        denom = 0.9 * b_cm * d_eff**2
-        if denom == 0: return 0
-        Rn = (M_val * 100) / denom
-        limit = 1 - (2*Rn)/(0.85*fc)
-        if limit < 0: return 999.99
-        rho = (0.85*fc/fy) * (1 - np.sqrt(limit))
-        rho = max(rho, 0.0018) # Min steel
-        return rho * b_cm * d_eff
-
-    req_cs_top = get_as_req(m_vals['M_cs_neg'], w_cs)
-    req_cs_bot = get_as_req(m_vals['M_cs_pos'], w_cs)
-    req_ms_top = get_as_req(m_vals['M_ms_neg'], w_ms)
-    req_ms_bot = get_as_req(m_vals['M_ms_pos'], w_ms)
+        # 1. Provided Steel
+        Ab = 3.1416*(d_bar/10)**2/4
+        As_prov = (b_cm/s_bar)*Ab
+        
+        # 2. Strength Check (Phi Mn)
+        a = (As_prov*fy)/(0.85*fc*b_cm)
+        PhiMn = 0.9 * As_prov * fy * (d_eff_local - a/2) / 100
+        
+        # 3. Minimum Steel Check (ACI 8.6.1.1: 0.0018 Ag)
+        As_min = 0.0018 * b_cm * h_cm
+        
+        # 4. Spacing Check (ACI 8.7.2.2: 2h)
+        s_max = min(2 * h_cm, 45) # 2h or 450mm
+        
+        # Ratios
+        dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
+        min_steel_ok = As_prov >= As_min
+        spacing_ok = s_bar <= s_max
+        
+        return As_prov, PhiMn, dc_ratio, As_min, min_steel_ok, s_max, spacing_ok
 
     # UI Inputs
-    c_red = ddm_plots.CLR_BAR_TOP
-    c_blue = ddm_plots.CLR_BAR_BOT
-    bg_cs = ddm_plots.CLR_ZONE_CS
-    bg_ms = ddm_plots.CLR_ZONE_MS
-
     st.markdown(f"### 🎛️ Reinforcement Selection")
     
     col_cs, col_gap, col_ms = st.columns([1, 0.05, 1])
     
-    # === Column Strip Inputs ===
+    # === CS INPUTS ===
     with col_cs:
-        st.markdown(
-            f"""<div style="background-color:{bg_cs}; padding:12px; border-radius:6px; border-left: 5px solid {c_red}; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-            <b style="color:{c_red}; font-size:1.1em;">🏛️ COLUMN STRIP</b><br><small style="color:#666">Width = {w_cs:.2f} m</small></div>""", unsafe_allow_html=True
-        )
+        st.markdown(f"""<div style="background-color:{ddm_plots.CLR_ZONE_CS}; padding:10px; border-radius:5px; border-left:5px solid {ddm_plots.CLR_BAR_TOP};">
+        <b>COLUMN STRIP</b> ({w_cs:.2f} m)</div>""", unsafe_allow_html=True)
         st.write("")
-        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_cs_top:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1,1.5])
-        d_cs_top = c_a.selectbox("Dia", [12,16,20,25], key=f"dct{axis_id}")
-        s_cs_top = c_b.number_input("@Spacing", 5, 50, 20, 5, key=f"sct{axis_id}")
+        st.caption("Top Rebar (Support)")
+        c1, c2 = st.columns([1, 1.5])
+        d_cs_top = c1.selectbox("DB", [12,16,20,25], key=f"dct{axis_id}")
+        s_cs_top = c2.number_input("@Spacing (cm)", 5, 50, 20, 5, key=f"sct{axis_id}")
         
-        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_cs_bot:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1,1.5])
-        d_cs_bot = c_a.selectbox("Dia", [12,16,20,25], key=f"dcb{axis_id}")
-        s_cs_bot = c_b.number_input("@Spacing", 5, 50, 25, 5, key=f"scb{axis_id}")
+        st.caption("Bot Rebar (Mid-span)")
+        c1, c2 = st.columns([1, 1.5])
+        d_cs_bot = c1.selectbox("DB", [12,16,20,25], key=f"dcb{axis_id}")
+        s_cs_bot = c2.number_input("@Spacing (cm)", 5, 50, 25, 5, key=f"scb{axis_id}")
 
-    # === Middle Strip Inputs ===
+    # === MS INPUTS ===
     with col_ms:
-        st.markdown(
-            f"""<div style="background-color:{bg_ms}; padding:12px; border-radius:6px; border-left: 5px solid {c_blue}; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-            <b style="color:{c_blue}; font-size:1.1em;">🌊 MIDDLE STRIP</b><br><small style="color:#666">Width = {w_ms:.2f} m</small></div>""", unsafe_allow_html=True
-        )
+        st.markdown(f"""<div style="background-color:{ddm_plots.CLR_ZONE_MS}; padding:10px; border-radius:5px; border-left:5px solid {ddm_plots.CLR_BAR_BOT};">
+        <b>MIDDLE STRIP</b> ({w_ms:.2f} m)</div>""", unsafe_allow_html=True)
         st.write("")
-        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_ms_top:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1,1.5])
-        d_ms_top = c_a.selectbox("Dia", [12,16,20,25], key=f"dmt{axis_id}", index=0)
-        s_ms_top = c_b.number_input("@Spacing", 10, 50, 30, 5, key=f"smt{axis_id}")
+        st.caption("Top Rebar (Support)")
+        c1, c2 = st.columns([1, 1.5])
+        d_ms_top = c1.selectbox("DB", [12,16,20,25], index=0, key=f"dmt{axis_id}")
+        s_ms_top = c2.number_input("@Spacing (cm)", 10, 50, 30, 5, key=f"smt{axis_id}")
+        
+        st.caption("Bot Rebar (Mid-span)")
+        c1, c2 = st.columns([1, 1.5])
+        d_ms_bot = c1.selectbox("DB", [12,16,20,25], key=f"dmb{axis_id}")
+        s_ms_bot = c2.number_input("@Spacing (cm)", 5, 50, 25, 5, key=f"smb{axis_id}")
 
-        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_ms_bot:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1,1.5])
-        d_ms_bot = c_a.selectbox("Dia", [12,16,20,25], key=f"dmb{axis_id}")
-        s_ms_bot = c_b.number_input("@Spacing", 5, 50, 25, 5, key=f"smb{axis_id}")
-
-    # Calculate & Table
-    inputs = {
-        "CS_Top": (d_cs_top, s_cs_top), "CS_Bot": (d_cs_bot, s_cs_bot),
-        "MS_Top": (d_ms_top, s_ms_top), "MS_Bot": (d_ms_bot, s_ms_bot)
-    }
+    # Process Results
     zones = [
-        {"id": "CS_Top", "n": "Col Strip-Top", "M": m_vals["M_cs_neg"], "b": w_cs},
-        {"id": "CS_Bot", "n": "Col Strip-Bot", "M": m_vals["M_cs_pos"], "b": w_cs},
-        {"id": "MS_Top", "n": "Mid Strip-Top", "M": m_vals["M_ms_neg"], "b": w_ms},
-        {"id": "MS_Bot", "n": "Mid Strip-Bot", "M": m_vals["M_ms_pos"], "b": w_ms},
+        {"name": "CS-Top", "M": m_vals['M_cs_neg'], "b": w_cs, "d": d_cs_top, "s": s_cs_top},
+        {"name": "CS-Bot", "M": m_vals['M_cs_pos'], "b": w_cs, "d": d_cs_bot, "s": s_cs_bot},
+        {"name": "MS-Top", "M": m_vals['M_ms_neg'], "b": w_ms, "d": d_ms_top, "s": s_ms_top},
+        {"name": "MS-Bot", "M": m_vals['M_ms_pos'], "b": w_ms, "d": d_ms_bot, "s": s_ms_bot},
     ]
 
     res_list = []
     rebar_map = {}
-    is_safe = True
-    
+    overall_safe = True
+
     for z in zones:
-        Mu = z['M']
-        b_cm = z['b'] * 100
-        d_sel, s_sel = inputs[z['id']]
+        As, PhiMn, dc, As_min, ok_min, s_max, ok_space = calc_rebar_status(z['M'], z['b'], z['d'], z['s'])
         
-        Ab = 3.1416*(d_sel/10)**2/4
-        As = (b_cm/s_sel)*Ab
-        a = (As*fy)/(0.85*fc*b_cm)
-        PhiMn = 0.9 * As * fy * (d_eff - a/2) / 100
+        # Logic for Status
+        # 1. Strength
+        pass_str = dc <= 1.0
+        # 2. Min Steel
+        pass_min = ok_min
+        # 3. Spacing
+        pass_space = ok_space
         
-        ratio = Mu/PhiMn if PhiMn>0 else 999
-        if ratio > 1.0: is_safe = False
+        is_pass = pass_str and pass_min and pass_space
+        if not is_pass: overall_safe = False
         
-        status_color = "#28a745" if ratio<=1 else "#dc3545"
-        status_icon = "✅" if ratio<=1 else "❌"
+        status_icon = "✅ Pass" if is_pass else "❌ Fail"
+        note = ""
+        if not pass_str: note += "Strength Insufficient. "
+        if not pass_min: note += "As < As,min. "
+        if not pass_space: note += "Spacing > 2h. "
         
         res_list.append({
-            "Zone": f"<b>{z['n']}</b>",
-            "Mu <br><small>(kg-m)</small>": f"{Mu:,.0f}", 
-            "Rebar Selected": f"<b style='color:{c_red if 'Top' in z['id'] else c_blue}'>DB{d_sel}@{s_sel}</b>",
-            "As Prov <br><small>(cm²)</small>": f"{As:.2f}",
-            "φMn <br><small>(kg-m)</small>": f"{PhiMn:,.0f}",
-            "D/C Ratio": f"<b style='color:{status_color}'>{ratio:.2f}</b>",
-            "Status": f"{status_icon}"
+            "Location": f"<b>{z['name']}</b>",
+            "Demand Mu": f"{z['M']:,.0f}",
+            "Selection": f"DB{z['d']}@{z['s']}",
+            "As Prov.": f"{As:.2f}",
+            "As Min": f"{As_min:.2f}",
+            "φMn Cap.": f"{PhiMn:,.0f}",
+            "D/C Ratio": f"<b style='color:{'green' if pass_str else 'red'}'>{dc:.2f}</b>",
+            "Max Spacing": f"{s_max} cm",
+            "Status": f"<b>{status_icon}</b>",
+            "Note": f"<small style='color:red'>{note}</small>" if note else "-"
         })
-        rebar_map[z['id']] = f"DB{d_sel}@{s_sel}"
+        
+        # Save for plotting
+        rebar_map[z['name'].replace("-","_")] = f"DB{z['d']}@{z['s']}"
 
+    # Render Summary Table
     st.write("---")
-    st.markdown("### 📊 Engineering Analysis Summary")
+    st.markdown("### 📊 Engineering Summary Table")
+    df_res = pd.DataFrame(res_list)
+    st.write(df_res.style.format(precision=2).to_html(escape=False, index=False), unsafe_allow_html=True)
     
-    df = pd.DataFrame(res_list)
-    st.write(df.style.format(precision=2).to_html(escape=False, index=False), unsafe_allow_html=True)
+    if not overall_safe:
+        st.error("⚠️ warning: Please adjust rebar size or spacing to satisfy all code requirements.")
 
-    if not is_safe:
-        st.warning("⚠️ **Action Required:** Some sections have D/C Ratio > 1.0. Please increase rebar size or reduce spacing.")
-
-    # PLOTS
+    # ----------------------------------------------------
+    # 🖼️ PART C: ENGINEERING DRAWINGS
+    # ----------------------------------------------------
     st.write("---")
-    st.markdown("### 📐 Professional Engineering Drawings")
+    st.markdown("### 📐 Professional Drawings")
     
     try:
         st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para, m_vals))
-    except Exception as e: st.error(f"Moment Plot Error: {e}")
+    except Exception as e: st.error(f"Plot Error: {e}")
     
     c1, c2 = st.columns(2)
     with c1:
-        try:
-            st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
-        except Exception as e: st.error(f"Section Plot Error: {e}")
+        st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
     with c2:
-        try:
-            st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
-        except Exception as e: st.error(f"Plan Plot Error: {e}")
+        st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
