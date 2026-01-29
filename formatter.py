@@ -1,93 +1,62 @@
 import streamlit as st
 
-def fmt_acrit_calc(c1_mm, c2_mm, d_mm, pos, acrit_val):
-    c1 = c1_mm / 1000.0
-    c2 = c2_mm / 1000.0
-    d = d_mm / 1000.0
+def fmt_rebar_verification(name, coeff, mo, mu, fy, d_cm, as_req_calc, as_min, as_target, 
+                           user_db, user_spacing, bar_area, as_prov, status, color):
     
-    if pos == "Interior":
-        eq = r"(c_1 + d)(c_2 + d)"
-        sub = f"({c1:.2f} + {d:.2f})({c2:.2f} + {d:.2f})"
-    elif pos == "Edge":
-        eq = r"(c_1 + d/2)(c_2 + d)"
-        sub = f"({c1:.2f} + {d/2:.2f})({c2:.2f} + {d:.2f})"
-    else: # Corner
-        eq = r"(c_1 + d/2)(c_2 + d/2)"
-        sub = f"({c1:.2f} + {d/2:.2f})({c2:.2f} + {d/2:.2f})"
-        
+    # 1. Moment & As Required
+    mu_sub = f"{coeff} \\times {mo:,.0f}"
+    
+    # 2. As Calculation
+    req_sub = f"\\frac{{{mu:,.0f} \\times 100}}{{0.9 \\times {fy:.0f} \\times 0.9 \\times {d_cm:.1f}}}"
+    
+    # 3. Provided Logic
+    # As_prov = (A_bar * 1000) / Spacing
+    prov_sub = f"\\frac{{{bar_area:.2f} \\times 1000}}{{{user_spacing:.0f}}}"
+    
+    # Status Symbol
+    status_icon = r"\checkmark" if "SAFE" in status else r"\times"
+    check_ineq = r"\ge" if as_prov >= as_target else r"<"
+    
     return r"""
+    \underline{\textbf{""" + name + r"""}} \\
     \begin{aligned}
-    A_{crit} &= """ + eq + r""" \\
-             &= """ + sub + r""" \\
-             &= \mathbf{""" + f"{acrit_val:.4f}" + r"""} \; m^2
+    M_u &= """ + f"{coeff} M_o = {mu:,.0f}" + r""" \; kg \cdot m \\
+    A_{s,req} &= """ + req_sub + r""" = \mathbf{""" + f"{as_req_calc:.2f}" + r"""} \; cm^2/m \\
+    \text{Control} &: \max(A_{s,req}, A_{s,min}) = \mathbf{""" + f"{as_target:.2f}" + r"""} \; cm^2/m \\
+    \text{Try} &: \text{DB""" + f"{user_db} @ {user_spacing}" + r""" mm} \quad (A_{bar} = """ + f"{bar_area:.2f}" + r""" cm^2) \\
+    A_{s,prov} &= \frac{A_{bar} \times 1000}{Spacing} = """ + prov_sub + r""" = \mathbf{""" + f"{as_prov:.2f}" + r"""} \; cm^2/m \\
+    \text{Check} &: """ + f"{as_prov:.2f} {check_ineq} {as_target:.2f}" + r""" \quad \Rightarrow \quad \textbf{\textcolor{""" + color + r"""}{""" + status + r"""}}
     \end{aligned}
     """
 
-# --- ฟังก์ชันเดิม (คงไว้) ---
-def fmt_h_min_check(ln_m, pos, h_min_code, h_selected):
-    denom = 33 if pos == "Interior" else 30
-    ln_str = f"{ln_m:.3f}"
+def fmt_load_trace(dl_fac, sw, sdl, ll_fac, ll, qu):
+    sub_str = f"{dl_fac}({sw:.0f} + {sdl:.0f}) + {ll_fac}({ll:.0f})"
     return r"""
     \begin{aligned}
-    \text{Code Req:} \; h_{min} &= \frac{\ell_n}{""" + str(denom) + r"""} = \frac{""" + ln_str + r""" \times 1000}{""" + str(denom) + r"""} = \mathbf{""" + f"{h_min_code:.2f}" + r"""} \; mm \\
-    \text{Design Use:} \; h &= \mathbf{""" + f"{h_selected:.0f}" + r"""} \; mm
+    q_u &= 1.4(SW + SDL) + 1.7(LL) \\
+        &= """ + sub_str + r""" \\
+        &= \mathbf{""" + f"{qu:.0f}" + r"""} \; kg/m^2
     \end{aligned}
     """
 
-def fmt_qu_calc(dl_fac, sw, sdl, ll_fac, ll, qu_val, h_final):
-    h_m = h_final / 1000.0
-    sw_show = f"{h_m:.2f} \\times 2400"
+def fmt_vu_detailed(qu, lx, ly, acrit, gamma, vu):
+    area_term = f"({lx} \\times {ly} - {acrit:.4f})"
+    sub_str = f"{qu:.0f} \\times {area_term} \\times {gamma:.2f}"
     return r"""
     \begin{aligned}
-    SW &= h_{final} \times 2400 = (""" + sw_show + r""") = \mathbf{""" + f"{sw:.0f}" + r"""} \; kg/m^2 \\
-    q_u &= """ + f"{dl_fac}" + r"""(SW + SDL) + """ + f"{ll_fac}" + r"""(LL) = \mathbf{""" + f"{qu_val:.0f}" + r"""} \; kg/m^2
+    V_u &= q_u \times (Area - A_{crit}) \times \gamma_v \\
+        &= """ + sub_str + r""" \\
+        &= \mathbf{""" + f"{vu:,.0f}" + r"""} \; kg
     \end{aligned}
     """
 
-def fmt_geometry_trace(c1_mm, c2_mm, d_mm, bo_mm, pos):
-    d = d_mm
-    if pos == "Interior":
-        formula = r"2(c_1 + d) + 2(c_2 + d)"
-        sub = f"2({c1_mm:.0f} + {d:.0f}) + 2({c2_mm:.0f} + {d:.0f})"
-    elif pos == "Edge":
-        formula = r"2(c_1 + d/2) + (c_2 + d)"
-        sub = f"2({c1_mm:.0f} + {d/2:.0f}) + ({c2_mm:.0f} + {d:.0f})"
-    else: # Corner
-        formula = r"(c_1 + d/2) + (c_2 + d/2)"
-        sub = f"({c1_mm:.0f} + {d/2:.0f}) + ({c2_mm:.0f} + {d/2:.0f})"
+def fmt_vc_conversion_detailed(phi, vc_mpa, bo, d, phi_vc_ton):
+    num = f"{phi} \\times {vc_mpa:.2f} \\times {bo:.0f} \\times {d:.0f}"
+    den = r"9.80665 \times 1000"
     return r"""
     \begin{aligned}
-    d &= h - \text{cover} - d_b/2 = \mathbf{""" + f"{d:.0f}" + r"""} \; mm \\
-    b_o &= """ + formula + r""" \\
-        &= """ + sub + r""" = \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm
-    \end{aligned}
-    """
-
-def fmt_vu_trace(qu, lx, ly, acrit, gamma_v, vu_kg):
-    area_tot = lx * ly
-    return r"""
-    \begin{aligned}
-    V_u &= q_u(L_x L_y - A_{crit})\gamma_v \\
-        &= """ + f"{qu:.0f}" + r"""(""" + f"{area_tot:.2f}" + r""" - """ + f"{acrit:.4f}" + r""")(""" + f"{gamma_v:.2f}" + r""") \\
-        &= \mathbf{""" + f"{vu_kg:.0f}" + r"""} \; kg
-    \end{aligned}
-    """
-
-def fmt_shear_capacity_sub(fc, beta, alpha, d, bo):
-    v1_val = 0.33 * (fc**0.5)
-    return r"""
-    \begin{aligned}
-    v_{c1} &= 0.33\sqrt{f_c'} = \mathbf{""" + f"{v1_val:.2f}" + r"""} \; MPa \\
-    v_{c2} &= 0.17(1 + 2/\beta)\sqrt{f_c'} \\
-    v_{c3} &= 0.083(2 + \alpha_s d/b_o)\sqrt{f_c'}
-    \end{aligned}
-    """
-
-def fmt_flexure_trace(strip_name, coeff, mo, mu, fy, d_cm, as_req):
-    return r"""
-    \textbf{""" + strip_name + r"""} \; (C=""" + f"{coeff}" + r"""): \\
-    \begin{aligned}
-    M_u &= C M_o = \mathbf{""" + f"{mu:,.0f}" + r"""} \; kg \cdot m \\
-    A_s &= \frac{M_u}{0.9 f_y (0.9d)} = \mathbf{""" + f"{as_req:.2f}" + r"""} \; cm^2
+    \phi V_c &= \frac{\phi \cdot v_{min} \cdot b_o \cdot d}{g \cdot 1000} \\
+             &= \frac{""" + num + r"""}{""" + den + r"""} \\
+             &= \mathbf{""" + f"{phi_vc_ton:,.2f}" + r"""} \; Tons
     \end{aligned}
     """
