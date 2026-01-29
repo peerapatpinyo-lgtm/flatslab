@@ -103,22 +103,22 @@ def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results, axis_dir):
 
     # 2.2 Main Rebar (Outer Layer - เพื่อค่า d มากสุด)
     cover = 0.03
-    bar_dia = 0.012 # สมมติขนาด visual
+    bar_dia = 0.015 # สมมติขนาด visual ให้เห็นชัด
     y_top = h_m - cover - (bar_dia/2)
     y_bot = cover + (bar_dia/2)
     
     bar_len = L_span * 0.3
     
-    # Top Bars (Red)
+    # Top Bars (Red) - Layer นอก
     ax.plot([-c_m/2, bar_len], [y_top, y_top], color=CLR_BAR_TOP, lw=3, solid_capstyle='round')
     ax.plot([L_span-bar_len, L_span+c_m/2], [y_top, y_top], color=CLR_BAR_TOP, lw=3, solid_capstyle='round')
-    # Bot Bars (Blue)
+    # Bot Bars (Blue) - Layer นอก
     ax.plot([0, L_span], [y_bot, y_bot], color=CLR_BAR_BOT, lw=3, solid_capstyle='round')
     
     # 2.3 Transverse Dots (Inner Layer - อยู่ลึกกว่า)
-    # ต้องวาด "ใต้" เหล็กบน และ "เหนือ" เหล็กล่าง
-    y_dot_top = y_top - 0.02 # ขยับลงมา
-    y_dot_bot = y_bot + 0.02 # ขยับขึ้นไป
+    # ต้องวาด "ใต้" เหล็กบน และ "เหนือ" เหล็กล่าง เพื่อไม่ให้ชนกัน
+    y_dot_top = y_top - 0.025 # ขยับลงมาจากเหล็กบน
+    y_dot_bot = y_bot + 0.025 # ขยับขึ้นมาจากเหล็กล่าง
     
     x_dots = np.arange(0.2, L_span, 0.25)
     
@@ -142,7 +142,7 @@ def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results, axis_dir):
     return fig
 
 # ==========================================
-# 3. PLAN VIEW (แก้ Logic การทับกัน)
+# 3. PLAN VIEW (แก้ Logic การทับกัน - สำคัญมาก!)
 # ==========================================
 def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results, axis_dir):
     """
