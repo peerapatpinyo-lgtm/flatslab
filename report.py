@@ -1,71 +1,55 @@
 import streamlit as st
-import pandas as pd
 import formatter
 
-def render_report(data):
-    inp = data['inputs']
-    res = data['results']
-    rebar_list = data['rebar']
+def render_report(base_data, verify_data):
+    i = base_data['inputs']
+    r = base_data['results']
+    bars = verify_data['rebar_verified']
+    as_min = verify_data['as_min']
     
-    st.markdown("## 1. Design Criteria")
-    st.info(f"""
-    **Thickness Traceability:**
-    * Input Thickness: **{inp['h_init']} mm**
-    * Final Design Thickness: **{res['h']} mm**
-    * **Governing Condition:** {res['reason']}
-    """)
-    st.markdown("**Minimum Thickness Check (ACI 318):**")
-    st.latex(formatter.fmt_h_min_check(res['ln'], inp['pos'], res['h_min_code'], res['h']))
+    st.markdown("## 🏗️ Interactive Design Report")
+    
+    # 1. Structure
+    st.markdown("### 1. Structural Analysis")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info(f"Final Thickness $h$: **{r['h']} mm**")
+        st.latex(fr"d \approx {r['d_mm']:.0f} \; mm")
+    with col2:
+        pass_flag = r['ratio'] <= 1.0
+        color = "green" if pass_flag else "red"
+        st.markdown(f"**Shear Status:** :{color}[{'SAFE' if pass_flag else 'FAIL'}]")
+        st.markdown(f"Ratio: {r['ratio']:.2f}")
 
-    st.markdown("## 2. Load Analysis")
-    st.latex(formatter.fmt_qu_calc(
-        inp['dl_fac'], inp['sw'], inp['sdl'], inp['ll_fac'], inp['ll'], res['qu'], res['h']
-    ))
+    # Loads
+    st.latex(formatter.fmt_load_trace(i['dl_fac'], i['sw'], i['sdl'], i['ll_fac'], i['ll'], r['qu']))
     
-    st.markdown("## 3. Punching Shear Verification")
+    # 2. Punching Shear
+    st.markdown("### 2. Punching Shear Check")
+    st.latex(formatter.fmt_vu_detailed(r['qu'], i['lx'], i['ly'], r['acrit'], r['gamma_v'], r['vu_kg']))
+    st.latex(formatter.fmt_vc_conversion_detailed(0.75, r['vc_mpa'], r['bo_mm'], r['d_mm'], r['phi_vc_kg']/1000.0))
     
-    # --- [NEW] 3.1 Geometric Properties ---
-    st.markdown("#### 3.1 Geometric Properties ($d, b_o, A_{crit}$)")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Effective Depth & Perimeter:**")
-        st.latex(formatter.fmt_geometry_trace(inp['c1_mm'], inp['c2_mm'], res['d_mm'], res['bo_mm'], inp['pos']))
-    with c2:
-        st.markdown("**Critical Area ($A_{crit}$):**")
-        st.latex(formatter.fmt_acrit_calc(inp['c1_mm'], inp['c2_mm'], res['d_mm'], inp['pos'], res['acrit']))
-    # ----------------------------------------
-
-    st.markdown("#### 3.2 Shear Demand ($V_u$)")
-    st.latex(formatter.fmt_vu_trace(
-        res['qu'], inp['lx'], inp['ly'], res['acrit'], res['gamma_v'], res['vu_kg']
-    ))
+    # 3. Flexural Verification
+    st.markdown("### 3. Flexural Reinforcement Verification")
+    st.caption("Verifying User Selected Bars vs Requirements")
     
-    st.markdown("#### 3.3 Shear Capacity ($\phi V_c$)")
-    st.latex(formatter.fmt_shear_capacity_sub(
-        inp['fc_mpa'], res['beta'], res['alpha'], res['d_mm'], res['bo_mm']
-    ))
+    st.markdown("**3.1 Minimum Reinforcement ($A_{s,min}$)**")
+    st.latex(fr"A_{{s,min}} = 0.0018 \times 100 \times {r['h']/10:.1f} = \mathbf{{{as_min:.2f}}} \; cm^2/m")
     
-    df = pd.DataFrame({
-        "Eq": ["Eq.1", "Eq.2", "Eq.3"],
-        "Stress (MPa)": [res['v1'], res['v2'], res['v3']],
-        "Capacity (Ton)": [(0.75 * v * res['bo_mm'] * res['d_mm'] / 9806.65) for v in [res['v1'], res['v2'], res['v3']]]
-    })
-    
-    st.table(df.style.format({"Stress (MPa)": "{:.2f}", "Capacity (Ton)": "{:.2f}"}))
-    
-    pass_flag = res['ratio'] <= 1.0
-    color = "green" if pass_flag else "red"
-    st.markdown(f"#### Ratio = {res['ratio']:.2f} (Status: :{color}[{'PASS' if pass_flag else 'FAIL'}])")
-
-    st.markdown("## 4. Flexural Design")
-    st.latex(r"M_o = \frac{q_u \ell_n^2}{8} = \mathbf{" + f"{res['mo']:,.0f}" + r"} \; kg \cdot m")
+    st.markdown("**3.2 Strip Verification**")
+    st.latex(fr"M_o = \mathbf{{{r['mo']:,.0f}}} \; kg \cdot m")
     
     c1, c2 = st.columns(2)
     c3, c4 = st.columns(2)
     cols = [c1, c2, c3, c4]
-    for i, item in enumerate(rebar_list):
-        if i < 4:
-            with cols[i]:
-                st.latex(formatter.fmt_flexure_trace(
-                    item['name'], item['coeff'], res['mo'], item['mu'], inp['fy'], res['d_mm']/10, item['as_req']
+    
+    for idx, bar in enumerate(bars):
+        if idx < 4:
+            with cols[idx]:
+                st.latex(formatter.fmt_rebar_verification(
+                    bar['name'], bar['coeff'], r['mo'], bar['mu'],
+                    i['fy'], r['d_mm']/10.0,
+                    bar['as_req_calc'], bar['as_min'], bar['as_target'],
+                    bar['user_db'], bar['user_spacing'], bar['bar_area'],
+                    bar['as_provided'], bar['status'], bar['color']
                 ))
