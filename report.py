@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-import drawings
-import formatter
+import drawings # เรียกใช้ไฟล์ drawings.py ที่เพิ่งสร้าง
 
 def render_unified_report(data):
     i = data['inputs']
@@ -27,7 +26,9 @@ def render_unified_report(data):
     col3.metric("Concrete (fc')", f"{i['fc']} ksc")
     col4.metric("Steel (fy)", f"{i['fy']} ksc")
     
-    st.caption(f"**Loading:** SDL = {i['sdl']} kg/m², LL = {i['ll']} kg/m² -> **Qu = {r['vu']/(i['lx']*i['ly']):.0f} kg/m²**")
+    # Calculations for display
+    qu_val = r['vu'] / ((i['lx'] * i['ly']) - (i['c1']*i['c2'])) if (i['lx'] * i['ly']) > 0 else 0
+    st.caption(f"**Loading:** SDL = {i['sdl']} kg/m², LL = {i['ll']} kg/m²")
 
     # --- 3. Shear & Deflection Section ---
     st.markdown("### 2. Serviceability & Shear Check")
@@ -79,8 +80,20 @@ def render_unified_report(data):
     top_txt = f"DB{bars[0]['db']}@{bars[0]['sp']}"
     bot_txt = f"DB{bars[1]['db']}@{bars[1]['sp']}"
     
-    fig = drawings.draw_section(
-        i['h'], i['cover'], i['c1'], r['d_mm']/1000*0.8 + i['c1'], r['d_mm'], 
-        top_txt, bot_txt
-    )
-    st.pyplot(fig)
+    # Safe plotting call
+    try:
+        # Calculate schematic span roughly
+        schematic_span = max(i['lx']/2.0, 2.0) 
+        
+        fig = drawings.draw_section(
+            float(i['h']), 
+            float(i['cover']), 
+            float(i['c1']), 
+            schematic_span, 
+            float(r['d_mm']), 
+            str(top_txt), 
+            str(bot_txt)
+        )
+        st.pyplot(fig)
+    except Exception as e:
+        st.error(f"Could not generate drawing: {e}")
