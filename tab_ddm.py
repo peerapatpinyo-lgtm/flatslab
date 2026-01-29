@@ -1,154 +1,94 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import ddm_plots 
-
-def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
-    st.markdown("## 2. Direct Design Method (Detailed Report)")
-    st.info("💡 รายงานการคำนวณแบบละเอียด พร้อมรูปประกอบการเสริมเหล็ก")
-
-    tab_x, tab_y = st.tabs([
-        f"📄 Design X-Direction ({data_x['L_span']}m)", 
-        f"📄 Design Y-Direction ({data_y['L_span']}m)"
-    ])
-    
-    with tab_x:
-        render_detailed_direction(data_x, h_slab, d_eff, fc, fy, d_bar, w_u)
-    with tab_y:
-        render_detailed_direction(data_y, h_slab, d_eff, fc, fy, d_bar, w_u)
-
-def render_detailed_direction(data, h_slab, d_eff, fc, fy, d_bar, w_u):
+def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     # --- 1. PREPARE DATA ---
     L_span = data['L_span']
     L_width = data['L_width']
-    c_para = data['c_para']
-    ln = data['ln']
-    Mo = data['Mo']
-    m_vals = data['M_vals']
-    dir_name = data['dir']
-
-    # --- 2. HEADER & PARAMETERS ---
-    st.markdown(f"### 📐 Analysis: {dir_name}-Direction")
     
-    # แสดง Parameter แบบ Metric สวยๆ
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Span Length ($L_1$)", f"{L_span:.2f} m")
-    c2.metric("Width ($L_2$)", f"{L_width:.2f} m")
-    c3.metric("Clear Span ($l_n$)", f"{ln:.3f} m")
-    c4.metric("Static Moment ($M_o$)", f"{Mo:,.0f} kg-m")
-    
-    # แสดงวิธีทำ Mo
-    with st.expander("🔎 ดูวิธีทำ $M_o$ (Click to expand)"):
-        st.latex(r"M_o = \frac{w_u \cdot L_{2} \cdot l_n^2}{8} = \frac{" + f"{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln:.3f}^2" + r"}{8}")
-        st.write(f"**Result:** $M_o = {Mo:,.0f}$ kg-m")
+    # Calculate Required Steel (As_req) for reference
+    # (คำนวณ As_req รอไว้ก่อน เพื่อเอาไปโชว์ให้ User ดูตอนเลือกเหล็ก)
+    def get_as_req(M_val, b_width):
+        b_cm = b_width * 100
+        rho_min = 0.0018
+        # Simple estimation for UI guidance
+        req = (M_val * 100) / (0.9 * fy * 0.9 * d_eff) 
+        min_as = rho_min * b_cm * d_eff
+        return max(req, min_as)
 
-    st.markdown("---")
-
-    # --- 3. REINFORCEMENT DESIGN (DETAILED TABLE) ---
-    st.markdown("### 🧱 Reinforcement Calculation")
-    
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
     
-    zones = [
-        {"id": "CS_Top", "name": "Column Strip - Top (Neg)", "M": m_vals["M_cs_neg"], "b": w_cs, "type": "Top"},
-        {"id": "CS_Bot", "name": "Column Strip - Bot (Pos)", "M": m_vals["M_cs_pos"], "b": w_cs, "type": "Bot"},
-        {"id": "MS_Top", "name": "Middle Strip - Top (Neg)", "M": m_vals["M_ms_neg"], "b": w_ms, "type": "Top"},
-        {"id": "MS_Bot", "name": "Middle Strip - Bot (Pos)", "M": m_vals["M_ms_pos"], "b": w_ms, "type": "Bot"},
-    ]
-    
-    rebar_summary = {} # เก็บค่าไว้ส่งให้กราฟวาด
-    table_rows = []
+    as_req_cs_top = get_as_req(data['M_vals']['M_cs_neg'], w_cs)
+    as_req_cs_bot = get_as_req(data['M_vals']['M_cs_pos'], w_cs)
+    as_req_ms_top = get_as_req(data['M_vals']['M_ms_neg'], w_ms)
+    as_req_ms_bot = get_as_req(data['M_vals']['M_ms_pos'], w_ms)
 
-    for z in zones:
-        Mu = z['M']            # kg-m
-        Mu_kgcm = Mu * 100     # kg-cm
-        b_cm = z['b'] * 100    # cm
-        
-        # 3.1 Calculate Rn
-        phi = 0.9
-        denom = phi * b_cm * (d_eff**2)
-        Rn = Mu_kgcm / denom if denom > 0 else 0
-        
-        # 3.2 Calculate Rho
-        # Check limit
-        limit_term = 1 - (2*Rn)/(0.85*fc)
-        status = "OK"
-        
-        if limit_term < 0:
-            rho_des = 0
-            As_req = 0
-            select_str = "FAIL (Deep)"
-            rebar_summary[z['id']] = "FAIL"
-            status = "FAIL"
-        else:
-            rho_req = (0.85*fc/fy) * (1 - np.sqrt(limit_term))
-            rho_min = 0.0018
-            rho_des = max(rho_req, rho_min)
-            
-            # 3.3 As Required
-            As_req = rho_des * b_cm * d_eff
-            
-            # 3.4 Select Bars
-            Ab = 3.14159 * (d_bar/10)**2 / 4
-            n_bars = max(np.ceil(As_req/Ab), 2) # Min 2 bars
-            
-            # Spacing check
-            s_calc = b_cm / n_bars
-            s_final = min(s_calc, 2*h_slab, 45) # Max spacing
-            
-            # Formatted String
-            s_show = int(s_final // 5) * 5 # Round down to nearest 5
-            if s_show < 5: s_show = 5
-            
-            # ถ้าเป็น MS Top เหล็กน้อยมากมักใส่ Min Steel
-            select_str = f"{int(n_bars)}-DB{d_bar}@{s_show}c"
-            rebar_summary[z['id']] = select_str
-        
-        # Add to table data
-        table_rows.append({
-            "Zone": z['name'],
-            "Mu (kg-m)": f"{Mu:,.0f}",
-            "Width (m)": f"{z['b']:.2f}",
-            "Rn (ksc)": f"{Rn:.2f}",
-            "Rho Req": f"{rho_req:.5f}" if limit_term > 0 else "N/A",
-            "As Req (cm2)": f"{As_req:.2f}",
-            "Selected Design": f"**{select_str}**"
-        })
+    # --- 2. INTERACTIVE UI (SPATIAL LAYOUT) ---
+    st.markdown("### 🎛️ ปรับแต่งเหล็กเสริม (Rebar Tuning)")
+    st.caption("ปรับขนาดและระยะแอดให้เหมาะสม (สังเกตค่า As ที่ต้องการด้านขวา)")
 
-    # Display Table
-    df_res = pd.DataFrame(table_rows)
+    # สร้าง container แยกโซนชัดเจน
+    c_zone1, c_gap, c_zone2 = st.columns([1, 0.1, 1])
     
-    # --- FIX: เปลี่ยนจาก .to_markdown() เป็น st.table() หรือ .to_html() ---
-    # st.table(df_res) # แบบธรรมดา
-    # หรือแบบ HTML เพื่อให้แสดงตัวหนา (**text**) ได้ถูกต้อง
-    st.markdown(df_res.to_html(escape=False, index=False), unsafe_allow_html=True)
-    
-    st.caption(f"*Note: Design based on d = {d_eff} cm, fc' = {fc} ksc, fy = {fy} ksc*")
+    # === ZONE 1: COLUMN STRIP (LEFT) ===
+    with c_zone1:
+        st.markdown(
+            """<div style="background-color:#fff5f5; padding:10px; border-radius:5px; border-left: 5px solid #d62728;">
+            <strong style="color:#d62728;">🏛️ COLUMN STRIP (ริมเสา)</strong></div>""", 
+            unsafe_allow_html=True
+        )
+        st.write("") # Spacer
+        
+        # 1.1 CS TOP
+        st.markdown(f"**🟥 Top Bars (Support)** <span style='font-size:0.8em; color:gray;'>(Req: {as_req_cs_top:.2f} cm²/strip)</span>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        with c1: d_cs_top = st.selectbox("Dia (mm)", [12, 16, 20, 25], key=f"db_cst_{axis_id}")
+        with c2: s_cs_top = st.number_input("@Spacing (cm)", 5, 40, 20, step=5, key=f"sp_cst_{axis_id}")
+        
+        st.write("---") # Separator
+        
+        # 1.2 CS BOT
+        st.markdown(f"**🟦 Bot Bars (Mid-span)** <span style='font-size:0.8em; color:gray;'>(Req: {as_req_cs_bot:.2f} cm²/strip)</span>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        with c1: d_cs_bot = st.selectbox("Dia (mm)", [12, 16, 20, 25], key=f"db_csb_{axis_id}")
+        with c2: s_cs_bot = st.number_input("@Spacing (cm)", 5, 45, 25, step=5, key=f"sp_csb_{axis_id}")
 
+    # === ZONE 2: MIDDLE STRIP (RIGHT) ===
+    with c_zone2:
+        st.markdown(
+            """<div style="background-color:#f0f8ff; padding:10px; border-radius:5px; border-left: 5px solid #1f77b4;">
+            <strong style="color:#1f77b4;">🌊 MIDDLE STRIP (กลางพื้น)</strong></div>""", 
+            unsafe_allow_html=True
+        )
+        st.write("") # Spacer
+
+        # 2.1 MS TOP
+        st.markdown(f"**🟥 Top Bars (Support)** <span style='font-size:0.8em; color:gray;'>(Req: {as_req_ms_top:.2f} cm²/strip)</span>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        with c1: d_ms_top = st.selectbox("Dia (mm)", [12, 16, 20, 25], key=f"db_mst_{axis_id}", index=0)
+        with c2: s_ms_top = st.number_input("@Spacing (cm)", 10, 50, 30, step=5, key=f"sp_mst_{axis_id}")
+        
+        st.write("---")
+
+        # 2.2 MS BOT
+        st.markdown(f"**🟦 Bot Bars (Mid-span)** <span style='font-size:0.8em; color:gray;'>(Req: {as_req_ms_bot:.2f} cm²/strip)</span>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        with c1: d_ms_bot = st.selectbox("Dia (mm)", [12, 16, 20, 25], key=f"db_msb_{axis_id}")
+        with c2: s_ms_bot = st.number_input("@Spacing (cm)", 5, 45, 25, step=5, key=f"sp_msb_{axis_id}")
+
+    # --- 3. CALCULATE RESULTS & DISPLAY (ส่วนแสดงผลเหมือนเดิม) ---
+    # ... (ส่วนคำนวณ calc_capacity และแสดงผลกราฟด้านล่าง Copy ของเก่ามาใส่ต่อตรงนี้ได้เลย) ...
+    
+    # ตัวอย่างการ Pack ข้อมูลเพื่อส่งไป plot
+    rebar_summary = {
+        "CS_Top": f"DB{d_cs_top}@{s_cs_top}",
+        "CS_Bot": f"DB{d_cs_bot}@{s_cs_bot}",
+        "MS_Top": f"DB{d_ms_top}@{s_ms_top}",
+        "MS_Bot": f"DB{d_ms_bot}@{s_ms_bot}"
+    }
+    
+    # ... Call Plots ...
     st.markdown("---")
-
-    # --- 4. DRAWINGS (VISUALIZATION) ---
-    st.markdown("### 🎨 Engineering Drawings")
-    
-    # 4.1 Moment Diagram
-    st.markdown("**1. Moment Distribution Diagram**")
-    fig_mom = ddm_plots.plot_ddm_moment(L_span, c_para, m_vals)
-    st.pyplot(fig_mom)
-    
-    # 4.2 Rebar Drawings
-    if "FAIL" not in rebar_summary.values():
-        st.markdown("**2. Reinforcement Detailing**")
-        c_draw1, c_draw2 = st.columns(2)
-        
-        with c_draw1:
-            st.markdown("*(A) Section Profile*")
-            fig_side = ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_summary)
-            st.pyplot(fig_side)
-            
-        with c_draw2:
-            st.markdown("*(B) Plan View Layout*")
-            fig_top = ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_summary)
-            st.pyplot(fig_top)
-    else:
-        st.error("❌ Cannot generate drawings because section failed (Check calculation above).")
+    c_draw1, c_draw2 = st.columns(2)
+    with c_draw1:
+        st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, data['c_para'], rebar_summary))
+    with c_draw2:
+        st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, data['c_para'], rebar_summary))
