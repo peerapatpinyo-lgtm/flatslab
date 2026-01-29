@@ -3,10 +3,9 @@ import engine
 import report
 import drawings
 
-st.set_page_config(page_title="Flat Slab Construction Design", layout="wide")
+st.set_page_config(page_title="Interactive Flat Slab", layout="wide")
 
-# Sidebar
-st.sidebar.header("🏗️ Input Parameters")
+st.sidebar.header("🏗️ 1. Global Parameters")
 with st.sidebar:
     lx = st.number_input("Span Lx (m)", 3.0, 15.0, 8.0)
     ly = st.number_input("Span Ly (m)", 3.0, 15.0, 8.0)
@@ -18,39 +17,54 @@ with st.sidebar:
     fy = st.number_input("fy (ksc)", 2400, 5000, 4000)
     sdl = st.number_input("SDL (kg/m2)", 0, 1000, 150)
     ll = st.number_input("LL (kg/m2)", 0, 3000, 300)
-    h_init = st.number_input("Start Thickness (mm)", 100, 600, 200)
-    st.divider()
-    # Bar Selection
-    bar_size = st.selectbox("Rebar Size (Main)", [12, 16, 20, 25], index=1)
+    h_init = st.number_input("Start h (mm)", 100, 600, 200)
 
-# Run Engine
-data = engine.run_design_cycle(lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, bar_size)
-res = data['results']
-bars = data['rebar']
+st.title("🛡️ Interactive Flat Slab Design")
 
-st.title("🛡️ Flat Slab Construction Design")
-st.caption("Detailed Calculation with Rebar Spacing & Min/Max Checks")
+# --- Phase 1: Structural Analysis ---
+# We run this first to get h and moments, which helps guide the user
+base_data = engine.analyze_structure(
+    lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, 20
+)
+res = base_data['results']
 
-# Status
+# Show Status
 status_color = "green" if res['ratio'] <= 1.0 else "red"
 st.markdown(f"""
-<div style='background-color:#f8f9fa; padding:15px; border-left:6px solid {status_color}; border-radius:5px;'>
-    <h3 style='margin:0; color:#333;'>Final Design: h = {res['h']} mm</h3>
-    <p style='margin:5px 0'>Shear Ratio: <b>{res['ratio']:.2f}</b> | Main Rebar: <b>DB{bar_size}</b></p>
+<div style='background-color:#f0f2f6; padding:15px; border-left:6px solid {status_color}; border-radius:5px;'>
+    <h3 style='margin:0;'>Step 1 Analysis: h = {res['h']} mm</h3>
+    <p style='margin:0;'>Shear Ratio: <b>{res['ratio']:.2f}</b></p>
 </div>
-<br>
 """, unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["📄 Calculation Report", "📐 Construction Drawing"])
+# --- Phase 2: User Reinforcement Selection ---
+st.markdown("### 2. Reinforcement Selection (Manual Control)")
+col_top, col_bot = st.columns(2)
+
+with col_top:
+    st.subheader("Top Bars (Column Strip)")
+    top_db = st.selectbox("Top Bar Size", [10, 12, 16, 20, 25], index=2, key="top_db")
+    top_space = st.slider("Top Spacing (mm)", 50, 350, 150, 10, key="top_sp")
+    st.caption(f"Selected: DB{top_db} @ {top_space} mm")
+
+with col_bot:
+    st.subheader("Bottom Bars (Column Strip)")
+    bot_db = st.selectbox("Bottom Bar Size", [10, 12, 16, 20, 25], index=1, key="bot_db")
+    bot_space = st.slider("Bottom Spacing (mm)", 50, 350, 200, 10, key="bot_sp")
+    st.caption(f"Selected: DB{bot_db} @ {bot_space} mm")
+
+# --- Phase 3: Verification & Reporting ---
+verify_data = engine.verify_reinforcement(base_data, top_db, top_space, bot_db, bot_space)
+
+tab1, tab2 = st.tabs(["📄 Detailed Check", "📐 Construction Drawing"])
 
 with tab1:
-    report.render_report(data)
+    report.render_report(base_data, verify_data)
 
 with tab2:
-    st.markdown("### Typical Section (Column Strip)")
-    # Extract CS Top and CS Bot strings for drawing
-    top_str = f"DB{bar_size} @ {bars[0]['use_spacing']/100:.2f}m" # CS Top
-    bot_str = f"DB{bar_size} @ {bars[1]['use_spacing']/100:.2f}m" # CS Bot
+    st.markdown("### Interactive Section View")
+    top_lbl = f"DB{top_db} @ {top_space} mm"
+    bot_lbl = f"DB{bot_db} @ {bot_space} mm"
     
-    fig = drawings.draw_section(res['h'], 25, c1, res['ln'], res['d_mm'], top_str, bot_str)
+    fig = drawings.draw_section(res['h'], 25, c1, res['ln'], res['d_mm'], top_lbl, bot_lbl)
     st.pyplot(fig)
