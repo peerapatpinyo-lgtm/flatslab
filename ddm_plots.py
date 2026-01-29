@@ -3,296 +3,351 @@ import matplotlib.patches as patches
 import numpy as np
 
 # ==========================================
-# 🎨 GLOBAL STYLING & COLORS (Engineering Standard)
+# 🎨 PROFESSIONAL ENGINEERING STYLING
 # ==========================================
-CLR_CONCRETE = '#F9F9F9'  # สีคอนกรีต (ขาวควันบุหรี่)
-CLR_COL_HATCH = '#4A5568' # สีเสา (เทาเข้ม)
-CLR_DIM = '#718096'       # สีเส้นบอกระยะ (Cool Gray)
+# Color Palette (Technical & Clean)
+CLR_BG = 'white'
+CLR_CONCRETE_FILL = '#F8F9FA'
+CLR_CONCRETE_EDGE = '#495057'
+CLR_HATCH = '#ADB5BD'
+CLR_DIM_LINE = '#6C757D'
+CLR_DIM_TEXT = '#343A40'
 
-# Rebar Colors
-CLR_BAR_TOP = '#C53030'   # แดงเข้ม (Top / Negative)
-CLR_BAR_BOT = '#2B6CB0'   # น้ำเงินเข้ม (Bot / Positive)
+# Rebar Colors (High Contrast)
+CLR_BAR_TOP = '#C0392B'  # Engineering Red (Negative Moment)
+CLR_BAR_BOT = '#0056b3'  # Engineering Blue (Positive Moment)
 
-# Background Zones (Plan View)
-CLR_ZONE_CS = '#FFF5F5'   # ชมพูจางๆ (Column Strip)
-CLR_ZONE_MS = '#EBF8FF'   # ฟ้าจางๆ (Middle Strip)
+# Plan View Zones (Subtle pastel)
+CLR_ZONE_CS = '#FFF0F0'
+CLR_ZONE_MS = '#F0F8FF'
 
-def setup_cad_style(ax, title):
-    """จัด Style ให้สะอาดตาเหมือนแบบก่อสร้าง"""
-    ax.set_title(title, loc='left', fontsize=10, fontweight='bold', pad=15, color='#2D3748')
+# Line Weights
+LW_BAR_MAIN = 3.0
+LW_BAR_TRANS = 1.5
+LW_DIM = 0.8
+LW_EDGE = 1.0
+
+def setup_pro_style(ax, title):
+    """ตั้งค่า Style กราฟให้เป็นแบบมืออาชีพ"""
+    ax.set_title(title, loc='left', fontsize=11, fontweight='700', pad=15, color='#212529')
     ax.axis('off')
-    ax.figure.patch.set_alpha(0.0)
-    ax.patch.set_alpha(0.0)
+    # Ensure crisp edges
+    for spine in ax.spines.values():
+        spine.set_visible(False)
 
-def add_dim(ax, x1, y1, x2, y2, text, offset=0.5, is_vert=False):
-    """วาด Dimension Line แบบมีหัวลูกศร"""
-    # เส้นหลัก
-    ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
-                arrowprops=dict(arrowstyle='<|-|>', color=CLR_DIM, lw=0.6))
+def add_pro_dim(ax, x1, y1, x2, y2, text, offset=0.5, is_vert=False):
+    """วาดเส้นบอกระยะ Dimension Line แบบมืออาชีพ"""
+    # Arrow style
+    arrow = dict(arrowstyle='<|-|>', color=CLR_DIM_LINE, lw=LW_DIM, shrinkA=0, shrinkB=0)
+    ax.annotate('', xy=(x1, y1), xytext=(x2, y2), arrowprops=arrow)
     
-    # คำนวณตำแหน่ง Text
     mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
+    
     if is_vert:
         txt_x, txt_y = mid_x + offset, mid_y
         rot = 90
+        va, ha = 'center', 'center'
     else:
         txt_x, txt_y = mid_x, mid_y + offset
         rot = 0
+        va, ha = 'center', 'center'
         
-    bbox = dict(boxstyle="round,pad=0.2", fc="white", ec=CLR_DIM, lw=0.5, alpha=0.9)
-    ax.text(txt_x, txt_y, text, ha='center', va='center', 
-            fontsize=7, color=CLR_DIM, bbox=bbox, fontweight='600', rotation=rot)
+    # Text box with background to prevent overlapping
+    bbox = dict(boxstyle="round,pad=0.25", fc=CLR_BG, ec=CLR_DIM_LINE, lw=0.5, alpha=0.95)
+    ax.text(txt_x, txt_y, text, ha=ha, va=va, fontsize=8, color=CLR_DIM_TEXT, 
+            bbox=bbox, fontweight='600', rotation=rot, zorder=20)
 
 # ==========================================
-# 1. MOMENT DIAGRAM
+# 1. MOMENT DIAGRAM (Improved)
 # ==========================================
 def plot_ddm_moment(L_span, c1, m_vals):
-    fig, ax = plt.subplots(figsize=(9, 3))
+    fig, ax = plt.subplots(figsize=(10, 3.5), facecolor=CLR_BG)
     
-    x = np.linspace(0, L_span, 200)
+    x = np.linspace(0, L_span, 300)
     M_neg_cs, M_pos_cs = m_vals['M_cs_neg'], m_vals['M_cs_pos']
     M_neg_ms, M_pos_ms = m_vals['M_ms_neg'], m_vals['M_ms_pos']
 
-    pts = [0, L_span*0.2, L_span*0.5, L_span*0.8, L_span]
-    y_cs = np.interp(x, pts, [-M_neg_cs, 0, M_pos_cs, 0, -M_neg_cs])
-    y_ms = np.interp(x, pts, [-M_neg_ms, 0, M_pos_ms, 0, -M_neg_ms])
+    # Smooth Curve Interpolation
+    pts_x = [0, L_span*0.15, L_span*0.5, L_span*0.85, L_span]
+    pts_y_cs = [-M_neg_cs, 0, M_pos_cs, 0, -M_neg_cs]
+    pts_y_ms = [-M_neg_ms, 0, M_pos_ms, 0, -M_neg_ms]
+    
+    from scipy.interpolate import make_interp_spline
+    spl_cs = make_interp_spline(pts_x, pts_y_cs, k=3)
+    spl_ms = make_interp_spline(pts_x, pts_y_ms, k=3)
+    y_cs = spl_cs(x)
+    y_ms = spl_ms(x)
 
-    # Plot
-    ax.plot(x, y_cs, label='Col Strip', color=CLR_BAR_TOP, lw=1.8)
-    ax.plot(x, y_ms, label='Mid Strip', color=CLR_BAR_BOT, lw=1.8, ls='--')
+    # Plotting with hierarchy
+    ax.axhline(0, color=CLR_CONCRETE_EDGE, lw=1.0, zorder=1)
     
-    ax.fill_between(x, y_cs, 0, alpha=0.08, color=CLR_BAR_TOP)
-    ax.axhline(0, color=CLR_DIM, lw=0.8)
+    # Middle Strip (Secondary)
+    ax.plot(x, y_ms, label='Middle Strip', color=CLR_BAR_BOT, lw=2, ls='--', alpha=0.7, zorder=2)
     
-    limit = max(abs(np.concatenate([y_cs, y_ms]))) * 1.4
-    ax.set_ylim(limit, -limit) 
+    # Column Strip (Primary)
+    ax.plot(x, y_cs, label='Column Strip', color=CLR_BAR_TOP, lw=2.5, zorder=3)
+    ax.fill_between(x, y_cs, 0, where=(y_cs<0), alpha=0.1, color=CLR_BAR_TOP, zorder=0)
+    ax.fill_between(x, y_cs, 0, where=(y_cs>0), alpha=0.1, color=CLR_BAR_BOT, zorder=0)
     
-    # Value Tags
-    bbox_val = dict(boxstyle="round,pad=0.1", fc=CLR_BAR_TOP, ec="none", alpha=0.1)
-    ax.text(0, -M_neg_cs*1.1, f"{M_neg_cs:,.0f}", color=CLR_BAR_TOP, fontsize=7, ha='left', va='bottom', fontweight='bold', bbox=bbox_val)
-    ax.text(L_span/2, M_pos_cs*1.1, f"{M_pos_cs:,.0f}", color=CLR_BAR_TOP, fontsize=7, ha='center', va='top', fontweight='bold', bbox=bbox_val)
+    # Peak Annotations
+    limit = max(abs(np.concatenate([y_cs, y_ms]))) * 1.3
+    ax.set_ylim(limit, -limit) # Standard engineering convention (Neg moment top)
+    
+    bbox_peak = dict(boxstyle="round,pad=0.2", fc=CLR_BG, ec="none", alpha=0.9)
+    ax.text(0, -M_neg_cs*1.05, f"M- (CS)\n{M_neg_cs:,.0f}", color=CLR_BAR_TOP, fontsize=8, ha='left', va='bottom', fontweight='bold', bbox=bbox_peak, zorder=10)
+    ax.text(L_span/2, M_pos_cs*1.05, f"M+ (CS)\n{M_pos_cs:,.0f}", color=CLR_BAR_BOT, fontsize=8, ha='center', va='top', fontweight='bold', bbox=bbox_peak, zorder=10)
 
-    setup_cad_style(ax, f"BENDING MOMENT (L={L_span}m)")
-    ax.legend(fontsize=7, loc='upper right')
-    ax.grid(True, ls=':', color='#E2E8F0')
+    setup_pro_style(ax, f"BENDING MOMENT DIAGRAM (Span L = {L_span:.2f}m)")
+    ax.legend(fontsize=9, loc='upper right', frameon=True, framealpha=1.0, edgecolor=CLR_DIM_LINE)
+    ax.grid(True, ls=':', color=CLR_DIM_LINE, alpha=0.3, zorder=0)
     
+    plt.tight_layout()
     return fig
 
 # ==========================================
-# 2. SECTION VIEW (แก้ตำแหน่ง Dots ให้สมจริง)
+# 2. SECTION VIEW (Professional Layering)
 # ==========================================
 def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results, axis_dir):
     h_m = h_slab / 100.0
     c_m = c_para / 100.0
     
-    # Adjust Figure Size
-    fig_w = 9
-    fig_h = max(3.5, fig_w * (h_m/L_span) * 5) # Scale height visually
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    # Dynamic Figure Size based on aspect ratio
+    aspect = L_span / h_m
+    fig_w = 10
+    fig_h = max(4, fig_w / aspect * 2) # Ensure enough height for details
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), facecolor=CLR_BG)
     
-    # 2.1 Concrete Body
-    ax.add_patch(patches.Rectangle((0, 0), L_span, h_m, fc=CLR_CONCRETE, ec=CLR_DIM, lw=0.8))
-    
-    # Columns
-    col_h = 0.4
+    # 2.1 Concrete & Supports
+    # Slab
+    ax.add_patch(patches.Rectangle((0, 0), L_span, h_m, fc=CLR_CONCRETE_FILL, ec=CLR_CONCRETE_EDGE, lw=LW_EDGE, zorder=0))
+    # Columns (Hatched)
+    col_h = h_m * 0.6 # Proportional column stub height
+    hatch_style = dict(hatch='////', fc='white', ec=CLR_HATCH, lw=0.5, zorder=1)
     for x_c in [-c_m/2, L_span-c_m/2]:
-        # Top Col
-        ax.add_patch(patches.Rectangle((x_c, h_m), c_m, col_h, fc='white', ec=CLR_DIM, hatch='///', lw=0.5))
-        # Bot Col
-        ax.add_patch(patches.Rectangle((x_c, -col_h), c_m, col_h, fc='white', ec=CLR_DIM, hatch='///', lw=0.5))
+        ax.add_patch(patches.Rectangle((x_c, h_m), c_m, col_h, edgecolor=CLR_CONCRETE_EDGE, **hatch_style)) # Top
+        ax.add_patch(patches.Rectangle((x_c, -col_h), c_m, col_h, edgecolor=CLR_CONCRETE_EDGE, **hatch_style)) # Bot
 
-    # 2.2 Main Rebar (Outer Layer - เพื่อค่า d มากสุด)
-    cover = 0.03
-    bar_dia = 0.015 # สมมติขนาด visual ให้เห็นชัด
-    y_top = h_m - cover - (bar_dia/2)
-    y_bot = cover + (bar_dia/2)
+    # 2.2 Rebar Positioning Logic (Crucial for realism)
+    cover = 0.025 # 25mm cover standard
+    db_main_est = 0.020 # Estimate 20mm main bar
+    db_trans_est = 0.012 # Estimate 12mm transverse bar
     
-    bar_len = L_span * 0.3
+    # Main Bars (Outer Layer)
+    y_main_top = h_m - cover - db_main_est/2
+    y_main_bot = cover + db_main_est/2
     
-    # Top Bars (Red) - Layer นอก
-    ax.plot([-c_m/2, bar_len], [y_top, y_top], color=CLR_BAR_TOP, lw=3, solid_capstyle='round')
-    ax.plot([L_span-bar_len, L_span+c_m/2], [y_top, y_top], color=CLR_BAR_TOP, lw=3, solid_capstyle='round')
-    # Bot Bars (Blue) - Layer นอก
-    ax.plot([0, L_span], [y_bot, y_bot], color=CLR_BAR_BOT, lw=3, solid_capstyle='round')
-    
-    # 2.3 Transverse Dots (Inner Layer - อยู่ลึกกว่า)
-    # ต้องวาด "ใต้" เหล็กบน และ "เหนือ" เหล็กล่าง เพื่อไม่ให้ชนกัน
-    y_dot_top = y_top - 0.025 # ขยับลงมาจากเหล็กบน
-    y_dot_bot = y_bot + 0.025 # ขยับขึ้นมาจากเหล็กล่าง
-    
-    x_dots = np.arange(0.2, L_span, 0.25)
-    
-    # Dots Top (Red outline)
-    ax.scatter(x_dots, [y_dot_top]*len(x_dots), c='white', edgecolors=CLR_BAR_TOP, s=25, zorder=4, linewidths=1.5)
-    # Dots Bot (Blue outline)
-    ax.scatter(x_dots, [y_dot_bot]*len(x_dots), c='white', edgecolors=CLR_BAR_BOT, s=25, zorder=4, linewidths=1.5)
+    # Transverse Bars (Inner Layer)
+    y_trans_top = y_main_top - db_main_est/2 - db_trans_est/2
+    y_trans_bot = y_main_bot + db_main_est/2 + db_trans_est/2
 
-    # 2.4 Text & Dim
-    add_dim(ax, 0, -0.25, L_span, -0.25, f"Span L1 ({axis_dir}) = {L_span:.2f} m", offset=0.1)
-    add_dim(ax, L_span+0.2, 0, L_span+0.2, h_m, f"h={h_slab}cm", is_vert=True, offset=0.1)
-
-    t_style = dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.8)
-    ax.text(bar_len/2, y_top+0.12, rebar_results.get('CS_Top',''), color=CLR_BAR_TOP, fontsize=8, ha='center', fontweight='bold', bbox=t_style)
-    ax.text(L_span/2, y_bot-0.12, rebar_results.get('CS_Bot',''), color=CLR_BAR_BOT, fontsize=8, ha='center', fontweight='bold', bbox=t_style)
-
-    setup_cad_style(ax, f"SECTION A-A ({axis_dir}-DIRECTION)")
-    ax.set_xlim(-0.6, L_span + 0.6)
-    ax.set_ylim(-col_h-0.1, h_m+col_h+0.1)
+    # 2.3 Draw Main Rebar (Lines)
+    bar_len_top = L_span * 0.3
+    bar_style = dict(lw=LW_BAR_MAIN, solid_capstyle='round', zorder=10)
     
+    # Top Main (Red)
+    ax.plot([-c_m/2, bar_len_top], [y_main_top, y_main_top], color=CLR_BAR_TOP, **bar_style)
+    ax.plot([L_span-bar_len_top, L_span+c_m/2], [y_main_top, y_main_top], color=CLR_BAR_TOP, **bar_style)
+    # Hook ends for top bars
+    hook_len = 0.15 * h_m
+    ax.plot([bar_len_top, bar_len_top], [y_main_top, y_main_top-hook_len], color=CLR_BAR_TOP, lw=LW_BAR_MAIN*0.7, zorder=9)
+    ax.plot([L_span-bar_len_top, L_span-bar_len_top], [y_main_top, y_main_top-hook_len], color=CLR_BAR_TOP, lw=LW_BAR_MAIN*0.7, zorder=9)
+
+    # Bot Main (Blue)
+    ax.plot([0, L_span], [y_main_bot, y_main_bot], color=CLR_BAR_BOT, **bar_style)
+
+    # 2.4 Draw Transverse Rebar (Hollow Dots - Inner Layer)
+    x_dots = np.arange(0.15, L_span, 0.25)
+    dot_style = dict(s=50, facecolors=CLR_BG, lw=LW_BAR_TRANS, zorder=5)
+    
+    ax.scatter(x_dots, [y_trans_top]*len(x_dots), edgecolors=CLR_BAR_TOP, **dot_style) # Top inner
+    ax.scatter(x_dots, [y_trans_bot]*len(x_dots), edgecolors=CLR_BAR_BOT, **dot_style) # Bot inner
+
+    # 2.5 Dimensions & Labels
+    pad_dim = h_m * 0.3
+    add_pro_dim(ax, 0, -pad_dim, L_span, -pad_dim, f"Span $L_1$ ({axis_dir}) = {L_span:.2f} m", offset=pad_dim/2)
+    add_pro_dim(ax, L_span+pad_dim, 0, L_span+pad_dim, h_m, f"$h$={h_slab}cm", is_vert=True, offset=pad_dim/2)
+
+    # Rebar Callouts with clear leaders
+    bbox_lbl = dict(boxstyle="round,pad=0.2", fc=CLR_BG, ec=CLR_DIM_LINE, lw=0.5, alpha=1.0)
+    
+    # CS Top Label
+    txt_top = rebar_results.get('CS_Top', '?')
+    ax.annotate(txt_top, xy=(bar_len_top/2, y_main_top), xytext=(bar_len_top/2, h_m + col_h*0.5),
+                arrowprops=dict(arrowstyle='->', color=CLR_BAR_TOP, connectionstyle="arc3,rad=0.2"),
+                color=CLR_BAR_TOP, fontweight='bold', fontsize=9, ha='center', bbox=bbox_lbl, zorder=20)
+
+    # CS Bot Label
+    txt_bot = rebar_results.get('CS_Bot', '?')
+    ax.annotate(txt_bot, xy=(L_span/2, y_main_bot), xytext=(L_span/2, -col_h*0.5),
+                arrowprops=dict(arrowstyle='->', color=CLR_BAR_BOT, connectionstyle="arc3,rad=-0.2"),
+                color=CLR_BAR_BOT, fontweight='bold', fontsize=9, ha='center', bbox=bbox_lbl, zorder=20)
+
+    setup_pro_style(ax, f"SECTION A-A: REBAR PROFILE ({axis_dir}-DIR)")
+    
+    margin_x = L_span * 0.1 + c_m
+    margin_y = col_h * 1.2
+    ax.set_xlim(-margin_x, L_span + margin_x)
+    ax.set_ylim(-margin_y, h_m + margin_y)
+    
+    plt.tight_layout()
     return fig
 
 # ==========================================
-# 3. PLAN VIEW (แก้ Logic การทับกัน - สำคัญมาก!)
+# 3. PLAN VIEW (Professional Layout with No Overlaps)
 # ==========================================
 def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results, axis_dir):
     """
-    Key Fix:
-    - แยกเลน (Offset) ระหว่างเหล็ก Top กับ Bot ใน Strip เดียวกัน
-    - ไม่ให้เส้นทับกัน ไม่ให้ตัวหนังสือทับกัน
+    Professional Plan View:
+    - Uses clear offsets to separate top and bottom bars.
+    - Distinct markers for bar ends.
+    - Clear zoning and dimensions.
     """
-    
-    # Setup Canvas
+    # Dynamic Canvas Size based on orientation
     if axis_dir == 'X':
         plot_w, plot_h = L_span, L_width
-        fig_w, fig_h = 8, 8 * (L_width/L_span)
+        base = 10
+        aspect = plot_h / plot_w
+        fig_w, fig_h = base, base * aspect
     else:
         plot_w, plot_h = L_width, L_span
-        fig_w, fig_h = 8 * (L_width/L_span), 8
-        if fig_h > 10: fig_h = 10 # Limit height
+        base = 8 # Slightly narrower base for vertical layout
+        aspect = plot_h / plot_w
+        fig_w, fig_h = base, base * aspect
         
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    # Limit extreme aspect ratios
+    if fig_h > 12: fig_h = 12; fig_w = fig_h / aspect
+    if fig_w > 12: fig_w = 12; fig_h = fig_w * aspect
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), facecolor=CLR_BG)
     
-    # Draw Background Zones
+    # 3.1 Draw Zones & Columns
     w_cs = min(L_span, L_width) / 2.0
     w_cs_half = w_cs / 2.0
-    
+    c_m = c_para / 100.0
+
+    # Zones
+    zone_patches = []
     if axis_dir == 'X':
-        rects = [
-            (0, 0, plot_w, w_cs_half, CLR_ZONE_CS), # Bot CS
-            (0, plot_h-w_cs_half, plot_w, w_cs_half, CLR_ZONE_CS), # Top CS
-            (0, w_cs_half, plot_w, plot_h-2*w_cs_half, CLR_ZONE_MS) # Mid
+        zone_patches = [
+            (0, 0, plot_w, w_cs_half, CLR_ZONE_CS, 'CS Bot'),
+            (0, plot_h-w_cs_half, plot_w, w_cs_half, CLR_ZONE_CS, 'CS Top'),
+            (0, w_cs_half, plot_w, plot_h-2*w_cs_half, CLR_ZONE_MS, 'MS')
         ]
     else:
-        rects = [
-            (0, 0, w_cs_half, plot_h, CLR_ZONE_CS), # Left CS
-            (plot_w-w_cs_half, 0, w_cs_half, plot_h, CLR_ZONE_CS), # Right CS
-            (w_cs_half, 0, plot_w-2*w_cs_half, plot_h, CLR_ZONE_MS) # Mid
+        zone_patches = [
+            (0, 0, w_cs_half, plot_h, CLR_ZONE_CS, 'CS Left'),
+            (plot_w-w_cs_half, 0, w_cs_half, plot_h, CLR_ZONE_CS, 'CS Right'),
+            (w_cs_half, 0, plot_w-2*w_cs_half, plot_h, CLR_ZONE_MS, 'MS')
         ]
         
-    for (rx, ry, rw, rh, rc) in rects:
-        ax.add_patch(patches.Rectangle((rx, ry), rw, rh, fc=rc))
+    for (rx, ry, rw, rh, rc, lbl) in zone_patches:
+        ax.add_patch(patches.Rectangle((rx, ry), rw, rh, fc=rc, ec='none', zorder=0))
+        # Subtle zone labels
+        ax.text(rx + rw/2, ry + rh/2, lbl, color=CLR_DIM_TEXT, alpha=0.15, 
+                ha='center', va='center', fontweight='bold', fontsize=12, zorder=1)
 
-    # Draw Columns
-    c_m = c_para / 100.0
+    # Columns
     for cx in [0, plot_w]:
         for cy in [0, plot_h]:
-            ax.add_patch(patches.Rectangle((cx-c_m/2, cy-c_m/2), c_m, c_m, fc=CLR_COL_HATCH, zorder=10))
+            rect = patches.Rectangle((cx-c_m/2, cy-c_m/2), c_m, c_m, 
+                                     fc=CLR_CONCRETE_EDGE, ec=CLR_CONCRETE_EDGE, zorder=15)
+            ax.add_patch(rect)
             
-    # Draw Border
-    ax.add_patch(patches.Rectangle((0,0), plot_w, plot_h, fill=False, ec=CLR_DIM, lw=1))
+    # Slab Border
+    ax.add_patch(patches.Rectangle((0,0), plot_w, plot_h, fill=False, ec=CLR_CONCRETE_EDGE, lw=1.5, zorder=5))
 
-    # === Helper Drawing Function with OFFSET ===
-    def draw_bar_offset(zone_type, is_top, color):
-        """
-        zone_type: 'CS_Bot', 'CS_Top', 'MS'
-        Offset Logic:
-         - Top Bar: Shifted +Offset from center line
-         - Bot Bar: Shifted -Offset from center line
-        This prevents overlapping!
-        """
+    # 3.2 Smart Rebar Drawing Function (The Core Fix)
+    def draw_smart_bar(zone_type, is_top, color):
         key = f"{zone_type}_{'Top' if is_top else 'Bot'}"
-        if 'MS' in zone_type: key = f"MS_{'Top' if is_top else 'Bot'}" # Handle naming match
+        if 'MS' in zone_type: key = f"MS_{'Top' if is_top else 'Bot'}"
+        txt = rebar_results.get(key, '?')
         
-        txt = rebar_results.get(key, '')
         bar_len = L_span * 0.3
+        bar_style = dict(color=color, lw=LW_BAR_MAIN, solid_capstyle='round', zorder=10)
         
-        # Determine Center Line of the Strip
-        centers = [] # List of (x_center, y_center, orientation)
+        # Offset Logic: Standard separation distance
+        offset_dist = 0.20 # meters
         
-        if axis_dir == 'X':
-            # Orientation: Horizontal Lines
-            if zone_type == 'CS_Bot':   centers = [w_cs_half / 2]
-            elif zone_type == 'CS_Top': centers = [plot_h - (w_cs_half / 2)]
-            elif zone_type == 'MS':     centers = [plot_h / 2]
+        # Determine centerline and apply offset
+        if axis_dir == 'X': # Horizontal Bars
+            if zone_type == 'CS_Bot': center = w_cs_half / 2
+            elif zone_type == 'CS_Top': center = plot_h - (w_cs_half / 2)
+            elif zone_type == 'MS': center = plot_h / 2
             
-            # Apply Offset (Separation)
-            offset = 0.15 # meters separation
-            y_pos = centers[0] + (offset if is_top else -offset)
-            
-            # Draw
-            if is_top:
-                # Left & Right Supports
-                ax.plot([-0.1, bar_len], [y_pos, y_pos], color=color, lw=2)
-                ax.plot([plot_w-bar_len, plot_w+0.1], [y_pos, y_pos], color=color, lw=2)
-                # Label
-                ax.text(bar_len/2, y_pos, txt, color=color, fontsize=7, ha='center', va='bottom', fontweight='bold', 
-                        bbox=dict(fc='white', ec=color, pad=0.1, alpha=0.9))
-            else:
-                # Continuous Bottom
-                ax.plot([0, plot_w], [y_pos, y_pos], color=color, lw=2)
-                ax.text(plot_w/2, y_pos, txt, color=color, fontsize=7, ha='center', va='top', fontweight='bold',
-                        bbox=dict(fc='white', ec=color, pad=0.1, alpha=0.9))
-
-        else: # Y-Direction
-            # Orientation: Vertical Lines
-            if zone_type == 'CS_Bot':   centers = [w_cs_half / 2] # Use 'Bot' as Left here for loop simplicity
-            elif zone_type == 'CS_Top': centers = [plot_w - (w_cs_half / 2)] # Right
-            elif zone_type == 'MS':     centers = [plot_w / 2]
-            
-            # Apply Offset
-            offset = 0.15
-            x_pos = centers[0] + (offset if is_top else -offset)
+            # Top shifts UP (+), Bot shifts DOWN (-)
+            y = center + (offset_dist if is_top else -offset_dist)
             
             if is_top:
-                ax.plot([x_pos, x_pos], [-0.1, bar_len], color=color, lw=2)
-                ax.plot([x_pos, x_pos], [plot_h-bar_len, plot_h+0.1], color=color, lw=2)
-                ax.text(x_pos, bar_len/2, txt, color=color, fontsize=7, ha='left', va='center', fontweight='bold', rotation=90,
-                         bbox=dict(fc='white', ec=color, pad=0.1, alpha=0.9))
+                # Supports with hooks
+                ax.plot([-c_m/2, bar_len], [y, y], **bar_style) # Left
+                ax.scatter([bar_len], [y], marker='|', s=100, color=color, zorder=11) # End marker
+                ax.plot([plot_w-bar_len, plot_w+c_m/2], [y, y], **bar_style) # Right
+                ax.scatter([plot_w-bar_len], [y], marker='|', s=100, color=color, zorder=11)
+                lbl_x, lbl_ha, lbl_va = bar_len/2, 'center', 'bottom'
             else:
-                ax.plot([x_pos, x_pos], [0, plot_h], color=color, lw=2)
-                ax.text(x_pos, plot_h/2, txt, color=color, fontsize=7, ha='right', va='center', fontweight='bold', rotation=90,
-                        bbox=dict(fc='white', ec=color, pad=0.1, alpha=0.9))
+                # Continuous
+                ax.plot([0, plot_w], [y, y], **bar_style)
+                lbl_x, lbl_ha, lbl_va = plot_w/2, 'center', 'top'
+                
+            lbl_y = y + (0.05 if is_top else -0.05)
+            rot = 0
 
-    # === EXECUTE DRAWING ===
-    # วาดทีละ Layer เพื่อให้เห็นชัดเจน ไม่ทับกัน
+        else: # Y-Direction: Vertical Bars
+            # Use 'CS_Bot' key for Left, 'CS_Top' for Right strip logic
+            if zone_type == 'CS_Bot': center = w_cs_half / 2 
+            elif zone_type == 'CS_Top': center = plot_w - (w_cs_half / 2)
+            elif zone_type == 'MS': center = plot_w / 2
+            
+            # Top shifts RIGHT (+), Bot shifts LEFT (-) relative to center
+            x = center + (offset_dist if is_top else -offset_dist)
+            
+            if is_top:
+                # Supports with hooks
+                ax.plot([x, x], [-c_m/2, bar_len], **bar_style) # Bot support
+                ax.scatter([x], [bar_len], marker='_', s=100, color=color, zorder=11)
+                ax.plot([x, x], [plot_h-bar_len, plot_h+c_m/2], **bar_style) # Top support
+                ax.scatter([x], [plot_h-bar_len], marker='_', s=100, color=color, zorder=11)
+                lbl_y, lbl_ha, lbl_va = bar_len/2, 'left', 'center'
+            else:
+                # Continuous
+                ax.plot([x, x], [0, plot_h], **bar_style)
+                lbl_y, lbl_ha, lbl_va = plot_h/2, 'right', 'center'
+                
+            lbl_x = x + (0.05 if is_top else -0.05)
+            rot = 90
+
+        # Professional Labeling
+        bbox_lbl = dict(boxstyle="round,pad=0.2", fc=CLR_BG, ec=color, lw=0.5, alpha=0.95)
+        ax.text(lbl_x, lbl_y, txt, color=color, fontsize=9, ha=lbl_ha, va=lbl_va, 
+                fontweight='bold', rotation=rot, bbox=bbox_lbl, zorder=20)
+
+    # 3.3 Execute Drawing (Layered)
+    zones_to_draw = [('CS_Bot', CLR_BAR_BOT), ('CS_Top', CLR_BAR_TOP), ('MS', CLR_BAR_BOT), ('MS', CLR_BAR_TOP)]
+    if axis_dir == 'Y':
+         # For Y, we use CS_Bot for Left, CS_Top for Right
+         zones_to_draw = [('CS_Bot', CLR_BAR_BOT), ('CS_Bot', CLR_BAR_TOP), 
+                          ('CS_Top', CLR_BAR_BOT), ('CS_Top', CLR_BAR_TOP),
+                          ('MS', CLR_BAR_BOT), ('MS', CLR_BAR_TOP)]
+
+    for z_type, color in zones_to_draw:
+        is_top = (color == CLR_BAR_TOP)
+        draw_smart_bar(z_type, is_top, color)
+
+    # 3.4 Dimensions
+    pad_dim = min(plot_w, plot_h) * 0.15
     if axis_dir == 'X':
-        # Column Strip Bottom
-        draw_bar_offset('CS_Bot', False, CLR_BAR_BOT) # Bot Steel
-        draw_bar_offset('CS_Bot', True, CLR_BAR_TOP)  # Top Steel (in same strip!)
-        
-        # Column Strip Top
-        draw_bar_offset('CS_Top', False, CLR_BAR_BOT)
-        draw_bar_offset('CS_Top', True, CLR_BAR_TOP)
+        add_pro_dim(ax, 0, -pad_dim, plot_w, -pad_dim, f"Span $L_1$ = {plot_w:.2f} m", offset=pad_dim*0.4)
+        add_pro_dim(ax, plot_w+pad_dim, 0, plot_w+pad_dim, plot_h, f"Width $L_2$ = {plot_h:.2f} m", is_vert=True, offset=pad_dim*0.4)
+    else:
+        add_pro_dim(ax, 0, -pad_dim, plot_w, -pad_dim, f"Width $L_2$ = {plot_w:.2f} m", offset=pad_dim*0.4)
+        add_pro_dim(ax, plot_w+pad_dim, 0, plot_w+pad_dim, plot_h, f"Span $L_1$ = {plot_h:.2f} m", is_vert=True, offset=pad_dim*0.4)
 
-        # Middle Strip
-        draw_bar_offset('MS', False, CLR_BAR_BOT)
-        draw_bar_offset('MS', True, CLR_BAR_TOP)
-        
-        # Dimensions
-        add_dim(ax, 0, -0.6, plot_w, -0.6, f"Span L1 = {plot_w:.2f}m")
-        add_dim(ax, plot_w+0.6, 0, plot_w+0.6, plot_h, f"Width L2 = {plot_h:.2f}m", is_vert=True)
-
-    else: # Y-Direction
-        # Left CS (Named CS_Bot in loop logic for left side)
-        draw_bar_offset('CS_Bot', False, CLR_BAR_BOT)
-        draw_bar_offset('CS_Bot', True, CLR_BAR_TOP)
-        
-        # Right CS
-        draw_bar_offset('CS_Top', False, CLR_BAR_BOT)
-        draw_bar_offset('CS_Top', True, CLR_BAR_TOP)
-        
-        # Middle
-        draw_bar_offset('MS', False, CLR_BAR_BOT)
-        draw_bar_offset('MS', True, CLR_BAR_TOP)
-
-        # Dimensions
-        add_dim(ax, 0, -0.6, plot_w, -0.6, f"Width L2 = {plot_w:.2f}m")
-        add_dim(ax, plot_w+0.6, 0, plot_w+0.6, plot_h, f"Span L1 = {plot_h:.2f}m", is_vert=True)
-
-    setup_cad_style(ax, f"PLAN LAYOUT ({axis_dir}-DIRECTION)")
+    setup_pro_style(ax, f"PLAN VIEW: REBAR LAYOUT ({axis_dir}-DIR)")
     
-    pad = 1.0
-    ax.set_xlim(-pad, plot_w + pad)
-    ax.set_ylim(-pad, plot_h + pad)
+    margin_x = pad_dim * 1.5
+    margin_y = pad_dim * 1.5
+    ax.set_xlim(-margin_x, plot_w + margin_x)
+    ax.set_ylim(-margin_y, plot_h + margin_y)
     
+    plt.tight_layout()
     return fig
