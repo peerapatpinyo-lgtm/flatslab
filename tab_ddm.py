@@ -118,7 +118,12 @@ def render_detailed_direction(data, h_slab, d_eff, fc, fy, d_bar, w_u):
 
     # Display Table
     df_res = pd.DataFrame(table_rows)
-    st.markdown(df_res.to_markdown(index=False))
+    
+    # --- FIX: เปลี่ยนจาก .to_markdown() เป็น st.table() หรือ .to_html() ---
+    # st.table(df_res) # แบบธรรมดา
+    # หรือแบบ HTML เพื่อให้แสดงตัวหนา (**text**) ได้ถูกต้อง
+    st.markdown(df_res.to_html(escape=False, index=False), unsafe_allow_html=True)
+    
     st.caption(f"*Note: Design based on d = {d_eff} cm, fc' = {fc} ksc, fy = {fy} ksc*")
 
     st.markdown("---")
