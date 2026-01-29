@@ -6,13 +6,10 @@ def check_deflection_immediate(qu, lx, ly, Ec, I_eff):
     Estimates immediate deflection using simplified elastic beam theory.
     Delta = (coefficient) * w * L^4 / (E * I)
     """
-    # Use conservative coefficient for continuous span (approx 3/384 to 5/384)
-    # Using 5/384 (0.013) is for simply supported, continuous is closer to 1/384 (0.0026) for fixed ends.
-    # We use a mid-range value for "Design Strip" estimation: ~2.5/384
-    
     w_line = qu * ly # Load per meter on the strip
     
     try:
+        # Using ~2.5/384 coefficient for continuous estimation
         delta = (2.5 * w_line * (lx**4)) / (384 * Ec * I_eff)
         limit = lx / 240.0 # ACI basic limit
         ratio = delta / limit
@@ -28,7 +25,7 @@ def analyze_efm(lx, ly, h_m, c1, c2, lc_upper, lc_lower, fc_mpa, continuity, use
     Ec = 4700 * math.sqrt(fc_mpa) * 1000000 
     
     # Slab Stiffness (Ks)
-    Is_gross = physics.get_inertia_gross(ly, h_m) # Use ly as width of frame
+    Is_gross = physics.get_inertia_gross(ly, h_m) 
     Is = physics.get_inertia_gross(ly, h_m, use_cracked, "slab")
     Ks = (4 * Ec * Is) / lx 
     
@@ -38,12 +35,9 @@ def analyze_efm(lx, ly, h_m, c1, c2, lc_upper, lc_lower, fc_mpa, continuity, use
     Kc_lower = (4 * Ec * Ic) / lc_lower
     Sum_Kc = Kc_upper + Kc_lower
     
-    # Torsional Stiffness (Kt)
-    # If Edge Beam exists, C is sum of rect parts
+    # Torsional Stiffness (Kt) with Edge Beam Logic
     x1 = h_m
     y1 = c1
-    
-    # Check Edge Beam
     x2 = 0
     y2 = 0
     if edge_beam_h > h_m:
@@ -57,13 +51,11 @@ def analyze_efm(lx, ly, h_m, c1, c2, lc_upper, lc_lower, fc_mpa, continuity, use
     Kec = physics.get_equivalent_column_stiffness(Sum_Kc, Kt)
     
     # Distribution Factors (DF)
-    # DF = Stiffness / Sum of Stiffness at Joint
     total_stiffness_ext = Ks + Kec
-    df_ext_slab = Ks / total_stiffness_ext # At Exterior Joint
+    df_ext_slab = Ks / total_stiffness_ext if total_stiffness_ext > 0 else 0
     
-    # Interior Joint (Symmetric assumption: Ks_left = Ks_right)
     total_stiffness_int = (2 * Ks) + Kec
-    df_int_slab = Ks / total_stiffness_int 
+    df_int_slab = Ks / total_stiffness_int if total_stiffness_int > 0 else 0
     
     return {
         "Ec": Ec, "Is": Is, "Ic": Ic, "Ks": Ks,
@@ -95,8 +87,6 @@ def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, lc_up_m, lc_low_m,
     h_min_val, h_denom = physics.get_min_thickness_limit(ln, pos)
     h_current = h_init
     max_h = 1500
-    
-    final_results = {}
     
     while h_current <= max_h:
         d_mm = h_current - cover_mm - (est_bar_db / 2.0)
@@ -131,9 +121,8 @@ def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, lc_up_m, lc_low_m,
     
     # Moment Distribution using Calculated DFs
     if continuity == "Interior Span":
-        # Balanced
-        m_neg_calc = fem # Fixed
-        m_pos_calc = (qu * ly * (lx**2)) / 24.0 # Approx Mid
+        m_neg_calc = fem 
+        m_pos_calc = (qu * ly * (lx**2)) / 24.0 
         
         efm_data.update({
             "fem": fem,
@@ -144,15 +133,8 @@ def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, lc_up_m, lc_low_m,
     else:
         # End Span
         df = efm_data['df_ext_slab']
-        
-        # Moment Distribution Method (Simplified Single Step)
-        # Exterior Joint is released based on Kec
         m_neg_ext_calc = fem * (1 - df) 
-        
-        # Carry Over Factor = 0.5 to interior
         m_neg_int_calc = fem + (0.5 * fem * df)
-        
-        # Static Moment Balance
         mo_static = (qu * ly * ln**2) / 8
         m_pos_calc = max(mo_static - ((m_neg_ext_calc + m_neg_int_calc)/2), 0)
         
@@ -217,8 +199,7 @@ def verify_reinforcement(base_data, user_top_db, user_top_spacing, user_bot_db, 
         m_ms_pos = ms_pos * mo
         
     else: 
-        # Use EFM Moments directly (Distributed to Strips)
-        # ACI Rules: CS takes 75% Neg, 60% Pos
+        # Use EFM Moments directly
         if continuity == "Interior Span":
             m_neg_frame = efm.get('fem', mo * 0.65)
             m_pos_frame = efm.get('m_pos', mo * 0.35)
@@ -270,7 +251,6 @@ def verify_reinforcement(base_data, user_top_db, user_top_spacing, user_bot_db, 
             status_msgs.append(f"Spacing > {max_s_limit}mm")
             is_safe = False
         
-        # Calculate Utilization (As_req / As_prov)
         util = as_req_calc / as_provided if as_provided > 0 else 9.9
         if util > max_utilization: max_utilization = util
             
