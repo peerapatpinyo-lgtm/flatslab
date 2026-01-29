@@ -8,22 +8,23 @@ import ddm_plots
 # ========================================================
 def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
     st.markdown("## 2. Interactive Direct Design Method")
-    st.info("💡 **Professional Mode:** กราฟิกแสดงผลตามมาตรฐานวิศวกรรม (แยกชั้นเหล็ก, แสดงจุดตัดสมจริง)")
+    st.info("💡 **Calculation Mode:** แสดงที่มาของตัวเลขทุกขั้นตอนตั้งแต่ $M_o$ จนถึงการเลือกเหล็ก")
 
     tab_x, tab_y = st.tabs([
         f"🏗️ Design X-Dir ({data_x['L_span']}m)", 
         f"🏗️ Design Y-Dir ({data_y['L_span']}m)"
     ])
     
+    # ส่ง w_u ลงไปด้วยเพื่อใช้แสดงวิธีทำ
     with tab_x:
-        render_interactive_direction(data_x, h_slab, d_eff, fc, fy, "X")
+        render_interactive_direction(data_x, h_slab, d_eff, fc, fy, "X", w_u)
     with tab_y:
-        render_interactive_direction(data_y, h_slab, d_eff, fc, fy, "Y")
+        render_interactive_direction(data_y, h_slab, d_eff, fc, fy, "Y", w_u)
 
 # ========================================================
-# 2. LOGIC & UI
+# 2. CALCULATION & UI
 # ========================================================
-def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
+def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id, w_u):
     # Unpack Data
     L_span = data['L_span']
     L_width = data['L_width']
@@ -31,9 +32,66 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     Mo = data['Mo']
     m_vals = data['M_vals']
     
+    # Strip Widths
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
+    
+    # Clear Span
+    Ln = L_span - (c_para / 100.0)
 
+    # ----------------------------------------------------
+    # 📝 PART A: STEP-BY-STEP CALCULATION (NEW!)
+    # ----------------------------------------------------
+    st.markdown(f"### 📐 Step-by-Step Calculation: {axis_id}-Direction")
+    
+    with st.expander("📝 ดูวิธีทำละเอียด (Calculation Details)", expanded=True):
+        st.markdown("#### 1. Geometry & Static Moment ($M_o$)")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write(f"- **Span Length ($L_1$):** {L_span:.2f} m")
+            st.write(f"- **Transverse Width ($L_2$):** {L_width:.2f} m")
+            st.write(f"- **Column Dimension ($c_1$):** {c_para/100:.2f} m")
+            st.write(f"- **Clear Span ($l_n = L_1 - c_1$):** {Ln:.2f} m")
+        with c2:
+            st.write(f"- **Factored Load ($w_u$):** {w_u:,.2f} kg/m²")
+        
+        st.markdown("---")
+        st.markdown("**Formula for Total Static Moment:**")
+        st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
+        
+        st.markdown("**Substitution:**")
+        st.latex(f"M_o = \\frac{{{w_u:,.0f} \\times {L_width:.2f} \\times {Ln:.2f}^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
+
+        st.markdown("#### 2. Moment Distribution (ACI 318 / EIT)")
+        st.write("การกระจายโมเมนต์จาก $M_o$ เข้าสู่ Column Strip (CS) และ Middle Strip (MS):")
+        
+        # Create a detailed breakdown table
+        # Factors (Estimated based on typical flat plate DDM)
+        # Neg Total = 0.65, Pos Total = 0.35
+        # CS Neg = 0.75, CS Pos = 0.60
+        
+        # Recalculate percentages relative to Mo for display clarity
+        per_neg_total = (m_vals['M_cs_neg'] + m_vals['M_ms_neg']) / Mo * 100
+        per_pos_total = (m_vals['M_cs_pos'] + m_vals['M_ms_pos']) / Mo * 100
+        
+        calc_data = [
+            ["Negative Moment (-)", f"{per_neg_total:.0f}%", 
+             f"{m_vals['M_cs_neg']/Mo*100:.1f}% ($M_{{cs}}^-$)", 
+             f"{m_vals['M_ms_neg']/Mo*100:.1f}% ($M_{{ms}}^-$)", 
+             f"{m_vals['M_cs_neg']:,.0f}", f"{m_vals['M_ms_neg']:,.0f}"],
+             
+            ["Positive Moment (+)", f"{per_pos_total:.0f}%", 
+             f"{m_vals['M_cs_pos']/Mo*100:.1f}% ($M_{{cs}}^+$)", 
+             f"{m_vals['M_ms_pos']/Mo*100:.1f}% ($M_{{ms}}^+$)", 
+             f"{m_vals['M_cs_pos']:,.0f}", f"{m_vals['M_ms_pos']:,.0f}"]
+        ]
+        
+        df_calc = pd.DataFrame(calc_data, columns=["Zone", "% of Mo", "% to CS", "% to MS", "Moment CS (kg-m)", "Moment MS (kg-m)"])
+        st.table(df_calc)
+
+    # ----------------------------------------------------
+    # 🎛️ PART B: INTERACTIVE DESIGN (UNCHANGED)
+    # ----------------------------------------------------
     # Helper: Estimate Req Area
     def get_as_req(M_val, b_width_m):
         b_cm = b_width_m * 100
@@ -43,7 +101,7 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
         limit = 1 - (2*Rn)/(0.85*fc)
         if limit < 0: return 999.99
         rho = (0.85*fc/fy) * (1 - np.sqrt(limit))
-        rho = max(rho, 0.0018)
+        rho = max(rho, 0.0018) # Min steel
         return rho * b_cm * d_eff
 
     req_cs_top = get_as_req(m_vals['M_cs_neg'], w_cs)
@@ -51,17 +109,13 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     req_ms_top = get_as_req(m_vals['M_ms_neg'], w_ms)
     req_ms_bot = get_as_req(m_vals['M_ms_pos'], w_ms)
 
-    # UI Inputs (Using professional color codes from plotting file)
+    # UI Inputs
     c_red = ddm_plots.CLR_BAR_TOP
     c_blue = ddm_plots.CLR_BAR_BOT
     bg_cs = ddm_plots.CLR_ZONE_CS
     bg_ms = ddm_plots.CLR_ZONE_MS
 
-    st.markdown(f"### 🎛️ Parameters: {axis_id}-Axis")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Span $L_1$", f"{L_span:.2f} m")
-    c2.metric("Width $L_2$", f"{L_width:.2f} m")
-    c3.metric("Moment $M_o$", f"{Mo:,.0f} kg-m")
+    st.markdown(f"### 🎛️ Reinforcement Selection")
     
     col_cs, col_gap, col_ms = st.columns([1, 0.05, 1])
     
@@ -72,12 +126,12 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
             <b style="color:{c_red}; font-size:1.1em;">🏛️ COLUMN STRIP</b><br><small style="color:#666">Width = {w_cs:.2f} m</small></div>""", unsafe_allow_html=True
         )
         st.write("")
-        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_cs_top:.2f})</small>", unsafe_allow_html=True)
+        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_cs_top:.2f} cm²)</small>", unsafe_allow_html=True)
         c_a, c_b = st.columns([1,1.5])
         d_cs_top = c_a.selectbox("Dia", [12,16,20,25], key=f"dct{axis_id}")
         s_cs_top = c_b.number_input("@Spacing", 5, 50, 20, 5, key=f"sct{axis_id}")
         
-        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_cs_bot:.2f})</small>", unsafe_allow_html=True)
+        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_cs_bot:.2f} cm²)</small>", unsafe_allow_html=True)
         c_a, c_b = st.columns([1,1.5])
         d_cs_bot = c_a.selectbox("Dia", [12,16,20,25], key=f"dcb{axis_id}")
         s_cs_bot = c_b.number_input("@Spacing", 5, 50, 25, 5, key=f"scb{axis_id}")
@@ -89,12 +143,12 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
             <b style="color:{c_blue}; font-size:1.1em;">🌊 MIDDLE STRIP</b><br><small style="color:#666">Width = {w_ms:.2f} m</small></div>""", unsafe_allow_html=True
         )
         st.write("")
-        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_ms_top:.2f})</small>", unsafe_allow_html=True)
+        st.markdown(f"**<span style='color:{c_red}'>🟥 Top (Support)</span>** <small style='color:#888'>(Req: {req_ms_top:.2f} cm²)</small>", unsafe_allow_html=True)
         c_a, c_b = st.columns([1,1.5])
         d_ms_top = c_a.selectbox("Dia", [12,16,20,25], key=f"dmt{axis_id}", index=0)
         s_ms_top = c_b.number_input("@Spacing", 10, 50, 30, 5, key=f"smt{axis_id}")
 
-        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_ms_bot:.2f})</small>", unsafe_allow_html=True)
+        st.markdown(f"**<span style='color:{c_blue}'>🟦 Bot (Mid-span)</span>** <small style='color:#888'>(Req: {req_ms_bot:.2f} cm²)</small>", unsafe_allow_html=True)
         c_a, c_b = st.columns([1,1.5])
         d_ms_bot = c_a.selectbox("Dia", [12,16,20,25], key=f"dmb{axis_id}")
         s_ms_bot = c_b.number_input("@Spacing", 5, 50, 25, 5, key=f"smb{axis_id}")
@@ -128,7 +182,6 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
         ratio = Mu/PhiMn if PhiMn>0 else 999
         if ratio > 1.0: is_safe = False
         
-        # Professional HTML Table styling
         status_color = "#28a745" if ratio<=1 else "#dc3545"
         status_icon = "✅" if ratio<=1 else "❌"
         
@@ -146,7 +199,6 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     st.write("---")
     st.markdown("### 📊 Engineering Analysis Summary")
     
-    # Use Styler for better table look
     df = pd.DataFrame(res_list)
     st.write(df.style.format(precision=2).to_html(escape=False, index=False), unsafe_allow_html=True)
 
