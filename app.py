@@ -13,9 +13,11 @@ with st.sidebar:
     continuity = st.selectbox("Span Continuity", 
                              ["Interior Span", "End Span (Integral w/ Beam)", "End Span (Slab Only)"])
     
-    st.subheader("2. Columns")
+    st.subheader("2. Columns & Story")
     c1 = st.number_input("Col Width c1 (mm)", 200, 2000, 500)
     c2 = st.number_input("Col Depth c2 (mm)", 200, 2000, 500)
+    lc_upper = st.number_input("Upper Story Height (m)", 2.0, 6.0, 3.0)
+    lc_lower = st.number_input("Lower Story Height (m)", 2.0, 6.0, 3.0)
     pos = st.selectbox("Position", ["Interior", "Edge", "Corner"])
     
     st.subheader("3. Material & Load")
@@ -26,11 +28,11 @@ with st.sidebar:
     h_init = st.number_input("Start h (mm)", 100, 600, 200)
 
 st.title("🛡️ Professional Flat Slab Design System")
-st.caption(f"Design Code: ACI 318-19 | Continuity: {continuity}")
+st.caption(f"Design Code: ACI 318-19 | Method: EFM & DDM | Continuity: {continuity}")
 
 # --- Phase 1: Structural Analysis ---
 base_data = engine.analyze_structure(
-    lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, 20, continuity
+    lx, ly, h_init, c1, c2, lc_upper, lc_lower, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, 20, continuity
 )
 res = base_data['results']
 
@@ -45,6 +47,14 @@ with c_dash2:
     st.markdown(f"**Clear Span Y:** {res['ln_y']:.2f} m")
 with c_dash3:
     st.markdown(f"**Static Moment:** {res['mo']:,.0f} kg-m")
+    
+# Show EFM Quick Data
+with st.expander("Show EFM Stiffness Data"):
+    col_k1, col_k2, col_k3 = st.columns(3)
+    efm = base_data['efm']
+    col_k1.metric("K_slab", f"{efm['Ks']:.2e}")
+    col_k2.metric("K_ec", f"{efm['Kec']:.2e}")
+    col_k3.metric("DF (Ext)", f"{efm['df_ext_slab']:.3f}")
 
 st.divider()
 
@@ -73,6 +83,5 @@ with tab1:
 with tab2:
     top_lbl = f"DB{top_db} @ {top_space} mm"
     bot_lbl = f"DB{bot_db} @ {bot_space} mm"
-    # แก้ไขตรงนี้: ใช้ตัวแปร c1 โดยตรง (แทน st.session_state.c1 ซึ่งอาจจะยังไม่ถูก init)
     fig = drawings.draw_section(res['h'], 25, c1, res['ln'], res['d_mm'], top_lbl, bot_lbl)
     st.pyplot(fig)
