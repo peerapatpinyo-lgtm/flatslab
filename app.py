@@ -9,10 +9,9 @@ from geometry_view import plot_geometry_detailed
 st.set_page_config(page_title="Pro Flat Slab Design", layout="wide", page_icon="🏗️")
 st.markdown("""
 <style>
-    .big-font { font-size:20px !important; font-weight: bold; }
-    .stAlert { padding: 10px; border-radius: 5px; }
     .pass { color: #198754; font-weight: bold; }
     .fail { color: #dc3545; font-weight: bold; }
+    .stMetric { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -55,7 +54,7 @@ with st.sidebar.expander("3. Loads", expanded=True):
 # 3. CALCULATION ENGINE
 # ==========================================
 # Units & Constants
-d_eff = h_slab - cover - (d_bar/10/2) # Effective depth (cm)
+d_eff = h_slab - cover - (d_bar/10.0/2.0) # Effective depth (cm)
 L1_cm, L2_cm, lc_cm = L1*100, L2*100, lc*100
 Ec = 15100 * np.sqrt(fc) # ksc
 
@@ -72,8 +71,11 @@ Kc = 4*Ec*Ic/lc_cm
 x, y = min(c1, h_slab), max(c1, h_slab)
 C_tor = (1 - 0.63*(x/y)) * (x**3 * y)/3
 Kt = 2 * (9*Ec*C_tor) / (L2_cm * (1 - c2/L2_cm)**3)
-Kec = 1 / (1/(2*Kc) + 1/Kt)
-DF_slab = Ks/(Ks+Kec)
+# Prevent div by zero
+sum_kc = 2*Kc
+Kec = 1 / (1/sum_kc + 1/Kt) if (sum_kc > 0 and Kt > 0) else 0
+
+DF_slab = Ks/(Ks+Kec) if (Ks+Kec) > 0 else 0
 DF_col = 1 - DF_slab
 
 # B. Punching Shear (ACI 318)
@@ -81,21 +83,21 @@ DF_col = 1 - DF_slab
 c1_d = c1 + d_eff
 c2_d = c2 + d_eff
 bo = 2*c1_d + 2*c2_d
+
 # Shear Demand (Vu) - Approx for interior column
 area_trib = L1 * L2
 area_col_crit = (c1_d/100) * (c2_d/100)
 Vu = w_u * (area_trib - area_col_crit) # kg
 
 # Shear Capacity (Vc)
-beta = max(L1, L2) / min(L1, L2) # Aspect ratio
 phi = 0.85
-# Formula 1 (Basic): 1.06 * sqrt(fc) * bo * d
 Vc_basic = 1.06 * np.sqrt(fc) * bo * d_eff
 PhiVc = phi * Vc_basic
 
 # Check Status
 shear_status = "PASS" if PhiVc >= Vu else "FAIL"
-thick_status = "PASS" if h_slab >= (max(L1_cm, L2_cm)/33) else "FAIL" # ACI Table 8.3.1.1 (ln/33 for fy=4000)
+min_h_req = max(L1_cm, L2_cm)/33
+thick_status = "PASS" if h_slab >= min_h_req else "FAIL" 
 
 # ==========================================
 # 4. MAIN DISPLAY
@@ -113,30 +115,39 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # --- TAB 1: DASHBOARD ---
 with tab1:
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Factored Load (Wu)", f"{w_u:,.0f}", "kg/m²")
-    col2.metric("Effective Depth (d)", f"{d_eff:.2f}", "cm")
-    col3.metric("Shear Capacity (φVc)", f"{PhiVc:,.0f}", "kg", delta_color="normal" if shear_status=="PASS" else "inverse")
-    col4.metric("Shear Demand (Vu)", f"{Vu:,.0f}", "kg", delta=f"{Vu/PhiVc*100:.1f}% Utilized", delta_color="inverse")
+    
+    # Calculate utilization safely
+    util_percent = (Vu / PhiVc * 100) if PhiVc > 0 else 0.0
 
+    col1.metric("Factored Load (Wu)", f"{w_u:,.0f} kg/m²")
+    col2.metric("Effective Depth (d)", f"{d_eff:.2f} cm")
+    
+    col3.metric("Shear Capacity (φVc)", f"{PhiVc:,.0f} kg", 
+                delta_color="normal" if shear_status=="PASS" else "inverse")
+    
+    # --- FIXED LINE HERE (รวมหน่วยไว้ใน value string) ---
+    col4.metric("Shear Demand (Vu)", f"{Vu:,.0f} kg", 
+                delta=f"{util_percent:.1f}% Utilized", delta_color="inverse")
+
+    st.markdown("---")
     st.subheader("🛑 Design Checks Summary")
     chk1, chk2 = st.columns(2)
     with chk1:
         if shear_status == "PASS":
-            st.success(f"**Punching Shear: PASSED** (Ratio {Vu/PhiVc:.2f} < 1.0)")
+            st.success(f"**Punching Shear: PASSED**\n\nRatio {Vu/PhiVc:.2f} < 1.0")
         else:
-            st.error(f"**Punching Shear: FAILED** (Increase Slab Thickness or Concrete Strength)")
+            st.error(f"**Punching Shear: FAILED**\n\nRequires thicker slab or higher f'c")
     with chk2:
-        min_h = max(L1_cm, L2_cm)/33
         if thick_status == "PASS":
-            st.success(f"**Min. Thickness: PASSED** (Provided {h_slab}cm > Limit {min_h:.1f}cm)")
+            st.success(f"**Min. Thickness: PASSED**\n\nProvided {h_slab} cm > Limit {min_h_req:.1f} cm")
         else:
-            st.warning(f"**Min. Thickness: WARNING** (Provided {h_slab}cm < Limit {min_h:.1f}cm). Check Deflection!")
+            st.warning(f"**Min. Thickness: WARNING**\n\nProvided {h_slab} cm < Limit {min_h_req:.1f} cm. Check Deflection!")
 
 # --- TAB 2: DETAILED CALCULATION ---
 with tab2:
     st.header("1. Load Analysis")
     math_row("Design Load", r"w_u = 1.2DL + 1.6LL", 
-             fr"1.2({w_self+SDL}) + 1.6({LL})", f"{w_u:.1f}", "kg/m²")
+             fr"1.2({w_self+SDL:.0f}) + 1.6({LL:.0f})", f"{w_u:.1f}", "kg/m²")
     
     st.header("2. Equivalent Frame Method (Stiffness)")
     with st.expander("Show EFM Derivation", expanded=True):
@@ -154,10 +165,12 @@ with tab2:
         math_row("Critical Perimeter (bo)", r"b_o = 2(c_1+d) + 2(c_2+d)", 
                  fr"2({c1}+{d_eff:.1f}) + 2({c2}+{d_eff:.1f})", f"{bo:.1f}", "cm")
         math_row("Shear Strength (φVc)", r"\phi V_c", 
-                 fr"0.85 \cdot 1.06 \sqrt{{{fc}}} \cdot {bo:.1f} \cdot {d_eff:.1f}", f"{PhiVc:,.0f}", "kg", shear_status)
+                 fr"0.85 \cdot 1.06 \sqrt{{{fc}}} \cdot {bo:.1f} \cdot {d_eff:.1f}", 
+                 f"{PhiVc:,.0f}", "kg", shear_status)
 
 # --- TAB 3: GEOMETRY ---
 with tab3:
+    st.header("Geometry Visualization")
     st.pyplot(plot_geometry_detailed(L1, L2, c1, c2, h_slab, lc, Ic))
 
 # --- TAB 4: REPORT ---
@@ -171,8 +184,9 @@ with tab4:
     [INPUTS]
     - Concrete (fc'): {fc} ksc
     - Steel (fy): {fy} ksc
-    - Slab Thickness: {h_slab} cm
+    - Slab Thickness: {h_slab} cm (Cover {cover} cm, Bar DB{d_bar})
     - Span: {L1}m x {L2}m
+    - Column: {c1}x{c2} cm
     - Load: SDL={SDL}, LL={LL} kg/m2
     
     [RESULTS]
@@ -183,7 +197,7 @@ with tab4:
     
     [SAFETY CHECKS]
     - Punching Shear: {shear_status} (Demand: {Vu:,.0f} kg / Cap: {PhiVc:,.0f} kg)
-    - Min Thickness: {thick_status} (Req: {max(L1,L2)*100/33:.1f} cm)
+    - Min Thickness: {thick_status} (Req: {min_h_req:.1f} cm)
     """
     st.text_area("Copy text below:", report_text, height=300)
     st.download_button("Download Report (.txt)", report_text, "design_report.txt")
