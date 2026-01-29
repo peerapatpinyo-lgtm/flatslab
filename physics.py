@@ -8,12 +8,20 @@ def get_units():
         'grav': 9.80665
     }
 
-def get_bar_properties(db_mm):
-    # Standard DB areas (cm2)
-    # Area = pi * (d/2)^2 / 100
-    r_cm = (db_mm / 10.0) / 2.0
-    area = math.pi * (r_cm**2)
-    return area
+# Database for standard Rebar areas (cm2)
+DB_PROPERTIES = {
+    10: 0.785,
+    12: 1.131,
+    16: 2.011,
+    20: 3.142,
+    25: 4.909,
+    28: 6.158,
+    32: 8.042
+}
+
+def get_bar_area(db_mm):
+    # Return area in cm2 from standard table or calc
+    return DB_PROPERTIES.get(int(db_mm), math.pi * ((db_mm/10/2)**2))
 
 def get_min_thickness_limit(ln, pos):
     denom = 33.0 if pos == "Interior" else 30.0
