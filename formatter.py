@@ -2,11 +2,7 @@ def fmt_header(title):
     return f"\\textbf{{{title}}}"
 
 def fmt_load_trace(h_mm, sdl, ll, sw_res, qu_res):
-    """
-    Shows: SW -> DL -> Qu calculation with substitution
-    """
     h_m = h_mm / 1000.0
-    # Concrete density assumed 2400 kg/m3 for display trace
     return r"""
     \begin{aligned}
     SW &= \text{Thickness} \times 2400 = %.2f \times 2400 = %.1f \; kg/m^2 \\
@@ -18,17 +14,11 @@ def fmt_load_trace(h_mm, sdl, ll, sw_res, qu_res):
     """ % (h_m, sw_res, sw_res, sdl, sw_res + sdl, sw_res + sdl, ll, qu_res)
 
 def fmt_d_calc(h, cover, db_avg, d_res):
-    """
-    Shows: d = h - cover - db/2
-    """
     return r"""
     d = h - c_c - \frac{d_{b,avg}}{2} = %.0f - %.0f - %.1f = \mathbf{%.1f} \; mm
     """ % (h, cover, db_avg, d_res)
 
 def fmt_shear_geometry(c1, c2, d, bo, method_pos):
-    """
-    Shows critical perimeter bo
-    """
     return r"""
     \begin{aligned}
     \text{Position} &: \text{%s} \\
@@ -39,14 +29,6 @@ def fmt_shear_geometry(c1, c2, d, bo, method_pos):
     """ % (method_pos, c1, d, c2, d, bo)
 
 def fmt_shear_capacity(fc, beta, alpha, d, bo, vc1, vc2, vc3, vc_final, phi_vc):
-    """
-    Shows ACI 318-19 Three Equations for Vc
-    """
-    # Note: 0.33 in MPa metric is approx 1.06 in sqrt(fc')
-    # But usually in Thailand we use 0.53 * sqrt(fc_ksc) or similar equivalents.
-    # Here we use ACI Metric (MPa) formulation for transparency: 0.33, 0.17, 0.083
-    # Vc1 = 0.33 * sqrt(fc) * bo * d
-    
     return r"""
     \begin{aligned}
     V_{c1} &= 0.33\sqrt{f'_c} b_o d = 0.33\sqrt{%.1f}(%.0f)(%.0f)/1000 = %.1f \; kN \\
@@ -70,16 +52,8 @@ def fmt_shear_check(vu, phi_vc):
     """ % (vu/1000, phi_vc/1000, color, ratio, res)
 
 def fmt_moment_calc(mu, fy, d, a_req, a_min, a_prov, db, s, status):
-    """
-    Shows As,req calculation and comparison
-    """
-    # Simplified As formula for display: As = Mu / (0.9 * fy * 0.9d) approx
-    # Or exact: a = As*fy / 0.85fc*b -> ... 
-    # We will use the standard approximation for transparency trace: As = Mu / (phi * fy * j * d) where j~0.9
-    
     res_text = "OK" if status == "SAFE" else "FAIL"
     col = "green" if status == "SAFE" else "red"
-    
     return r"""
     \begin{aligned}
     M_u &= %.1f \; kg\cdot m \\
@@ -91,6 +65,6 @@ def fmt_moment_calc(mu, fy, d, a_req, a_min, a_prov, db, s, status):
     \text{Status} &: \textcolor{%s}{\textbf{%s}}
     \end{aligned}
     """ % (mu, mu, fy, d/10, a_req, 
-           d*10/10 + 3.0, a_min, # approximate h back from d
+           d*10/10 + 3.0, a_min,
            a_req, a_min, max(a_req, a_min),
            db, s, a_prov, col, res_text)
