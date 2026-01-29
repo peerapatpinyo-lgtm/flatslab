@@ -58,25 +58,24 @@ def add_pro_dim(ax, x1, y1, x2, y2, text, offset=0.5, is_vert=False):
             bbox=bbox, fontweight='600', rotation=rot, zorder=20)
 
 # ==========================================
-# 1. MOMENT DIAGRAM (Improved)
+# 1. MOMENT DIAGRAM (FIXED: Uses Numpy Only)
 # ==========================================
 def plot_ddm_moment(L_span, c1, m_vals):
     fig, ax = plt.subplots(figsize=(10, 3.5), facecolor=CLR_BG)
     
-    x = np.linspace(0, L_span, 300)
+    # ใช้ Numpy สร้างจุดกราฟแทน Scipy เพื่อความชัวร์ในการรัน
+    x = np.linspace(0, L_span, 400)
     M_neg_cs, M_pos_cs = m_vals['M_cs_neg'], m_vals['M_cs_pos']
     M_neg_ms, M_pos_ms = m_vals['M_ms_neg'], m_vals['M_ms_pos']
 
-    # Smooth Curve Interpolation
-    pts_x = [0, L_span*0.15, L_span*0.5, L_span*0.85, L_span]
+    # กำหนดจุดดัดกราฟ (Key Points)
+    pts_x = [0, L_span*0.2, L_span*0.5, L_span*0.8, L_span]
     pts_y_cs = [-M_neg_cs, 0, M_pos_cs, 0, -M_neg_cs]
     pts_y_ms = [-M_neg_ms, 0, M_pos_ms, 0, -M_neg_ms]
     
-    from scipy.interpolate import make_interp_spline
-    spl_cs = make_interp_spline(pts_x, pts_y_cs, k=3)
-    spl_ms = make_interp_spline(pts_x, pts_y_ms, k=3)
-    y_cs = spl_cs(x)
-    y_ms = spl_ms(x)
+    # Linear Interpolation (มาตรฐานวิศวกรรม ยอมรับได้และรันผ่านแน่นอน)
+    y_cs = np.interp(x, pts_x, pts_y_cs)
+    y_ms = np.interp(x, pts_x, pts_y_ms)
 
     # Plotting with hierarchy
     ax.axhline(0, color=CLR_CONCRETE_EDGE, lw=1.0, zorder=1)
