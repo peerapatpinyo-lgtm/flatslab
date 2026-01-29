@@ -1,6 +1,7 @@
 import physics
 import math
 
+# เพิ่ม continuity เป็นตัวแปรสุดท้าย
 def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos, dl_fac, ll_fac, est_bar_db, continuity):
     """
     Phase 1: Structural Analysis & Geometry
@@ -14,7 +15,7 @@ def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cov
     # Calculate Clear Spans
     ln_x = max(lx - c1, 0.65 * lx)
     ln_y = max(ly - c2, 0.65 * ly)
-    ln = ln_x # Design in X-direction typically uses Lx but checks against Ly geometry
+    ln = ln_x 
     
     # --- Thickness Design Loop ---
     h_min_val, h_denom = physics.get_min_thickness_limit(ln, pos)
@@ -105,7 +106,7 @@ def verify_reinforcement(base_data, user_top_db, user_top_spacing, user_bot_db, 
         mu = coeff * mo
         d_cm = d_avg / 10.0 
         denom_val = 0.9 * fy * 0.9 * d_cm
-        as_req_calc = (mu * 100) / denom_val # cm2
+        as_req_calc = (mu * 100) / denom_val 
         
         as_target = max(as_req_calc, as_min)
         
@@ -129,26 +130,16 @@ def verify_reinforcement(base_data, user_top_db, user_top_spacing, user_bot_db, 
             status_msgs.append("FAIL: Insufficient As")
             is_safe = False
             
-        # Check B: Max Spacing (ACI: 2h or 300mm)
-        # Note: 300mm constraint from prompt
+        # Check B: Max Spacing
         max_s = min(2 * h, 300) 
         if sel_spacing > max_s:
             status_msgs.append(f"FAIL: Spacing > Max ({max_s}mm)")
             is_safe = False
             
-        # Check C: Congestion (Placement Difficulty)
+        # Check C: Congestion
         if sel_spacing < 75:
-            status_msgs.append("WARN: Concrete Placement Difficulty (<75mm)")
-            # Warning doesn't necessarily fail safety, but flags construction issue
+            status_msgs.append("WARN: Congested")
             
-        # Check D: Structural Integrity (Column Strip only)
-        # Requires at least 2 bars in beam width (approx)
-        if "Column Strip" in name:
-            # Check effective width covered
-            # Approx check: Spacing shouldn't be massive relative to column
-            pass 
-        
-        # Final Status Compilation
         if is_safe:
             status = "SAFE"
             color = "green"
