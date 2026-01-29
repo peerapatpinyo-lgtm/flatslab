@@ -42,7 +42,8 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id, w_u):
     # ----------------------------------------------------
     # 📝 PART A: DETAILED CALCULATION (STEP-BY-STEP)
     # ----------------------------------------------------
-    st.markdown(f"### 📐 Detailed Calculation: {axis_id-Direction}")
+    # [FIXED LINE BELOW]: Changed {axis_id-Direction} to {axis_id}-Direction
+    st.markdown(f"### 📐 Detailed Calculation: {axis_id}-Direction")
     
     with st.expander("📝 Show Engineering Calculations (แสดงรายการคำนวณ)", expanded=False):
         # 1. Geometry
