@@ -1,61 +1,51 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def draw_section(h_mm, cover_mm, c1_mm, ln_m, d_mm, top_label, bot_label):
-    h = h_mm / 1000.0
-    c1 = c1_mm / 1000.0
-    cover = cover_mm / 1000.0
+def draw_section(h_mm, cover_mm, c1_m, ln_m, d_mm, top_txt, bot_txt):
+    """
+    Draws a proportional section of the slab with reinforcement cut-off points.
+    """
+    fig, ax = plt.subplots(figsize=(10, 4))
     
-    fig, ax = plt.subplots(figsize=(10, 5))
-    w = 2.5  # View width
+    # Dimensions (scaled for visualization)
+    col_w = c1_m * 1000
+    span = ln_m * 1000
+    total_w = col_w + span + col_w
+    slab_h = h_mm
     
-    # 1. Concrete Structure
-    # Column
-    ax.add_patch(patches.Rectangle((-c1/2, -0.6), c1, 0.6, hatch='///', facecolor='white', edgecolor='black'))
+    # 1. Concrete Geometry
+    # Left Column
+    ax.add_patch(patches.Rectangle((-col_w, -1000), col_w, 1000+slab_h, facecolor='#D3D3D3', edgecolor='black'))
+    # Right Column
+    ax.add_patch(patches.Rectangle((span, -1000), col_w, 1000+slab_h, facecolor='#D3D3D3', edgecolor='black'))
     # Slab
-    ax.add_patch(patches.Rectangle((-w, 0), 2*w, h, facecolor='#f4f4f4', edgecolor='black'))
+    ax.add_patch(patches.Rectangle((0, 0), span, slab_h, facecolor='#F0F0F0', edgecolor='black'))
     
     # 2. Rebar Drawing
-    y_top = h - cover
-    y_bot = cover
+    # Top Bar (Negative Moment) - Extends 0.30 Ln
+    cutoff_len = 0.30 * span
+    top_y = slab_h - cover_mm
+    ax.plot([-col_w/2, cutoff_len], [top_y, top_y], 'r-', linewidth=3, label='Top Bar')
+    ax.plot([span - cutoff_len, span + col_w/2], [top_y, top_y], 'r-', linewidth=3)
     
-    # 2.1 Top Bar (Cut-off at 0.30 Ln per ACI/Standard practice)
-    cutoff_ratio = 0.30
-    top_len = cutoff_ratio * ln_m
-    ax.plot([-top_len, top_len], [y_top, y_top], color='blue', linewidth=3, label='Top Bar')
-    ax.text(0, y_top + 0.05, f"Top: {top_label}", color='blue', ha='center', fontweight='bold', fontsize=9)
+    # Bottom Bar (Positive Moment) - Continuous
+    bot_y = cover_mm
+    ax.plot([0 + 50, span - 50], [bot_y, bot_y], 'b-', linewidth=3, label='Bot Bar')
     
-    # 2.2 Bottom Bar (Must extend into support >= 150mm)
-    embedment = 0.15 # 150mm
-    # Draw from left edge of view to right edge of view, but technically anchored at supports
-    ax.plot([-w+0.1, w-0.1], [y_bot, y_bot], color='green', linewidth=3, label='Bot Bar')
-    ax.text(1.0, y_bot - 0.08, f"Bot: {bot_label}", color='green', ha='center', fontweight='bold', fontsize=9)
+    # 3. Annotations
+    ax.text(cutoff_len, top_y + 20, f"Cut-off: 0.30Ln ({cutoff_len/1000:.2f}m)", ha='center', fontsize=9, color='red')
+    ax.text(span/2, top_y + 60, top_txt, ha='center', fontsize=10, weight='bold', color='darkred')
+    ax.text(span/2, bot_y - 40, bot_txt, ha='center', fontsize=10, weight='bold', color='blue')
     
-    # Show Embedment
-    ax.plot([c1/2 - 0.05, c1/2 + embedment], [y_bot, y_bot], color='red', linewidth=4, alpha=0.6)
-    ax.text(c1/2 + 0.1, y_bot + 0.02, "Min Embed 150mm", color='red', fontsize=8)
-
-    # 3. Dimensions
-    # Cutoff Dimension
-    ax.annotate(f"{cutoff_ratio} Ln = {top_len:.2f} m", xy=(-top_len, y_top), xytext=(-top_len, h+0.25),
-                arrowprops=dict(arrowstyle='->', color='blue'), color='blue', ha='center', fontsize=9)
-    ax.vlines([-top_len, top_len], y_top, h+0.25, colors='blue', linestyles=':', alpha=0.5)
-
-    # Clear Span Indication
-    ax.annotate(f"Face of Support", xy=(c1/2, 0), xytext=(c1/2, -0.2),
-                arrowprops=dict(arrowstyle='->'), ha='left', fontsize=8)
+    # Dimensions
+    ax.annotate(f"Ln = {ln_m:.2f} m", xy=(span/2, slab_h/2), ha='center', va='center')
+    ax.annotate(f"h = {h_mm} mm", xy=(-20, slab_h/2), ha='right', va='center', rotation=90)
     
-    # Depth
-    ax.annotate(f"h={h_mm}mm", xy=(-w+0.2, 0), xytext=(-w+0.2, h),
-                arrowprops=dict(arrowstyle='<->'), rotation=90, va='center')
-    
-    # Effective Depth
-    ax.annotate(f"d={d_mm:.0f}", xy=(-w+0.4, y_top), xytext=(-w+0.4, 0),
-                arrowprops=dict(arrowstyle='<->', color='red'), color='red', va='center')
-
-    ax.set_xlim(-w, w)
-    ax.set_ylim(-0.7, h+0.6)
+    # Settings
+    ax.set_xlim(-col_w - 200, span + col_w + 200)
+    ax.set_ylim(-500, slab_h + 300)
+    ax.set_aspect('auto') # Auto aspect to fit slab and span
     ax.axis('off')
-    ax.set_title(f"CONSTRUCTION DETAIL (Ln = {ln_m:.2f} m)", loc='left', fontweight='bold')
+    ax.set_title("Reinforcement Detail (Schematic)", fontsize=12)
     
     return fig
