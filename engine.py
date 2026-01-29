@@ -1,7 +1,7 @@
 import physics
 import math
 
-# เพิ่ม continuity เป็นตัวแปรสุดท้าย
+# สังเกตตัวแปรสุดท้ายคือ continuity
 def analyze_structure(lx, ly, h_init, c1_mm, c2_mm, fc_ksc, fy_ksc, sdl, ll, cover_mm, pos, dl_fac, ll_fac, est_bar_db, continuity):
     """
     Phase 1: Structural Analysis & Geometry
