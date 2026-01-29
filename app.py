@@ -1,266 +1,219 @@
 import streamlit as st
-import math
+import pandas as pd
+import numpy as np
 
-# ==========================================
-# 1. CONFIG & SETUP
-# ==========================================
-st.set_page_config(page_title="Interactive Flat Slab Design", layout="wide", page_icon="🏗️")
+# ตั้งค่าหน้าเว็บ
+st.set_page_config(page_title="Flat Slab Design Analysis", layout="wide")
 
-# --- INITIALIZE SESSION STATE ---
-if 'demands' not in st.session_state:
-    st.session_state.demands = None
+st.title("🏗️ Flat Slab Design: DDM & EFM Analysis")
+st.markdown("โปรแกรมคำนวณพื้นไร้คานแบบละเอียด แสดงที่มาของตัวเลขทุกขั้นตอน")
 
-# ==========================================
-# 2. MODULE: FORMATTERS (Math Display)
-# ==========================================
-def fmt_load_calc(h, sdl, ll, dl, qu):
-    return r"""
-    \begin{aligned}
-    DL &= (0.0024 \times %.0f) + %.0f = %.1f \; kg/m^2 \\
-    q_u &= 1.2(%.1f) + 1.6(%.0f) = \mathbf{%.1f} \; kg/m^2
-    \end{aligned}
-    """ % (h, sdl, dl, dl, ll, qu)
+# --- 1. SIDEBAR INPUTS ---
+st.sidebar.header("1. Input Parameters")
 
-def fmt_moment_check(pos, mu, d, as_req, as_min, as_prov, status):
-    color = "green" if status == "PASS" else "red"
-    return r"""
-    \begin{aligned}
-    \text{%s Moment } (M_u) &= %.2f \; kN\cdot m \\
-    \text{Eff. Depth } (d) &= %.1f \; mm \\
-    A_{s,req} &= \mathbf{%.2f} \; cm^2 \quad (\text{Whitney}) \\
-    A_{s,min} &= %.2f \; cm^2 \\
-    A_{s,prov} &= \mathbf{%.2f} \; cm^2 \rightarrow \textcolor{%s}{\textbf{%s}}
-    \end{aligned}
-    """ % (pos, mu, d, as_req, as_min, as_prov, color, status)
+# Material Properties
+st.sidebar.subheader("Material Properties")
+fc = st.sidebar.number_input("Concrete Strength, f'c (ksc)", value=240.0)
+fy = st.sidebar.number_input("Steel Yield Strength, fy (ksc)", value=4000.0)
+Ec = 15100 * (fc**0.5) # ACI Formula estimate (ksc)
 
-def fmt_shear_verify(vu, phi_vc, ratio, status):
-    color = "green" if status == "PASS" else "red"
-    return r"""
-    \begin{aligned}
-    V_u &= \mathbf{%.1f} \; kN \quad (\text{Net Demand}) \\
-    \phi V_c &= \mathbf{%.1f} \; kN \quad (\text{Capacity}) \\
-    \text{Ratio} &= \frac{V_u}{\phi V_c} = \textcolor{%s}{\mathbf{%.2f}} \quad (\textbf{%s})
-    \end{aligned}
-    """ % (vu, phi_vc, color, ratio, status)
+# Geometry
+st.sidebar.subheader("Geometry")
+L1 = st.sidebar.number_input("Span Length L1 (Direction of Analysis) (m)", value=6.0)
+L2 = st.sidebar.number_input("Transverse Span Length L2 (m)", value=5.0)
+h_slab = st.sidebar.number_input("Slab Thickness (cm)", value=20.0)
+l_c = st.sidebar.number_input("Storey Height (m)", value=3.0)
 
-# ==========================================
-# 3. MODULE: ENGINE
-# ==========================================
-GRAV = 9.80665
+st.sidebar.subheader("Column Dimensions")
+c1 = st.sidebar.number_input("Column Dimension c1 (Parallel to L1) (cm)", value=40.0)
+c2 = st.sidebar.number_input("Column Dimension c2 (Transverse) (cm)", value=40.0)
 
-# --- Part 1: Initial Demands (Geometry & Loads) ---
-def calc_general_demands(lx, ly, h_mm, c1, c2, sdl, ll, pos):
-    # Loads
-    sw = (h_mm / 1000.0) * 2400
-    dl = sw + sdl
-    qu = (1.2 * dl) + (1.6 * ll)
+# Loads
+st.sidebar.subheader("Loads")
+SDL = st.sidebar.number_input("Superimposed Dead Load (kg/m^2)", value=100.0)
+LL = st.sidebar.number_input("Live Load (kg/m^2)", value=300.0)
+
+# --- 2. CALCULATION FUNCTIONS ---
+
+def calculate_loads(h_slab, SDL, LL):
+    # Density of concrete approx 2400 kg/m3
+    w_self = (h_slab / 100) * 2400
+    w_dead = w_self + SDL
+    w_u = 1.2 * w_dead + 1.6 * LL
+    return w_self, w_dead, w_u
+
+def ddm_analysis(L1, L2, w_u, c1, ln):
+    # Total Static Moment
+    Mo = (w_u * L2 * (ln**2)) / 8
     
-    # Static Moment (ACI Direct Design Method approximation)
-    ln = lx - (c1/1000)
-    mo_kgm = (qu * ly * ln**2) / 8
-    mo_kNm = mo_kgm * GRAV / 1000.0
+    # Simplified Distribution (Interior Span)
+    # Note: These percentages depend on constraints (beam presence etc.)
+    # Assuming flat plate (no beams)
+    res = {
+        "Mo": Mo,
+        "Neg_M": Mo * 0.65,
+        "Pos_M": Mo * 0.35,
+        "Col_Strip_Neg": (Mo * 0.65) * 0.75,
+        "Mid_Strip_Neg": (Mo * 0.65) * 0.25,
+        "Col_Strip_Pos": (Mo * 0.35) * 0.60,
+        "Mid_Strip_Pos": (Mo * 0.35) * 0.40
+    }
+    return res
+
+def efm_stiffness(c1, c2, L1, L2, h_slab, l_c, Ec):
+    # Units conversion to meters/kg where needed, but keeping consistent helps
+    # Inputs in cm need conversion for Inertia calculations
     
-    # Distribute Moment (Approx Coeffs for Exterior/Interior avg)
-    mu_neg = mo_kNm * 0.65 # Top
-    mu_pos = mo_kNm * 0.35 # Bottom
+    # 1. Slab Moment of Inertia (Is)
+    # Gross section
+    Is = (L2 * 100 * (h_slab**3)) / 12  # cm^4
+    
+    # 2. Column Moment of Inertia (Ic)
+    Ic = (c2 * (c1**3)) / 12 # cm^4
+    
+    # 3. Slab Stiffness (Ks) - Simplified for Interior
+    # Using coefficient 4EI/L
+    Ks = (4 * Ec * Is) / (L1 * 100) # kg-cm
+    
+    # 4. Column Stiffness (Kc)
+    Kc = (4 * Ec * Ic) / (l_c * 100) # kg-cm (Assume fixed far end for simplicity of demo)
+    # Note: In real EFM, Kc involves infinite stiffness at joint
+    
+    # 5. Torsional Member Stiffness (Kt)
+    # Based on ACI Code
+    x = min(c1, h_slab)
+    y = max(c1, h_slab) # Approximation for rect section
+    # C = constant for torsion
+    C = (1 - 0.63 * (x/y)) * (x**3 * y) / 3
+    
+    # Kt formula: Kt = sum(9 * Ec * C / (L2 * (1 - c2/L2)**3))
+    # This is a complex derivation, showing simplified version for demo
+    Kt = (9 * Ec * C) / ((L2 * 100) * (1 - (c2/(L2*100)))**3) * 2 # *2 for both sides of column
+    
+    # 6. Equivalent Column Stiffness (Kec)
+    # Formula: 1/Kec = 1/Sigma(Kc) + 1/Kt
+    Sum_Kc = 2 * Kc # Upper and Lower columns
+    inv_Kec = (1 / Sum_Kc) + (1 / Kt)
+    Kec = 1 / inv_Kec
+    
+    # 7. Distribution Factor (DF)
+    # DF = Ks / (Ks + Kec)
+    DF = Ks / (Ks + Kec)
     
     return {
-        "h": h_mm, "c1": c1, "c2": c2, "lx": lx, "ly": ly,
-        "qu": qu, "sw": sw, "dl": dl, 
-        "mu_top": mu_neg, "mu_bot": mu_pos,
-        "pos": pos
+        "Is": Is, "Ic": Ic, "Ks": Ks, "Kc": Kc, 
+        "C": C, "Kt": Kt, "Sum_Kc": Sum_Kc, "Kec": Kec, "DF": DF
     }
 
-# --- Part 2: Interactive Verification (Rebar dependent) ---
-def verify_reinforcement(demands, fc_ksc, fy_ksc, cover, top_db, top_s, bot_db, bot_s):
-    # Unpack
-    d_dict = demands
-    h, c1, c2 = d_dict['h'], d_dict['c1'], d_dict['c2']
-    qu = d_dict['qu']
-    
-    fc_mpa = fc_ksc * 0.0981
-    fy_mpa = fy_ksc * 0.0981
-    
-    # 1. Effective Depths (d)
-    # Assume Top = Outer Layer, Bot = Inner Layer
-    d_top = h - cover - (top_db/2)
-    d_bot = h - cover - top_db - (bot_db/2)
-    d_avg = (d_top + d_bot) / 2.0
-    
-    # 2. Flexural Check Logic
-    def solve_as(mu_kNm, d_mm):
-        # Whitney Stress Block Quadratic Solver
-        phi = 0.9
-        mu_Nmm = mu_kNm * 1e6
-        alpha = (phi * fy_mpa**2) / (1.7 * fc_mpa * 1000) # b=1000
-        beta = - (phi * fy_mpa * d_mm)
-        gamma = mu_Nmm
-        try:
-            delta = beta**2 - 4*alpha*gamma
-            if delta < 0: return 999.99 # Section too small
-            as_mm2 = (-beta - math.sqrt(delta)) / (2*alpha)
-            return as_mm2 / 100.0 # cm2
-        except: return 999.99
+# --- 3. MAIN DISPLAY LOGIC ---
 
-    def get_as_prov(db, s):
-        area_one = math.pi * (db/2)**2
-        return (area_one / s) * 1000 / 100 # cm2
-        
-    # Check Top
-    as_req_top = solve_as(d_dict['mu_top'], d_top)
-    as_min = 0.0018 * 1000 * h / 100
-    as_prov_top = get_as_prov(top_db, top_s)
-    st_top = "PASS" if as_prov_top >= max(as_req_top, as_min) and top_s <= 2*h else "FAIL"
-    
-    # Check Bot
-    as_req_bot = solve_as(d_dict['mu_bot'], d_bot)
-    as_prov_bot = get_as_prov(bot_db, bot_s)
-    st_bot = "PASS" if as_prov_bot >= max(as_req_bot, as_min) and bot_s <= 2*h else "FAIL"
+# Preliminary Calcs
+ln = L1 - (c1/100) # Clear span
+w_self, w_dead, w_u = calculate_loads(h_slab, SDL, LL)
 
-    # 3. Punching Shear (Depends on d_avg)
-    # Geometry
-    pos = d_dict['pos']
-    if pos == "Interior":
-        b1, b2 = c1 + d_avg, c2 + d_avg
-        bo = 2*(b1+b2)
-        alpha_s = 40
-        mag = 1.0
-    elif pos == "Edge":
-        b1, b2 = c1 + d_avg/2, c2 + d_avg
-        bo = 2*b1 + b2
-        alpha_s = 30
-        mag = 1.25
-    else: # Corner
-        b1, b2 = c1 + d_avg/2, c2 + d_avg/2
-        bo = b1 + b2
-        alpha_s = 20
-        mag = 1.30
-        
-    # Demand Vu (Net Load)
-    a_inside = (b1 * b2) / 1e6
-    vu_net_kN = (qu * ((d_dict['lx']*d_dict['ly']) - a_inside) * mag * GRAV) / 1000
-    
-    # Capacity PhiVc
-    beta = max(c1,c2)/min(c1,c2)
-    vc1 = 0.33 * math.sqrt(fc_mpa) * bo * d_avg
-    vc2 = 0.17 * (1 + 2/beta) * math.sqrt(fc_mpa) * bo * d_avg
-    vc3 = 0.083 * (alpha_s*d_avg/bo + 2) * math.sqrt(fc_mpa) * bo * d_avg
-    phi_vc_kN = (0.75 * min(vc1,vc2,vc3)) / 1000
-    
-    st_shear = "PASS" if vu_net_kN <= phi_vc_kN else "FAIL"
-    
-    return {
-        "d_top": d_top, "as_req_top": as_req_top, "as_prov_top": as_prov_top, "st_top": st_top,
-        "d_bot": d_bot, "as_req_bot": as_req_bot, "as_prov_bot": as_prov_bot, "st_bot": st_bot,
-        "as_min": as_min,
-        "vu": vu_net_kN, "phi_vc": phi_vc_kN, "st_shear": st_shear, "bo": bo
-    }
+st.header("2. Analysis Results")
 
-# ==========================================
-# 4. MODULE: UI LAYOUT
-# ==========================================
+# Display Loads
+st.subheader("Step 1: Load Calculation")
+col1, col2, col3 = st.columns(3)
+col1.metric("Self Weight", f"{w_self:.2f} kg/m²")
+col2.metric("Total Dead Load", f"{w_dead:.2f} kg/m²")
+col3.metric("Factored Load (Wu)", f"{w_u:.2f} kg/m²")
 
-# --- SIDEBAR: Fixed Inputs (Geometry & Loads) ---
-with st.sidebar:
-    st.header("1. Project Inputs")
-    with st.form("geom_form"):
-        st.subheader("Geometry & Materials")
-        h = st.number_input("Slab Thickness (mm)", 100, 500, 200)
-        c1 = st.number_input("Col Width c1 (mm)", 200, 1000, 500)
-        c2 = st.number_input("Col Depth c2 (mm)", 200, 1000, 500)
-        cover = st.number_input("Cover (mm)", 15, 50, 25)
-        
-        st.subheader("Span & Position")
-        lx = st.number_input("Span Lx (m)", 2.0, 12.0, 8.0)
-        ly = st.number_input("Span Ly (m)", 2.0, 12.0, 8.0)
-        pos = st.selectbox("Column Position", ["Interior", "Edge", "Corner"])
-        
-        st.subheader("Loads")
-        sdl = st.number_input("SDL (kg/m2)", 0, 500, 150)
-        ll = st.number_input("LL (kg/m2)", 0, 1000, 300)
-        
-        st.subheader("Material Properties")
-        fc = st.number_input("fc' (ksc)", 180, 500, 280)
-        fy = st.number_input("fy (ksc)", 2400, 5000, 4000)
-        
-        # Action Button: Calculate Demands ONLY
-        calc_btn = st.form_submit_button("📊 Calculate Demands")
+st.latex(r"w_u = 1.2(DL) + 1.6(LL)")
 
-if calc_btn:
-    st.session_state.demands = calc_general_demands(lx, ly, h, c1, c2, sdl, ll, pos)
-    # Streamlit will re-run and show the main area
+# Check DDM Suitability
+st.subheader("Step 2: Method Selection Check (ACI 318)")
+limit_ratio = 2.0
+ratio = max(L1, L2) / min(L1, L2)
+st.write(f"- Span Ratio ($L_{{long}}/L_{{short}}$): **{ratio:.2f}** (Limit: {limit_ratio})")
 
-# --- MAIN AREA: Report & Interactive Design ---
-st.title("🏗️ Interactive Flat Slab Design")
-st.caption("ACI 318-19 | Metric Units")
+use_ddm = True
+if ratio > limit_ratio:
+    st.error("⚠️ Span ratio exceeds 2.0. DDM is NOT allowed. Must use EFM.")
+    use_ddm = False
+else:
+    st.success("✅ Geometry fits DDM criteria.")
+
+method = st.radio("Select Method to View Details:", ["Direct Design Method (DDM)", "Equivalent Frame Method (EFM)"])
+
 st.markdown("---")
 
-if st.session_state.demands:
-    dm = st.session_state.demands
+if method == "Direct Design Method (DDM)":
+    if not use_ddm:
+        st.warning("Showing DDM calculations strictly for educational purposes (Code Violation).")
     
-    # === SECTION 2: LOADS & GEOMETRY ===
-    c1_ui, c2_ui = st.columns([1, 2])
-    with c1_ui:
-        st.subheader("2. Load Analysis")
-        st.latex(fmt_load_calc(dm['h'], sdl, ll, dm['dl'], dm['qu']))
-    with c2_ui:
-        st.info(f"**Structural Context:** {dm['pos']} Column | Size {dm['c1']}x{dm['c2']} mm | Span {dm['lx']}x{dm['ly']} m")
+    st.header("Direct Design Method Calculation")
+    
+    ddm_res = ddm_analysis(L1, L2, w_u, c1, ln)
+    
+    st.markdown("### 3.1 Total Static Moment ($M_o$)")
+    st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
+    st.write(f"แทนค่า: $M_o = \\frac{{{w_u:.2f} \\times {L2} \\times {ln:.2f}^2}}{{8}}$")
+    st.info(f"**Total Static Moment ($M_o$) = {ddm_res['Mo']:.2f} kg-m**")
+    
+    st.markdown("### 3.2 Longitudinal Distribution (Interior Span)")
+    st.write("กระจายโมเมนต์รวมไปยัง Negative และ Positive Moment (ACI Table)")
+    
+    df_ddm = pd.DataFrame({
+        "Location": ["Negative Moment (65%)", "Positive Moment (35%)"],
+        "Total Moment (kg-m)": [ddm_res['Neg_M'], ddm_res['Pos_M']]
+    })
+    st.table(df_ddm)
+    
+    st.markdown("### 3.3 Transverse Distribution (Column vs Middle Strip)")
+    
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.markdown("**Negative Moment Distribution**")
+        st.write(f"- Column Strip (75%): **{ddm_res['Col_Strip_Neg']:.2f} kg-m**")
+        st.write(f"- Middle Strip (25%): **{ddm_res['Mid_Strip_Neg']:.2f} kg-m**")
+    with col_b:
+        st.markdown("**Positive Moment Distribution**")
+        st.write(f"- Column Strip (60%): **{ddm_res['Col_Strip_Pos']:.2f} kg-m**")
+        st.write(f"- Middle Strip (40%): **{ddm_res['Mid_Strip_Pos']:.2f} kg-m**")
 
-    st.markdown("---")
+elif method == "Equivalent Frame Method (EFM)":
     
-    # === SECTION 3: REINFORCEMENT DESIGN (INTERACTIVE) ===
-    st.header("3. Reinforcement Design")
-    st.markdown("👉 **Adjust the rebar configuration below to satisfy demands:**")
+    st.header("Equivalent Frame Method Calculation")
+    st.markdown("ในวิธี EFM เราจะแปลงโครงสร้างพื้นและเสาให้เป็น **Equivalent Frame** เพื่อหาค่า Stiffness")
     
-    # Container for Interactive Inputs
-    with st.container():
-        col_top, col_bot = st.columns(2)
-        
-        # --- Top Rebar Input ---
-        with col_top:
-            st.subheader("Top Rebar (Negative Moment)")
-            st.write(f"**Demand:** $M_u = {dm['mu_top']:.2f}$ kN-m")
-            # User Input - Key change triggers rerun
-            t_db = st.selectbox("Top Bar Size (mm)", [10,12,16,20,25], index=2, key="t_db")
-            t_sp = st.number_input("Top Spacing (mm)", 50, 450, 200, step=25, key="t_sp")
-        
-        # --- Bottom Rebar Input ---
-        with col_bot:
-            st.subheader("Bottom Rebar (Positive Moment)")
-            st.write(f"**Demand:** $M_u = {dm['mu_bot']:.2f}$ kN-m")
-            # User Input - Key change triggers rerun
-            b_db = st.selectbox("Bot Bar Size (mm)", [10,12,16,20,25], index=1, key="b_db")
-            b_sp = st.number_input("Bot Spacing (mm)", 50, 450, 250, step=25, key="b_sp")
-
-    # === REAL-TIME CALCULATION ===
-    # This runs every time the user touches the widgets above
-    res = verify_reinforcement(dm, fc, fy, cover, t_db, t_sp, b_db, b_sp)
+    efm_res = efm_stiffness(c1, c2, L1, L2, h_slab, l_c, Ec)
     
-    # Display Results immediately below inputs
-    r1, r2 = st.columns(2)
-    with r1:
-        st.latex(fmt_moment_check("Top", dm['mu_top'], res['d_top'], res['as_req_top'], res['as_min'], res['as_prov_top'], res['st_top']))
-    with r2:
-        st.latex(fmt_moment_check("Bottom", dm['mu_bot'], res['d_bot'], res['as_req_bot'], res['as_min'], res['as_prov_bot'], res['st_bot']))
-        
-    st.markdown("---")
+    # 1. Slab Stiffness
+    st.subheader("1. Slab Stiffness ($K_s$)")
+    st.latex(r"I_s = \frac{L_2 h^3}{12}")
+    st.write(f"Inertia Slab ($I_s$): {efm_res['Is']:,.2f} $cm^4$")
+    st.latex(r"K_s = \frac{4E_c I_s}{L_1}")
+    st.write(f"Stiffness Slab ($K_s$): **{efm_res['Ks']:,.2f}** kg-cm")
     
-    # === SECTION 4: FINAL SHEAR VERIFICATION ===
-    st.header("4. Punching Shear Verification")
-    st.markdown("Computed based on actual $d_{avg}$ from selected reinforcement.")
+    # 2. Column Stiffness
+    st.subheader("2. Column Stiffness ($K_c$)")
+    st.latex(r"I_c = \frac{c_2 c_1^3}{12}")
+    st.write(f"Inertia Column ($I_c$): {efm_res['Ic']:,.2f} $cm^4$")
+    st.write(f"Stiffness Column ($K_c$): **{efm_res['Kc']:,.2f}** kg-cm")
     
-    s1, s2 = st.columns([1, 1])
-    with s1:
-        st.write("**Critical Section parameters:**")
-        st.write(f"- $d_{{avg}} = { (res['d_top']+res['d_bot'])/2:.1f}$ mm")
-        st.write(f"- $b_o = {res['bo']:.0f}$ mm")
-        st.latex(fmt_shear_verify(res['vu'], res['phi_vc'], res['vu']/res['phi_vc'], res['st_shear']))
+    # 3. Torsional Member
+    st.subheader("3. Torsional Member Stiffness ($K_t$)")
+    st.markdown("ส่วนที่รับแรงบิด (Torsion) บริเวณหัวเสาที่เชื่อมต่อกับพื้น")
+    st.latex(r"K_t = \sum \frac{9 E_c C}{L_2 (1 - c_2/L_2)^3}")
+    st.write(f"Torsional Constant ($C$): {efm_res['C']:,.2f} $cm^4$")
+    st.write(f"Torsional Stiffness ($K_t$): **{efm_res['Kt']:,.2f}** kg-cm")
     
-    with s2:
-        if res['st_shear'] == "FAIL":
-            st.error("❌ **Shear Check Failed:** Try increasing Slab Thickness, Concrete Strength, or adding Drop Panels.")
-        else:
-            st.success("✅ **Shear Check Passed:** Design is adequate for Shear.")
-
-else:
-    st.info("👈 Please enter Geometry & Loads in the Sidebar and click 'Calculate Demands' to start designing.")
+    # 4. Equivalent Column
+    st.subheader("4. Equivalent Column Stiffness ($K_{ec}$)")
+    st.markdown("เป็นการรวมความแข็งของเสา ($K_c$) และส่วนรับแรงบิด ($K_t$) เข้าด้วยกัน")
+    st.latex(r"\frac{1}{K_{ec}} = \frac{1}{\sum K_c} + \frac{1}{K_t}")
+    st.write(f"Sum Columns ($2 \\times K_c$): {efm_res['Sum_Kc']:,.2f}")
+    st.success(f"**Equivalent Column Stiffness ($K_{{ec}}$): {efm_res['Kec']:,.2f} kg-cm**")
+    
+    # 5. Distribution Factors
+    st.subheader("5. Distribution Factors (DF) at Joint")
+    st.markdown("ปัจจัยการกระจายโมเมนต์เข้าสู่พื้นและเสาเทียบเท่า")
+    st.latex(r"DF_{slab} = \frac{K_s}{K_s + K_{ec}}")
+    
+    df_val = efm_res['DF']
+    st.metric("Distribution Factor to Slab", f"{df_val:.4f}")
+    st.metric("Distribution Factor to Column (Equivalent)", f"{1 - df_val:.4f}")
+    
+    st.info("💡 Next Step: ค่า DF นี้จะถูกนำไปใช้ในกระบวนการ Moment Distribution Method (Hardy Cross) เพื่อกระจาย Fixed End Moment (FEM) จนสมดุล")
