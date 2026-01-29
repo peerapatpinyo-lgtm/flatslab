@@ -1,34 +1,42 @@
 import streamlit as st
 
+def fmt_design_philosophy():
+    return r"""
+    \small
+    \textbf{Design Philosophy:} \\
+    \text{- Code Reference: ACI 318-19 (Building Code Requirements for Structural Concrete)} \\
+    \text{- Method: Direct Design Method (DDM) for Two-Way Slabs} \\
+    \text{- Safety Factors: } \phi_{shear} = 0.75, \; \phi_{flexure} = 0.90 \\
+    \text{- Load Factors: } U = 1.4(DL) + 1.7(LL) \; \text{(Local Practice Adjusted)}
+    """
+
+def fmt_bo_explanation(bo_str, bo_mm, d_mm):
+    return r"""
+    \text{Shear Perimeter } (b_o): \\
+    b_o = """ + bo_str + r""" \\
+    \text{Substitute } d = """ + f"{d_mm:.0f}" + r""" \; mm \rightarrow b_o = \mathbf{""" + f"{bo_mm:.0f}" + r"""} \; mm
+    """
+
 def fmt_rebar_verification(name, coeff, mo, mu, fy, d_cm, as_req_calc, as_min, as_target, 
-                           user_db, user_spacing, bar_area, as_prov, status, color):
+                           user_db, user_spacing, bar_area, as_prov, status, color, max_s):
     
-    # 1. Moment & As Required
-    mu_sub = f"{coeff} \\times {mo:,.0f}"
+    mu_sub = f"{coeff:.2f} \\times {mo:,.0f}"
     
-    # 2. As Calculation
-    req_sub = f"\\frac{{{mu:,.0f} \\times 100}}{{0.9 \\times {fy:.0f} \\times 0.9 \\times {d_cm:.1f}}}"
-    
-    # 3. Provided Logic
-    # As_prov = (A_bar * 1000) / Spacing
-    prov_sub = f"\\frac{{{bar_area:.2f} \\times 1000}}{{{user_spacing:.0f}}}"
-    
-    # Status Symbol
+    # Status formatting
     status_icon = r"\checkmark" if "SAFE" in status else r"\times"
-    check_ineq = r"\ge" if as_prov >= as_target else r"<"
     
     return r"""
     \underline{\textbf{""" + name + r"""}} \\
     \begin{aligned}
-    M_u &= """ + f"{coeff} M_o = {mu:,.0f}" + r""" \; kg \cdot m \\
-    A_{s,req} &= """ + req_sub + r""" = \mathbf{""" + f"{as_req_calc:.2f}" + r"""} \; cm^2/m \\
-    \text{Control} &: \max(A_{s,req}, A_{s,min}) = \mathbf{""" + f"{as_target:.2f}" + r"""} \; cm^2/m \\
-    \text{Try} &: \text{DB""" + f"{user_db} @ {user_spacing}" + r""" mm} \quad (A_{bar} = """ + f"{bar_area:.2f}" + r""" cm^2) \\
-    A_{s,prov} &= \frac{A_{bar} \times 1000}{Spacing} = """ + prov_sub + r""" = \mathbf{""" + f"{as_prov:.2f}" + r"""} \; cm^2/m \\
-    \text{Check} &: """ + f"{as_prov:.2f} {check_ineq} {as_target:.2f}" + r""" \quad \Rightarrow \quad \textbf{\textcolor{""" + color + r"""}{""" + status + r"""}}
+    M_u &= """ + f"{mu_sub} = {mu:,.0f}" + r""" \; kg \cdot m \\
+    A_{s,req} &= \mathbf{""" + f"{as_req_calc:.2f}" + r"""} \; cm^2/m \quad \text{vs} \quad A_{s,min} = """ + f"{as_min:.2f}" + r""" \\
+    \text{Try} &: \text{DB""" + f"{user_db} @ {user_spacing}" + r""" mm} \rightarrow A_{s,prov} = \mathbf{""" + f"{as_prov:.2f}" + r"""} \; cm^2/m \\
+    \text{Limits} &: S_{user} \le S_{max} (""" + f"{max_s}" + r""" mm) \quad \text{and} \quad A_{s,prov} \ge A_{s,req} \\
+    \text{Result} &: \textbf{\textcolor{""" + color + r"""}{""" + status + r"""}}
     \end{aligned}
     """
 
+# Keep existing helpers
 def fmt_load_trace(dl_fac, sw, sdl, ll_fac, ll, qu):
     sub_str = f"{dl_fac}({sw:.0f} + {sdl:.0f}) + {ll_fac}({ll:.0f})"
     return r"""
