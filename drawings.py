@@ -1,56 +1,52 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def draw_section(h_mm, cover_mm, c1_mm, ln_m, d_mm, top_rebar_str, bot_rebar_str):
+def draw_section(h_mm, cover_mm, c1_mm, ln_m):
     h = h_mm / 1000.0
     c1 = c1_mm / 1000.0
     cover = cover_mm / 1000.0
     
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    w = 2.2  # View width from center
+    fig, ax = plt.subplots(figsize=(10, 4))
     
-    # 1. Concrete & Column
-    ax.add_patch(patches.Rectangle((-w, 0), 2*w, h, facecolor='#f4f4f4', edgecolor='black'))
-    ax.add_patch(patches.Rectangle((-c1/2, -0.6), c1, 0.6, hatch='///', facecolor='white', edgecolor='black'))
+    # Dynamic Width
+    w = min(2.5, ln_m * 0.4)
     
-    # 2. Critical Section
-    d_m = d_mm / 1000.0
-    crit_dist = (c1/2) + (d_m/2)
-    ax.vlines([-crit_dist, crit_dist], 0, h, colors='red', linestyles=':', alpha=0.5)
+    # 1. Slab & Column
+    ax.add_patch(patches.Rectangle((-w, 0), 2*w, h, facecolor='#e6e6e6', edgecolor='black'))
+    ax.add_patch(patches.Rectangle((-c1/2, -0.5), c1, 0.5, hatch='///', facecolor='white', edgecolor='black'))
     
-    # 3. Rebar Drawing
+    # 2. Rebar
+    ext = 0.33 * ln_m
+    top_x = (c1/2) + ext
     y_top = h - cover
+    ax.plot([-top_x, top_x], [y_top, y_top], 'r-', lw=3, label='Top')
+    ax.plot([-top_x, -top_x], [y_top, y_top-0.1], 'r-', lw=2)
+    ax.plot([top_x, top_x], [y_top, y_top-0.1], 'r-', lw=2)
+    ax.text(top_x, y_top+0.05, f"L={ext:.2f}m", color='red', ha='center')
+    
     y_bot = cover
+    ax.plot([-w+0.2, w-0.2], [y_bot, y_bot], 'b-', lw=3, label='Bot')
     
-    # 3.1 Top Bar (CS Top) - Length 0.33 Ln
-    top_len = 0.33 * ln_m
-    ax.plot([-top_len, top_len], [y_top, y_top], color='blue', linewidth=3, label='Top Bar')
-    # Label Top Bar
-    ax.text(0, y_top + 0.05, f"Top: {top_rebar_str}", color='blue', ha='center', fontweight='bold')
+    # --- [NEW] Critical Section Lines (d/2 from face) ---
+    d_m = (h_mm - cover_mm - 8) / 1000.0
+    crit_x = (c1/2) + (d_m/2)
     
-    # 3.2 Bottom Bar (CS Bot) - Continuous
-    ax.plot([-w+0.1, w-0.1], [y_bot, y_bot], color='green', linewidth=3, label='Bot Bar')
-    # Label Bot Bar
-    ax.text(1.0, y_bot - 0.08, f"Bot: {bot_rebar_str}", color='green', ha='center', fontweight='bold')
+    # Draw dashed lines
+    ax.vlines(x=[-crit_x, crit_x], ymin=0, ymax=h, colors='red', linestyles='--', alpha=0.6, linewidth=1)
+    # Add text label
+    ax.text(crit_x + 0.02, h/2, f"Crit. Sec.\n(d/2)", color='red', fontsize=8, va='center')
+    # ----------------------------------------------------
 
-    # 4. Dimensions & Cut-offs
-    # 0.33 Ln Dimension
-    ax.annotate(f"0.33 Ln = {top_len:.2f} m", xy=(-top_len, y_top), xytext=(-top_len, h+0.2),
-                arrowprops=dict(arrowstyle='->', color='blue'), color='blue', ha='center')
-    ax.vlines([-top_len, top_len], y_top, h+0.2, colors='blue', linestyles='--')
+    # 3. Dimensions
+    ax.annotate("", xy=(-w+0.5, 0), xytext=(-w+0.5, h), arrowprops=dict(arrowstyle='<->'))
+    ax.text(-w+0.4, h/2, f"h={h_mm:.0f}", rotation=90, va='center', fontweight='bold')
     
-    # 0.20 Ln Marker (Required by prompt)
-    len_20 = 0.20 * ln_m
-    ax.plot([-len_20, len_20], [y_top-0.03, y_top-0.03], color='orange', linewidth=2, linestyle='--')
-    ax.text(0, y_top - 0.08, f"Min Ext. 0.20 Ln ({len_20:.2f}m)", color='orange', ha='center', fontsize=8)
-
-    # Height
-    ax.annotate(f"h={h_mm}mm", xy=(-w+0.2, 0), xytext=(-w+0.2, h),
-                arrowprops=dict(arrowstyle='<->'), rotation=90, va='center')
+    ax.annotate("", xy=(0, h), xytext=(0, h-cover), arrowprops=dict(arrowstyle='|-|', color='purple'))
+    ax.text(0.1, h-cover/2, f"cov {cover_mm}", color='purple', fontsize=8, va='center')
 
     ax.set_xlim(-w, w)
-    ax.set_ylim(-0.7, h+0.5)
+    ax.set_ylim(-0.6, h+0.4)
     ax.axis('off')
-    ax.set_title(f"CONSTRUCTION SECTION (Ln = {ln_m:.2f} m)", loc='left', fontweight='bold')
+    ax.set_title(f"SECTION A-A (Ln = {ln_m:.2f} m)", loc='left')
     
     return fig
