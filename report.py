@@ -5,8 +5,8 @@ import pandas as pd
 def render_report(base_data, verify_data):
     i = base_data['inputs']
     r = base_data['results']
+    efm = base_data['efm']
     bars = verify_data['rebar_verified']
-    as_min = verify_data['as_min']
     
     st.markdown("## 🏗️ Professional Design Calculation")
     
@@ -37,11 +37,26 @@ def render_report(base_data, verify_data):
     color = "green" if pass_flag else "red"
     st.markdown(f"**Shear Ratio:** :{color}[{r['ratio']:.2f}] ({'SAFE' if pass_flag else 'FAIL'})")
     
-    # 3. Flexure
-    st.markdown("### 3. Flexural Design & Detailing")
+    # 3. EFM Analysis
+    st.markdown("### 3. Equivalent Frame Method (EFM) Analysis")
+    st.write("Calculated stiffness properties for Slab, Columns, and Torsional Members:")
+    st.latex(formatter.fmt_efm_stiffness(efm['Ks'], efm['Sum_Kc'], efm['Kt'], efm['Kec']))
+    
+    col_efm1, col_efm2 = st.columns(2)
+    with col_efm1:
+        st.metric("Dist. Factor (Ext. Slab)", f"{efm['df_ext_slab']:.2f}")
+    with col_efm2:
+        st.metric("Fixed End Moment", f"{efm.get('fem', 0):,.0f} kg-m")
+    
+    if 'm_neg_ext' in efm:
+        st.markdown("**EFM Calculated Moments (End Span):**")
+        st.latex(fr"M^-_{{ext}} = {efm['m_neg_ext']:,.0f}, \quad M^+ = {efm['m_pos']:,.0f}, \quad M^-_{{int}} = {efm['m_neg_int']:,.0f} \; kg \cdot m")
+    
+    # 4. Flexure
+    st.markdown("### 4. Flexural Design & Detailing (DDM Based)")
+    st.caption("Note: Design is primarily based on DDM coefficients as per ACI 318 for regular grids.")
     st.latex(fr"M_o = \frac{{q_u L_y L_n^2}}{{8}} = \mathbf{{{r['mo']:,.0f}}} \; kg \cdot m")
     
-    # Detailed Calculations
     for idx, bar in enumerate(bars):
         if idx % 2 == 0: col = st.columns(2)
         with col[idx % 2]:
@@ -53,8 +68,8 @@ def render_report(base_data, verify_data):
                 bar['as_provided'], bar['status'], bar['color'], bar['max_spacing']
             ))
 
-    # 4. Summary Table (Checker Friendly)
-    st.markdown("### 4. Design Summary (For Checker)")
+    # 5. Summary Table
+    st.markdown("### 5. Design Summary")
     
     summary_data = []
     for bar in bars:
