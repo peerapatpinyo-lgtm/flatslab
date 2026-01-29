@@ -36,9 +36,11 @@ def design_rebar(Mu_kgm, b_cm, d_cm, fc, fy):
     
     # Calculate exact rho
     try:
-        rho = (0.85 * fc / fy) * (1 - np.sqrt(1 - (2 * Rn) / (0.85 * fc)))
+        val_root = 1 - (2 * Rn) / (0.85 * fc)
+        if val_root < 0: return 999, 0, 0, "FAIL (Section too small)"
+        rho = (0.85 * fc / fy) * (1 - np.sqrt(val_root))
     except ValueError:
-        return 999, 0, 0, "FAIL (Section too small)"
+        return 999, 0, 0, "FAIL (Error)"
 
     # 2. Minimum Steel (Temp & Shrinkage)
     rho_min = 0.0018 # ACI slab standard
@@ -51,7 +53,7 @@ def design_rebar(Mu_kgm, b_cm, d_cm, fc, fy):
     return As_req, rho_final, rho_max, "OK"
 
 def get_bar_area(d_mm):
-    return 3.14159 * (d_mm/10)**2 / 4
+    return 3.14159 * (d_mm/10.0)**2 / 4
 
 # ==========================================
 # 2. INPUTS
@@ -66,6 +68,7 @@ d_bar = st.sidebar.selectbox("Rebar DB (mm)", [12, 16, 20, 25], index=0)
 st.sidebar.header("2. Geometry")
 L1 = st.sidebar.number_input("L1 (Span) [m]", 6.0)
 L2 = st.sidebar.number_input("L2 (Width) [m]", 6.0)
+lc = st.sidebar.number_input("Storey Height (m) [lc]", 3.0) # เพิ่มตัวแปรนี้กลับมา
 c1 = st.sidebar.number_input("c1 (cm)", 40.0)
 c2 = st.sidebar.number_input("c2 (cm)", 40.0)
 
@@ -83,7 +86,6 @@ ln = L1 - c1/100
 Mo = (w_u * L2 * ln**2) / 8
 
 # Strip Widths (for Reinforcement Calc)
-# ACI: Column Strip width = 2 * (0.25 * min(L1, L2)) = 0.5 * min(L1, L2)
 w_cs_m = 0.5 * min(L1, L2)
 w_ms_m = L2 - w_cs_m
 
@@ -105,10 +107,6 @@ with tab_ddm:
         st.write(f"- Middle Strip: {w_ms_m:.2f} m")
     
     # Calculate Moments
-    # Zones: Col-, Mid-, Col+, Mid+
-    # Coeffs: [ColStr Neg 75%, MidStr Neg 25%], [ColStr Pos 60%, MidStr Pos 40%]
-    # Base: Neg = 0.65Mo, Pos = 0.35Mo
-    
     m_neg_total = 0.65 * Mo
     m_pos_total = 0.35 * Mo
     
@@ -135,14 +133,12 @@ with tab_ddm:
     
     res_data = []
     for z_name, mom, width_m in zones:
-        # Design
         As_req, rho, rho_max, status = design_rebar(mom, width_m*100, d_eff, fc, fy)
         
         if status == "OK":
-            # Convert to Number of bars
             num_bars = np.ceil(As_req / bar_area)
+            if num_bars == 0: num_bars = 2 # Minimum bars usually
             spacing = (width_m * 100) / num_bars
-            # Format Text
             rebar_txt = f"{int(num_bars)} - DB{d_bar}"
             spacing_txt = f"@{spacing:.0f} cm"
             as_txt = f"{As_req:.2f}"
@@ -153,22 +149,11 @@ with tab_ddm:
             as_txt = f"{As_req:.2f}" if As_req != 999 else "Too High"
             status_icon = "❌ Check Size"
 
-        res_data.append([
-            z_name, 
-            f"{mom:,.0f}", 
-            f"{width_m*100:.0f}", 
-            as_txt, 
-            rebar_txt, 
-            spacing_txt,
-            status_icon
-        ])
+        res_data.append([z_name, f"{mom:,.0f}", f"{width_m*100:.0f}", as_txt, rebar_txt, spacing_txt, status_icon])
         
     df_res = pd.DataFrame(res_data, columns=["Zone", "Moment (kg-m)", "Width b (cm)", "As (cm2)", "No. of Bars", "Spacing", "Status"])
-    
     st.dataframe(df_res, use_container_width=True)
     st.success(f"**Note:** ใช้เหล็ก DB{d_bar} (As = {bar_area:.2f} cm²/เส้น) | d_eff = {d_eff:.2f} cm")
-    
-    
 
 # --- TAB 2: EFM (FLEXIBLE) ---
 with tab_efm:
@@ -176,38 +161,38 @@ with tab_efm:
     st.write("สำหรับวิธี EFM ปกติเราจะได้ค่า Moment จากโปรแกรมวิเคราะห์โครงสร้าง (Structural Analysis) เนื่องจากขึ้นอยู่กับ Stiffness")
     
     st.markdown("#### 🛠️ Input Moments from Analysis Result")
-    st.write("กรอกค่าโมเมนต์ที่คุณวิเคราะห์ได้จาก EFM Frame Analysis เพื่อคำนวณเหล็ก:")
-    
     col_inp1, col_inp2 = st.columns(2)
     with col_inp1:
-        user_M_neg = st.number_input("Negative Moment (Support) [kg-m]", value=M_cs_neg)
+        user_M_neg = st.number_input("Negative Moment (Support) [kg-m]", value=float(M_cs_neg))
     with col_inp2:
-        user_M_pos = st.number_input("Positive Moment (Mid-span) [kg-m]", value=M_cs_pos)
+        user_M_pos = st.number_input("Positive Moment (Mid-span) [kg-m]", value=float(M_cs_pos))
         
     st.markdown("#### 🧱 Reinforcement Result")
     
-    # Calculate for user input
-    # Assuming user inputs Moment for the WHOLE Strip width L2 (simplified) or asking for specific strip width
     design_width = st.slider("Design Width (cm) [Ex: 100cm for per meter design]", 100, int(L2*100), 100)
     
     As_neg, _, _, st_neg = design_rebar(user_M_neg, design_width, d_eff, fc, fy)
     As_pos, _, _, st_pos = design_rebar(user_M_pos, design_width, d_eff, fc, fy)
     
-    c1, c2 = st.columns(2)
-    with c1:
+    # --- แก้ไขจุดที่เกิด Error: เปลี่ยนชื่อตัวแปร layout จาก c1, c2 เป็น col_res1, col_res2 ---
+    col_res1, col_res2 = st.columns(2)
+    
+    with col_res1:
         st.subheader("Top Reinforcement (Negative)")
         if st_neg == "OK":
             n_neg = np.ceil(As_neg/bar_area)
+            if n_neg == 0: n_neg = 1
             st.metric("As Required", f"{As_neg:.2f} cm²")
             st.success(f"**Use: {int(n_neg)} - DB{d_bar}**")
             st.caption(f"Spacing approx @ {design_width/n_neg:.0f} cm")
         else:
             st.error("Section Failed / Load too high")
             
-    with c2:
+    with col_res2:
         st.subheader("Bottom Reinforcement (Positive)")
         if st_pos == "OK":
             n_pos = np.ceil(As_pos/bar_area)
+            if n_pos == 0: n_pos = 1
             st.metric("As Required", f"{As_pos:.2f} cm²")
             st.success(f"**Use: {int(n_pos)} - DB{d_bar}**")
             st.caption(f"Spacing approx @ {design_width/n_pos:.0f} cm")
@@ -216,6 +201,7 @@ with tab_efm:
 
 # --- TAB 3: GEOMETRY ---
 with tab_geo:
-    # คำนวณ Inertia คร่าวๆ เพื่อส่งให้ฟังก์ชัน plot
-    Ic = (c2 * c1**3)/12
-    st.pyplot(plot_geometry_detailed(L1, L2, c1, c2, h_slab, lc, Ic))
+    # คำนวณ Inertia คร่าวๆ (ตอนนี้ c1 และ c2 คือค่า float จาก Sidebar แล้ว ไม่ใช่ Column object)
+    Ic_calc = (c2 * c1**3)/12 
+    st.info(f"Column Inertia (Ic) = {Ic_calc:,.0f} cm⁴ (Calculated from c1={c1}, c2={c2})")
+    st.pyplot(plot_geometry_detailed(L1, L2, c1, c2, h_slab, lc, Ic_calc))
