@@ -15,6 +15,10 @@ CLR_GRID = '#E9ECEF'
 CLR_BAR_TOP = '#D32F2F'  # Red for Negative Moment
 CLR_BAR_BOT = '#1976D2'  # Blue for Positive Moment
 
+# Zone Colors (Restored for tab_ddm.py compatibility)
+CLR_ZONE_CS = '#FFF0F0'  # Column Strip Background
+CLR_ZONE_MS = '#F0F8FF'  # Middle Strip Background
+
 # Line Weights
 LW_BAR = 2.5
 LW_DIM = 0.8
@@ -199,15 +203,15 @@ def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results, axis_dir):
     # --- 1. Draw Zones (CS / MS) ---
     # Backgrounds for strips
     # Bottom Edge (CS)
-    ax.add_patch(patches.Rectangle((0, 0), W, w_cs_half, fc='#FFF5F5', ec='none'))
+    ax.add_patch(patches.Rectangle((0, 0), W, w_cs_half, fc=CLR_ZONE_CS, ec='none'))
     ax.text(W/2, w_cs_half/2, "Column Strip", color=CLR_BAR_TOP, alpha=0.1, ha='center', va='center', fontweight='bold', fontsize=15)
     
     # Top Edge (CS)
-    ax.add_patch(patches.Rectangle((0, H - w_cs_half), W, w_cs_half, fc='#FFF5F5', ec='none'))
+    ax.add_patch(patches.Rectangle((0, H - w_cs_half), W, w_cs_half, fc=CLR_ZONE_CS, ec='none'))
     ax.text(W/2, H - w_cs_half/2, "Column Strip", color=CLR_BAR_TOP, alpha=0.1, ha='center', va='center', fontweight='bold', fontsize=15)
     
     # Middle (MS)
-    ax.add_patch(patches.Rectangle((0, w_cs_half), W, H - 2*w_cs_half, fc='#F0F8FF', ec='none'))
+    ax.add_patch(patches.Rectangle((0, w_cs_half), W, H - 2*w_cs_half, fc=CLR_ZONE_MS, ec='none'))
     ax.text(W/2, H/2, "Middle Strip", color=CLR_BAR_BOT, alpha=0.1, ha='center', va='center', fontweight='bold', fontsize=15)
 
     # Outline
