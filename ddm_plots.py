@@ -2,172 +2,213 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 
-# ... (Keep existing plot_ddm_moment function) ...
-def plot_ddm_moment(L_span, c1, m_vals):
-    # (ใช้โค้ดเดิมจากรอบที่แล้วได้เลยครับ หรือ Copy ทั้งไฟล์ด้านล่างนี้ไปทับก็ได้)
-    fig, ax = plt.subplots(figsize=(10, 4))
-    x = np.linspace(0, L_span, 100)
+# ==========================================
+# 🎨 HELPER FUNCTIONS (CAD STYLE)
+# ==========================================
+def add_dimension(ax, x1, y1, x2, y2, text, offset=0.5, color='black'):
+    """
+    ฟังก์ชันวาดเส้นบอกระยะ (Dimension Line) สไตล์ CAD
+    """
+    # เส้นหลัก
+    ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
+                arrowprops=dict(arrowstyle='<->', color=color, lw=0.8))
     
-    M_neg_cs = m_vals['M_cs_neg']
-    M_pos_cs = m_vals['M_cs_pos']
-    M_neg_ms = m_vals['M_ms_neg']
-    M_pos_ms = m_vals['M_ms_pos']
+    # เส้น Center (คำนวณตำแหน่งตัวหนังสือ)
+    mid_x = (x1 + x2) / 2
+    mid_y = (y1 + y2) / 2
+    
+    # วาด Background ให้ตัวหนังสือ (จะได้ไม่จม)
+    bbox = dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.7)
+    
+    ax.text(mid_x, mid_y + offset, text, ha='center', va='center', 
+            fontsize=8, color=color, bbox=bbox, fontweight='bold')
 
-    y_cs = np.interp(x, [0, L_span*0.2, L_span*0.5, L_span*0.8, L_span], [-M_neg_cs, 0, M_pos_cs, 0, -M_neg_cs])
-    y_ms = np.interp(x, [0, L_span*0.2, L_span*0.5, L_span*0.8, L_span], [-M_neg_ms, 0, M_pos_ms, 0, -M_neg_ms])
-
-    ax.plot(x, y_cs, label='Column Strip', color='#d62728', linewidth=2)
-    ax.plot(x, y_ms, label='Middle Strip', color='#1f77b4', linewidth=2, linestyle='--')
-    ax.fill_between(x, y_cs, 0, alpha=0.1, color='#d62728')
-    
-    ax.axhline(0, color='black', linewidth=1)
-    ax.set_title(f"Moment Distribution Diagram (Span {L_span} m)", fontweight='bold')
-    ax.set_xlabel("Distance (m)")
-    ax.set_ylabel("Moment (kg-m)")
-    ax.set_ylim(max(M_pos_cs, M_pos_ms)*1.2, -max(M_neg_cs, M_neg_ms)*1.2) 
-    
-    bbox = dict(boxstyle="round", fc="white", alpha=0.8, ec="none")
-    ax.text(0, -M_neg_cs, f"CS M-: {M_neg_cs:,.0f}", color='#d62728', ha='left', va='top', bbox=bbox, fontweight='bold')
-    ax.text(L_span/2, M_pos_cs, f"CS M+: {M_pos_cs:,.0f}", color='#d62728', ha='center', va='bottom', bbox=bbox, fontweight='bold')
-    
-    ax.grid(True, linestyle=':', alpha=0.6)
-    ax.legend()
-    return fig
-
-# ... (Keep existing plot_rebar_detailing function) ...
-def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results):
-    fig, ax = plt.subplots(figsize=(10, 3.0)) # ปรับความสูงนิดหน่อยให้กระชับ
-    h_m = h_slab / 100
-    c_m = c_para / 100
-    
-    slab = patches.Rectangle((0, 0), L_span, h_m, fc='#e9ecef', ec='gray', hatch='///')
-    ax.add_patch(slab)
-    
-    col_h = 0.8
-    ax.add_patch(patches.Rectangle((-c_m/2, -col_h), c_m, col_h, fc='#343a40'))
-    ax.add_patch(patches.Rectangle((-c_m/2, h_m), c_m, col_h, fc='#343a40'))
-    ax.add_patch(patches.Rectangle((L_span-c_m/2, -col_h), c_m, col_h, fc='#343a40'))
-    ax.add_patch(patches.Rectangle((L_span-c_m/2, h_m), c_m, col_h, fc='#343a40'))
-    
-    cover = 0.03
-    bar_len = L_span * 0.3
-    top_y = h_m - cover
-    
-    # Top Bars (Red)
-    ax.plot([-c_m/2, bar_len], [top_y, top_y], color='#d62728', linewidth=3, marker='|')
-    ax.text(0, top_y + 0.05, f"Top (CS): {rebar_results.get('CS_Top','?')}", color='#d62728', fontweight='bold', fontsize=9)
-    
-    ax.plot([L_span - bar_len, L_span + c_m/2], [top_y, top_y], color='#d62728', linewidth=3, marker='|')
-    
-    # Bot Bars (Blue)
-    bot_y = cover
-    ax.plot([0, L_span], [bot_y, bot_y], color='#1f77b4', linewidth=3)
-    ax.text(L_span/2, bot_y - 0.15, f"Bot (CS): {rebar_results.get('CS_Bot','?')}\nBot (MS): {rebar_results.get('MS_Bot','?')}", 
-            color='#1f77b4', ha='center', va='top', fontweight='bold', fontsize=9)
-            
-    ax.text(L_span/2, h_m + 0.3, f"[Note: Middle Strip Top = {rebar_results.get('MS_Top','?')}]", 
-            ha='center', fontsize=8, color='gray', style='italic')
-
-    ax.set_xlim(-0.5, L_span + 0.5)
-    ax.set_ylim(-0.5, h_m + 0.6)
+def setup_cad_style(ax, title):
+    """ตั้งค่าแกนให้ดูเหมือนกระดาษเขียนแบบ"""
+    ax.set_title(title, loc='left', fontsize=11, fontweight='bold', pad=15)
     ax.axis('off')
-    ax.set_title(f"A. Side View (Profile)", loc='left', fontweight='bold')
+    # วาดกรอบรูป (Border)
+    # ax.figure.patch.set_linewidth(1)
+    # ax.figure.patch.set_edgecolor('black')
+
+# ==========================================
+# 1. MOMENT DIAGRAM
+# ==========================================
+def plot_ddm_moment(L_span, c1, m_vals):
+    """
+    Moment Envelope Diagram (Refined)
+    """
+    fig, ax = plt.subplots(figsize=(10, 3.5))
+    
+    x = np.linspace(0, L_span, 200) # เพิ่มความละเอียด
+    
+    M_neg_cs, M_pos_cs = m_vals['M_cs_neg'], m_vals['M_cs_pos']
+    M_neg_ms, M_pos_ms = m_vals['M_ms_neg'], m_vals['M_ms_pos']
+
+    # Interpolation Points (Smoother curve)
+    # จุดดัดกลับ (Inflection points) ประมาณ 0.2L
+    pts = [0, L_span*0.2, L_span*0.5, L_span*0.8, L_span]
+    
+    y_cs = np.interp(x, pts, [-M_neg_cs, 0, M_pos_cs, 0, -M_neg_cs])
+    y_ms = np.interp(x, pts, [-M_neg_ms, 0, M_pos_ms, 0, -M_neg_ms])
+
+    # Plotting
+    ax.plot(x, y_cs, label='Column Strip', color='#D32F2F', linewidth=1.5)
+    ax.plot(x, y_ms, label='Middle Strip', color='#1976D2', linewidth=1.5, linestyle='--')
+    
+    # Areas
+    ax.fill_between(x, y_cs, 0, alpha=0.05, color='#D32F2F')
+    ax.axhline(0, color='black', linewidth=0.8)
+    
+    # Limit & Style
+    limit = max(M_pos_cs, M_neg_cs, M_pos_ms, M_neg_ms) * 1.3
+    ax.set_ylim(limit, -limit) # Invert Y for Engineering Style (Optional)
+    
+    # Annotations
+    bbox = dict(boxstyle="round,pad=0.3", fc="white", ec="#D32F2F", alpha=0.9, linewidth=0.5)
+    ax.text(0, -M_neg_cs, f"M-: {M_neg_cs:,.0f}", color='#D32F2F', ha='left', va='top', fontsize=8, bbox=bbox)
+    ax.text(L_span/2, M_pos_cs, f"M+: {M_pos_cs:,.0f}", color='#D32F2F', ha='center', va='bottom', fontsize=8, bbox=bbox)
+    
+    ax.set_title(f"MOMENT DIAGRAM (Span {L_span} m)", loc='left', fontweight='bold', fontsize=10)
+    ax.set_xlabel("Distance (m)", fontsize=8)
+    ax.grid(True, linestyle=':', alpha=0.5)
+    ax.legend(fontsize=8, loc='upper right')
+    
     plt.tight_layout()
     return fig
 
 # ==========================================
-# 🆕 NEW FUNCTION: TOP VIEW (PLAN)
+# 2. SECTION PROFILE (IMPROVED)
+# ==========================================
+def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results):
+    fig, ax = plt.subplots(figsize=(10, 4))
+    
+    h_m = h_slab / 100
+    c_m = c_para / 100
+    
+    # 1. Structure
+    slab = patches.Rectangle((0, 0), L_span, h_m, fc='#E0E0E0', ec='black', lw=0.5) # Concrete Color
+    ax.add_patch(slab)
+    
+    col_h = 0.6
+    # Columns with Hatch
+    for x_pos in [-c_m/2, L_span-c_m/2]:
+        rect_bot = patches.Rectangle((x_pos, -col_h), c_m, col_h, fc='white', ec='black', hatch='//', lw=0.5)
+        rect_top = patches.Rectangle((x_pos, h_m), c_m, col_h, fc='white', ec='black', hatch='//', lw=0.5)
+        ax.add_patch(rect_bot)
+        ax.add_patch(rect_top)
+    
+    # 2. Rebar
+    cover = 0.03
+    bar_len = L_span * 0.30 # ACI standard approx 0.3Ln
+    
+    # Top Bars (Red)
+    top_y = h_m - cover
+    ax.plot([-c_m/2, bar_len], [top_y, top_y], color='#D32F2F', linewidth=2.5, solid_capstyle='round')
+    ax.plot([bar_len, bar_len], [top_y, top_y-0.05], color='#D32F2F', linewidth=1.5) # Hook/End
+    
+    ax.plot([L_span-bar_len, L_span+c_m/2], [top_y, top_y], color='#D32F2F', linewidth=2.5, solid_capstyle='round')
+    ax.plot([L_span-bar_len, L_span-bar_len], [top_y, top_y-0.05], color='#D32F2F', linewidth=1.5)
+    
+    # Bottom Bars (Blue)
+    bot_y = cover
+    ax.plot([0, L_span], [bot_y, bot_y], color='#1976D2', linewidth=2.5, solid_capstyle='round')
+    
+    # 3. Dimensions (Smart Dimensions) ✨
+    # Span Dim
+    add_dimension(ax, 0, -0.4, L_span, -0.4, f"Span = {L_span} m", offset=0.1)
+    # Slab Thickness Dim
+    add_dimension(ax, L_span + 0.5, 0, L_span + 0.5, h_m, f"h={h_slab}cm", offset=0.0, color='black')
+    # Top Bar Length Dim
+    add_dimension(ax, 0, h_m + 0.3, bar_len, h_m + 0.3, f"0.3L = {bar_len:.2f}m", offset=0.05, color='#D32F2F')
+
+    # 4. Labels (Callouts)
+    # CS Top
+    ax.annotate(rebar_results.get('CS_Top','?'), xy=(bar_len/2, top_y), xytext=(bar_len/2, top_y+0.6),
+                arrowprops=dict(arrowstyle='->', color='#D32F2F'), color='#D32F2F', fontweight='bold', ha='center')
+    
+    # CS Bot
+    ax.annotate(rebar_results.get('CS_Bot','?'), xy=(L_span/2, bot_y), xytext=(L_span/2, -0.7),
+                arrowprops=dict(arrowstyle='->', color='#1976D2'), color='#1976D2', fontweight='bold', ha='center')
+
+    setup_cad_style(ax, "SECTION A-A: REINFORCEMENT PROFILE")
+    
+    ax.set_xlim(-0.8, L_span + 1.2)
+    ax.set_ylim(-1.0, h_m + 1.0)
+    plt.tight_layout()
+    return fig
+
+# ==========================================
+# 3. PLAN VIEW (IMPROVED)
 # ==========================================
 def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results):
-    """
-    วาด Plan View แสดงตำแหน่งเหล็กใน Column Strip และ Middle Strip
-    """
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Setup Geometry
-    margin = 0.5
-    ax.set_xlim(-margin, L_span + margin)
-    ax.set_ylim(-margin, L_width + margin)
+    w_cs = min(L_span, L_width) / 2.0
+    w_cs_half = w_cs / 2.0
     
-    # Zones Dimensions
-    w_cs_total = min(L_span, L_width) / 2.0
-    w_cs_half = w_cs_total / 2.0 # CS แบ่งครึ่งอยู่ขอบบนและล่าง
+    # 1. Background Zones with Hatching (Engineering Look)
+    # Middle Strip
+    rect_ms = patches.Rectangle((0, w_cs_half), L_span, L_width - w_cs, 
+                                fc='#E3F2FD', ec='none', alpha=0.4, label='Middle Strip')
+    ax.add_patch(rect_ms)
     
-    # 1. Background Zones
-    # Column Strip (Top & Bottom Edges)
-    rect_cs_bot = patches.Rectangle((0, 0), L_span, w_cs_half, fc='#fff5f5', ec='none') # Light Red tint
-    rect_cs_top = patches.Rectangle((0, L_width - w_cs_half), L_span, w_cs_half, fc='#fff5f5', ec='none')
+    # Column Strips (Top/Bot)
+    rect_cs_bot = patches.Rectangle((0, 0), L_span, w_cs_half, 
+                                    fc='#FFEBEE', ec='none', alpha=0.4, label='Col Strip')
+    rect_cs_top = patches.Rectangle((0, L_width - w_cs_half), L_span, w_cs_half, 
+                                    fc='#FFEBEE', ec='none', alpha=0.4)
     ax.add_patch(rect_cs_bot)
     ax.add_patch(rect_cs_top)
     
-    # Middle Strip (Center)
-    h_ms = L_width - w_cs_total
-    rect_ms = patches.Rectangle((0, w_cs_half), L_span, h_ms, fc='#f0f8ff', ec='none') # Light Blue tint
-    ax.add_patch(rect_ms)
+    # Grid Lines (Center Lines)
+    ax.axhline(L_width/2, color='gray', linestyle='-.', linewidth=0.5) # CL Slab
+    ax.axvline(0, color='gray', linestyle='-.', linewidth=0.5)         # CL Col Left
+    ax.axvline(L_span, color='gray', linestyle='-.', linewidth=0.5)    # CL Col Right
     
-    # 2. Draw Columns (Corners)
+    # 2. Columns
     c_m = c_para / 100
-    cols = [
-        (0 - c_m/2, 0 - c_m/2),         # Bot-Left
-        (L_span - c_m/2, 0 - c_m/2),    # Bot-Right
-        (0 - c_m/2, L_width - c_m/2),   # Top-Left
-        (L_span - c_m/2, L_width - c_m/2) # Top-Right
-    ]
-    for (cx, cy) in cols:
-        ax.add_patch(patches.Rectangle((cx, cy), c_m, c_m, fc='#343a40', zorder=5))
-        
-    # 3. Draw Rebar (Schematic)
-    # Style Config
-    style_top = dict(color='#d62728', linewidth=2, linestyle='-') # Red Solid
-    style_bot = dict(color='#1f77b4', linewidth=2, linestyle='-') # Blue Solid
-    
-    # --- Column Strip Rebar (Draw at Top and Bottom edges) ---
-    # Top Bars (Red) - Short bars at supports
-    bar_len = L_span * 0.25
-    y_locs_cs = [w_cs_half/2, L_width - w_cs_half/2] # Center of CS strips
-    
-    for y in y_locs_cs:
-        # Left Support
-        ax.plot([-0.2, bar_len], [y, y], **style_top)
-        # Right Support
-        ax.plot([L_span-bar_len, L_span+0.2], [y, y], **style_top)
-        # Bot Bar (Full Span)
-        ax.plot([0, L_span], [y-0.1, y-0.1], **style_bot) # Shift slightly
+    for cx in [0, L_span]:
+        for cy in [0, L_width]:
+            ax.add_patch(patches.Rectangle((cx-c_m/2, cy-c_m/2), c_m, c_m, fc='black', zorder=10))
 
-    # --- Middle Strip Rebar (Center) ---
-    y_ms_center = L_width / 2
-    # Top Bars (Red) - At edges (Supports)
-    ax.plot([0, bar_len], [y_ms_center + 0.2, y_ms_center + 0.2], **style_top) # Left
-    ax.plot([L_span-bar_len, L_span], [y_ms_center + 0.2, y_ms_center + 0.2], **style_top) # Right
+    # 3. Rebar Drawing (CAD Style)
+    bar_len = L_span * 0.3
     
-    # Bot Bar (Blue) - Full Span
-    ax.plot([0, L_span], [y_ms_center, y_ms_center], **style_bot)
-    
-    # 4. Annotations (Labels)
-    bbox_red = dict(boxstyle="round", fc="white", ec="#d62728", alpha=0.9)
-    bbox_blue = dict(boxstyle="round", fc="white", ec="#1f77b4", alpha=0.9)
-    
-    # Label CS
-    ax.text(bar_len/2, L_width - w_cs_half/2, f"Top: {rebar_results.get('CS_Top','')}", 
-            color='#d62728', fontsize=8, ha='center', va='bottom', bbox=bbox_red)
-    ax.text(L_span/2, w_cs_half/2 - 0.1, f"Bot: {rebar_results.get('CS_Bot','')}", 
-            color='#1f77b4', fontsize=8, ha='center', va='top', bbox=bbox_blue)
+    def draw_bar_group(y_pos, txt, color, is_top=True):
+        if is_top:
+            # Left
+            ax.plot([-0.2, bar_len], [y_pos, y_pos], color=color, lw=2)
+            ax.plot([bar_len], [y_pos], marker='|', color=color, ms=10) # End mark
+            # Right
+            ax.plot([L_span-bar_len, L_span+0.2], [y_pos, y_pos], color=color, lw=2)
+            ax.plot([L_span-bar_len], [y_pos], marker='|', color=color, ms=10)
             
-    # Label MS
-    ax.text(L_span/2, y_ms_center, f"Bot (MS): {rebar_results.get('MS_Bot','')}", 
-            color='#1f77b4', fontsize=8, ha='center', va='bottom', bbox=bbox_blue)
-    ax.text(bar_len, y_ms_center + 0.2, f"Top (MS): {rebar_results.get('MS_Top','')}", 
-            color='#d62728', fontsize=8, ha='left', va='center', bbox=bbox_red)
+            # Label Left
+            ax.text(bar_len/2, y_pos + 0.15, txt, color=color, fontsize=8, ha='center', fontweight='bold')
+        else:
+            # Bottom (Full Span)
+            ax.plot([0.1, L_span-0.1], [y_pos, y_pos], color=color, lw=2)
+            ax.text(L_span/2, y_pos + 0.15, txt, color=color, fontsize=8, ha='center', fontweight='bold')
 
-    # Zone Labels
-    ax.text(L_span*0.8, w_cs_half/2, "Column Strip", color='gray', alpha=0.5, ha='center', fontsize=10, fontweight='bold')
-    ax.text(L_span*0.8, L_width - w_cs_half/2, "Column Strip", color='gray', alpha=0.5, ha='center', fontsize=10, fontweight='bold')
-    ax.text(L_span*0.8, y_ms_center, "Middle Strip", color='gray', alpha=0.5, ha='center', fontsize=10, fontweight='bold')
+    # CS Bars
+    draw_bar_group(w_cs_half/2, rebar_results.get('CS_Top',''), '#D32F2F', is_top=True)
+    draw_bar_group(w_cs_half/2 - 0.3, rebar_results.get('CS_Bot',''), '#1976D2', is_top=False) # Offset Bot
+    
+    draw_bar_group(L_width - w_cs_half/2, rebar_results.get('CS_Top',''), '#D32F2F', is_top=True)
+    
+    # MS Bars
+    draw_bar_group(L_width/2 + 0.3, rebar_results.get('MS_Top',''), '#D32F2F', is_top=True)
+    draw_bar_group(L_width/2, rebar_results.get('MS_Bot',''), '#1976D2', is_top=False)
 
-    # Borders & Finalize
-    ax.add_patch(patches.Rectangle((0,0), L_span, L_width, fill=False, edgecolor='black', linewidth=1))
-    ax.set_title(f"B. Top View (Rebar Plan) - {L_span}x{L_width}m", loc='left', fontweight='bold')
-    ax.axis('off')
+    # 4. Dimensions (Widths)
+    add_dimension(ax, L_span+0.8, 0, L_span+0.8, w_cs_half, f"CS/2\n{w_cs_half:.2f}m", offset=0, color='gray')
+    add_dimension(ax, L_span+0.8, w_cs_half, L_span+0.8, L_width-w_cs_half, f"Middle Strip\n{L_width-w_cs:.2f}m", offset=0, color='gray')
+    add_dimension(ax, L_span+0.8, L_width-w_cs_half, L_span+0.8, L_width, f"CS/2", offset=0, color='gray')
+
+    setup_cad_style(ax, f"PLAN VIEW: REBAR LAYOUT (Span {L_span}x{L_width}m)")
+    ax.set_xlim(-1, L_span + 1.5)
+    ax.set_ylim(-0.5, L_width + 0.5)
     plt.tight_layout()
     
     return fig
