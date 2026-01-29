@@ -29,7 +29,6 @@ st.title("🛡️ Professional Flat Slab Design System")
 st.caption(f"Design Code: ACI 318-19 | Continuity: {continuity}")
 
 # --- Phase 1: Structural Analysis ---
-# ส่ง continuity ไปให้ engine
 base_data = engine.analyze_structure(
     lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, 20, continuity
 )
@@ -74,6 +73,6 @@ with tab1:
 with tab2:
     top_lbl = f"DB{top_db} @ {top_space} mm"
     bot_lbl = f"DB{bot_db} @ {bot_space} mm"
-    # แก้ไขตรงนี้: ใช้ตัวแปร c1 โดยตรง (แทน st.session_state.c1)
+    # แก้ไขตรงนี้: ใช้ตัวแปร c1 โดยตรง (แทน st.session_state.c1 ซึ่งอาจจะยังไม่ถูก init)
     fig = drawings.draw_section(res['h'], 25, c1, res['ln'], res['d_mm'], top_lbl, bot_lbl)
     st.pyplot(fig)
