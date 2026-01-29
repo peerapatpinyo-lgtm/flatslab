@@ -10,7 +10,7 @@ def plot_combined_view(L1, L2, c1, c2, h_slab, lc, M_data=None):
     
     # --- PLAN VIEW ---
     ax1 = fig.add_subplot(gs[0])
-    ax1.set_title(f"PLAN VIEW: L1={L1}m x L2={L2}m", fontsize=14, fontweight='bold')
+    ax1.set_title(f"PLAN VIEW: Design Span L1={L1}m (Width L2={L2}m)", fontsize=14, fontweight='bold')
     
     margin = 1.0
     ax1.set_xlim(-margin, L1_m+margin)
@@ -41,7 +41,7 @@ def plot_combined_view(L1, L2, c1, c2, h_slab, lc, M_data=None):
     
     # --- SECTION VIEW ---
     ax2 = fig.add_subplot(gs[2])
-    ax2.set_title("SECTION A-A", fontsize=12, fontweight='bold', loc='left')
+    ax2.set_title("SECTION A-A (Along L1)", fontsize=12, fontweight='bold', loc='left')
     h_m = h_slab/100
     ax2.set_xlim(-margin, L1_m+margin)
     ax2.set_ylim(0, lc+0.5)
