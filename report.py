@@ -1,99 +1,97 @@
 import streamlit as st
 import pandas as pd
-import drawings # เรียกใช้ไฟล์ drawings.py ที่เพิ่งสร้าง
+import drawings
 
 def render_unified_report(data):
-    i = data['inputs']
-    r = data['results']
-    bars = data['rebar']
+    """
+    Renders the full report using ONLY data passed from engine.
+    No calculations allowed here.
+    """
     
-    # --- 1. Global Status Banner ---
-    st.markdown("## 📑 Structural Calculation Sheet")
+    # Unpack for easier access (Read-Only)
+    meta = data['meta']
+    shear = data['shear']
+    flex = data['flexure']
+    defl = data['deflection']
+    geo = data['geometry']
+    status = data['global_status']
+
+    # --- 1. HEADER & STATUS ---
+    st.markdown("## 📑 Structural Calculation Report")
     
-    status = r['overall_status']
     if status == "SAFE":
-        st.success(f"✅ **DESIGN PASSED:** The structure is SAFE with the selected reinforcement.")
+        st.success(f"✅ **DESIGN PASSED:** The structure is SAFE under defined loads.")
     else:
-        st.error(f"❌ **DESIGN FAILED:** The structure is UNSAFE. Please adjust Thickness or Rebar.")
-    
+        st.error(f"❌ **DESIGN FAILED:** Please review Shear or Reinforcement.")
+        
     st.divider()
 
-    # --- 2. Design Criteria Table ---
-    st.markdown("### 1. Design Criteria")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Span", f"{i['lx']} x {i['ly']} m")
-    col2.metric("Thickness", f"{i['h']} mm")
-    col3.metric("Concrete (fc')", f"{i['fc']} ksc")
-    col4.metric("Steel (fy)", f"{i['fy']} ksc")
+    # --- 2. INPUT SUMMARY ---
+    st.markdown("### 1. Input Summary")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Span (Lx x Ly)", f"{meta['lx']} x {meta['ly']} m")
+    c2.metric("Thickness", f"{meta['h']} mm")
+    c3.metric("Concrete (fc')", f"{meta['fc']} ksc")
+    c4.metric("Steel (fy)", f"{meta['fy']} ksc")
     
-    # Calculations for display
-    qu_val = r['vu'] / ((i['lx'] * i['ly']) - (i['c1']*i['c2'])) if (i['lx'] * i['ly']) > 0 else 0
-    st.caption(f"**Loading:** SDL = {i['sdl']} kg/m², LL = {i['ll']} kg/m²")
+    st.caption(f"**Loads:** SDL = {meta['sdl']}, LL = {meta['ll']} kg/m²")
 
-    # --- 3. Shear & Deflection Section ---
-    st.markdown("### 2. Serviceability & Shear Check")
+    # --- 3. SHEAR CHECK ---
+    st.markdown("### 2. Punching Shear Check")
+    col_s1, col_s2 = st.columns([1, 2])
     
-    c_shear, c_defl = st.columns(2)
-    with c_shear:
-        st.markdown("**Punching Shear Check**")
-        s_ratio = r['shear_ratio']
-        s_color = "green" if s_ratio <= 1.0 else "red"
-        st.write(f"Action $V_u$: **{r['vu']/1000:.2f} T**")
-        st.write(f"Capacity $\phi V_c$: **{r['phi_vc']/1000:.2f} T**")
-        st.markdown(f"Utilization: :{s_color}[**{s_ratio:.2f}**]")
-        if s_ratio > 1.0: st.warning("Increase Slab Thickness or Concrete Strength")
-
-    with c_defl:
-        st.markdown("**Deflection Check (Immediate)**")
-        d_ratio = r['delta_ratio']
-        d_color = "green" if d_ratio <= 1.0 else "red"
-        st.write(f"Deflection $\Delta$: **{r['delta_imm']:.2f} mm**")
-        st.write(f"Limit $L/240$: **{i['lx']*1000/240:.2f} mm**")
-        st.markdown(f"Ratio: :{d_color}[**{d_ratio:.2f}**]")
+    with col_s1:
+        s_color = "green" if shear['status'] == "PASS" else "red"
+        st.markdown(f"Status: :{s_color}[**{shear['status']}**]")
+        st.metric("Utilization Ratio", f"{shear['ratio']:.2f}")
+    
+    with col_s2:
+        st.write(f"Effective Depth ($d$): **{shear['d_mm']:.0f} mm**")
+        st.write(f"Critical Perimeter ($b_o$): **{shear['bo_mm']:.0f} mm**")
+        st.write(f"Shear Demand ($V_u$): **{shear['vu']/1000:.2f} tons**")
+        st.write(f"Shear Capacity ($\phi V_c$): **{shear['phi_vc']/1000:.2f} tons**")
 
     st.divider()
 
-    # --- 4. Flexural & Rebar Verification ---
-    st.markdown("### 3. Flexural Design & Rebar Verification")
-    st.info(f"Using effective depth $d \\approx {r['d_mm']:.0f}$ mm (Based on user rebar)")
-
-    # Prepare DataFrame for Display
-    table_data = []
-    for b in bars:
-        status_icon = "✅" if b['status'] == "SAFE" else "❌"
-        row = {
-            "Location": b['name'],
-            "Moment (Mu)": f"{b['mu']:,.0f}",
-            "As Req (cm²)": f"{max(b['as_req'], b['as_min']):.2f}",
-            "User Rebar": f"DB{b['db']}@{b['sp']}",
-            "As Prov (cm²)": f"{b['as_prov']:.2f}",
-            "Utilization": f"{b['util']:.2f}",
-            "Status": f"{status_icon} {b['note']}"
-        }
-        table_data.append(row)
+    # --- 4. FLEXURE & REBAR ---
+    st.markdown("### 3. Flexural Verification")
+    st.write(f"Total Static Moment ($M_o$): **{flex['mo']:,.0f} kg-m**")
     
-    df = pd.DataFrame(table_data)
-    st.dataframe(df, use_container_width=True)
-
-    # --- 5. Detailing Visualization ---
-    st.markdown("### 4. Construction Detail")
-    top_txt = f"DB{bars[0]['db']}@{bars[0]['sp']}"
-    bot_txt = f"DB{bars[1]['db']}@{bars[1]['sp']}"
+    # Prepare DataFrame from prepared list
+    df_rows = []
+    for r in flex['results']:
+        df_rows.append({
+            "Location": r['location'],
+            "Moment (Mu)": f"{r['mu']:,.0f}",
+            "Rebar": f"DB{r['user_db']}@{r['user_sp']}",
+            "As Prov": f"{r['as_prov']:.2f}",
+            "As Req": f"{max(r['as_req'], r['as_min']):.2f}",
+            "Util": f"{r['utilization']:.2f}",
+            "Status": r['status']
+        })
     
-    # Safe plotting call
+    st.dataframe(pd.DataFrame(df_rows), use_container_width=True)
+
+    # --- 5. DEFLECTION ---
+    st.markdown("### 4. Deflection Check (Immediate)")
+    d_col = "green" if defl['status'] == "PASS" else "red"
+    st.markdown(f"Delta: **{defl['val']:.2f} mm** vs Limit: **{defl['lim']:.2f} mm** (:{d_col}[**{defl['status']}**])")
+
+    st.divider()
+
+    # --- 6. DRAWING ---
+    st.markdown("### 5. Construction Detail")
     try:
-        # Calculate schematic span roughly
-        schematic_span = max(i['lx']/2.0, 2.0) 
+        # Extract rebar strings for drawing
+        # Assumes index 0 is Top, index 1 is Bot from engine list
+        top_str = f"DB{flex['results'][0]['user_db']}@{flex['results'][0]['user_sp']}"
+        bot_str = f"DB{flex['results'][1]['user_db']}@{flex['results'][1]['user_sp']}"
         
         fig = drawings.draw_section(
-            float(i['h']), 
-            float(i['cover']), 
-            float(i['c1']), 
-            schematic_span, 
-            float(r['d_mm']), 
-            str(top_txt), 
-            str(bot_txt)
+            meta['h'], geo['cover'], geo['c1'], 
+            meta['lx']/2, shear['d_mm'], 
+            top_str, bot_str
         )
         st.pyplot(fig)
     except Exception as e:
-        st.error(f"Could not generate drawing: {e}")
+        st.warning(f"Drawing unavailable: {e}")
