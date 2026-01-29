@@ -29,21 +29,22 @@ st.title("🛡️ Professional Flat Slab Design System")
 st.caption(f"Design Code: ACI 318-19 | Continuity: {continuity}")
 
 # --- Phase 1: Structural Analysis ---
+# ส่ง continuity ไปให้ engine
 base_data = engine.analyze_structure(
     lx, ly, h_init, c1, c2, fc, fy, sdl, ll, 25, pos, 1.4, 1.7, 20, continuity
 )
 res = base_data['results']
 
 # Quick Dashboard
-c1, c2, c3 = st.columns(3)
-with c1:
+c_dash1, c_dash2, c_dash3 = st.columns(3)
+with c_dash1:
     status_color = "green" if res['ratio'] <= 1.0 else "red"
     st.markdown(f"**Thickness:** {res['h']} mm")
     st.markdown(f"**Shear Ratio:** :{status_color}[{res['ratio']:.2f}]")
-with c2:
+with c_dash2:
     st.markdown(f"**Clear Span X:** {res['ln_x']:.2f} m")
     st.markdown(f"**Clear Span Y:** {res['ln_y']:.2f} m")
-with c3:
+with c_dash3:
     st.markdown(f"**Static Moment:** {res['mo']:,.0f} kg-m")
 
 st.divider()
@@ -73,5 +74,6 @@ with tab1:
 with tab2:
     top_lbl = f"DB{top_db} @ {top_space} mm"
     bot_lbl = f"DB{bot_db} @ {bot_space} mm"
-    fig = drawings.draw_section(res['h'], 25, st.session_state.c1, res['ln'], res['d_mm'], top_lbl, bot_lbl)
+    # แก้ไขตรงนี้: ใช้ตัวแปร c1 โดยตรง (แทน st.session_state.c1)
+    fig = drawings.draw_section(res['h'], 25, c1, res['ln'], res['d_mm'], top_lbl, bot_lbl)
     st.pyplot(fig)
