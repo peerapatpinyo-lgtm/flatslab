@@ -1,94 +1,144 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from calculations import design_rebar_detailed
 
 def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
     """
-    Main entry point for Tab 2: Handles both directions
+    Main Entry Point: สร้าง Tabs แยกทิศทาง X และ Y
     """
-    st.header("2. Direct Design Method (DDM) - Dual Axis Analysis")
+    st.header("2. Direct Design Method (DDM) - Detailed Calculation")
     
-    # สร้าง Tabs ย่อยภายใน Tab 2
-    sub_tab_x, sub_tab_y = st.tabs([f"➡️ Design X-Direction (Span {data_x['L_span']}m)", f"⬆️ Design Y-Direction (Span {data_y['L_span']}m)"])
+    # สร้าง Sub-Tabs สำหรับเลือกดูทิศทาง
+    tab_x, tab_y = st.tabs([
+        f"➡️ Design X-Direction (Span {data_x['L_span']}m)", 
+        f"⬆️ Design Y-Direction (Span {data_y['L_span']}m)"
+    ])
     
-    with sub_tab_x:
+    with tab_x:
         render_single_direction(data_x, h_slab, d_eff, fc, fy, d_bar, w_u)
         
-    with sub_tab_y:
+    with tab_y:
         render_single_direction(data_y, h_slab, d_eff, fc, fy, d_bar, w_u)
 
 def render_single_direction(data, h_slab, d_eff, fc, fy, d_bar, w_u):
     """
-    Logic การคำนวณละเอียด (เหมือนเดิม แต่จัดรูปเป็น Function)
+    ฟังก์ชันแสดงวิธีทำละเอียด (ใช้ร่วมกันทั้ง X และ Y)
     """
-    # Extract Data
-    L_span = data['L_span']
-    L_width = data['L_width']
-    c_para = data['c_para']
-    ln = data['ln']
-    Mo = data['Mo']
-    moment_vals = data['M_vals']
-    direction_name = data['dir']
-    
-    st.markdown(f"### 📐 Calculation for {direction_name}")
-    st.info(f"**Parameters:** Span L={L_span} m | Width L2={L_width} m | ln={ln:.3f} m")
+    # ดึงค่าจาก Dictionary
+    L_span = data['L_span']   # ช่วงคานทิศที่คำนวณ
+    L_width = data['L_width'] # ความกว้างรับน้ำหนัก
+    c_para = data['c_para']   # ขนาดเสาที่ขนานช่วงคาน
+    ln = data['ln']           # ระยะสุทธิ
+    Mo = data['Mo']           # โมเมนต์สถิต
+    m_vals = data['M_vals']   # ค่าโมเมนต์ย่อย
+    dir_name = data['dir']    # ชื่อทิศ (X หรือ Y)
 
-    # 1. Mo Calculation Display
-    st.markdown("#### 1. Static Moment ($M_o$)")
-    st.latex(r"M_o = \frac{w_u L_2 (l_n)^2}{8} = " + f"{Mo:,.2f}" + r" \quad \text{kg-m}")
+    # Styling
+    st.markdown(f"""
+    <div style="background-color:#f0f2f6; padding:15px; border-radius:10px; margin-bottom:15px;">
+        <h4 style="margin:0; color:#1f77b4;">📐 {dir_name} Calculation</h4>
+        <ul style="margin-bottom:0;">
+            <li><b>Design Span ($L_1$):</b> {L_span:.2f} m</li>
+            <li><b>Transverse Width ($L_2$):</b> {L_width:.2f} m</li>
+            <li><b>Column ($c_1$):</b> {c_para:.2f} cm (Parallel to Span)</li>
+        </ul>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # 2. Detailed Rebar
-    st.markdown("#### 2. Reinforcement Design")
+    # ==========================================
+    # STEP 1: STATIC MOMENT (Mo)
+    # ==========================================
+    st.subheader("1. คำนวณโมเมนต์สถิตรวม ($M_o$)")
     
-    w_cs = min(L_span, L_width)/2.0
+    with st.expander("แสดงวิธีทำ $M_o$ (Click to expand)", expanded=True):
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown("**1.1 ระยะช่วงคานสุทธิ ($l_n$)**")
+            st.latex(r"l_n = L_{span} - c_{parallel}")
+            st.write(f"แทนค่า: $l_n = {L_span:.2f} - {c_para/100:.2f} = {ln:.3f}$ m")
+            
+            st.markdown("**1.2 โมเมนต์สถิต ($M_o$)**")
+            st.latex(r"M_o = \frac{w_u \cdot L_{width} \cdot (l_n)^2}{8}")
+            st.write(f"แทนค่า: $M_o = \\frac{{{w_u:,.0f} \\times {L_width:.2f} \\times ({ln:.3f})^2}}{{8}}$")
+        
+        with col2:
+            st.markdown(f"""
+            <div style="text-align:center; padding:20px; border:2px solid #28a745; border-radius:10px;">
+                <h3>M<sub>o</sub></h3>
+                <h2 style="color:#28a745;">{Mo:,.0f}</h2>
+                <p>kg-m</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ==========================================
+    # STEP 2: REBAR DESIGN (4 ZONES)
+    # ==========================================
+    st.subheader("2. ออกแบบเหล็กเสริม (Reinforcement Design)")
+    
+    # กำหนดความกว้าง Strip
+    w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
     
-    zones_data = [
-        {"name": "Col Strip: Top (-)", "M": moment_vals["M_cs_neg"], "b": w_cs},
-        {"name": "Col Strip: Bot (+)", "M": moment_vals["M_cs_pos"], "b": w_cs},
-        {"name": "Mid Strip: Top (-)", "M": moment_vals["M_ms_neg"], "b": w_ms},
-        {"name": "Mid Strip: Bot (+)", "M": moment_vals["M_ms_pos"], "b": w_ms},
+    zones = [
+        {"name": "Zone 1: Column Strip - Top (Negative)", "M": m_vals["M_cs_neg"], "b": w_cs, "icon": "🟥"},
+        {"name": "Zone 2: Column Strip - Bottom (Positive)", "M": m_vals["M_cs_pos"], "b": w_cs, "icon": "🟦"},
+        {"name": "Zone 3: Middle Strip - Top (Negative)", "M": m_vals["M_ms_neg"], "b": w_ms, "icon": "⬜"},
+        {"name": "Zone 4: Middle Strip - Bottom (Positive)", "M": m_vals["M_ms_pos"], "b": w_ms, "icon": "⬜"},
     ]
-    
-    # ตารางสรุปแบบรวดเร็ว
-    summary_rows = []
-    
-    for zone in zones_data:
-        # Design Logic
-        Mu_kgcm = zone['M'] * 100
-        b_cm = zone['b'] * 100
-        
-        # Quick Calc for Display
-        denom = 0.9 * b_cm * (d_eff**2)
-        Rn = Mu_kgcm / denom if denom > 0 else 0
-        
-        try:
-            term = 1 - (2*Rn)/(0.85*fc)
-            if term < 0: 
-                res_txt = "FAIL (Section Small)"
-            else:
-                rho_req = (0.85*fc/fy) * (1 - np.sqrt(term))
-                rho_design = max(rho_req, 0.0018)
-                As = rho_design * b_cm * d_eff
+
+    for z in zones:
+        with st.expander(f"{z['icon']} {z['name']} | Moment: {z['M']:,.0f} kg-m", expanded=False):
+            # ตัวแปรสำหรับคำนวณ
+            Mu_kgcm = z['M'] * 100
+            b_cm = z['b'] * 100
+            
+            c1, c2 = st.columns([1.5, 1])
+            
+            with c1:
+                st.markdown("#### 1. Check Capacity ($R_n$)")
+                # แสดงค่าตัวแปร
+                st.write(f"- $M_u = {Mu_kgcm:,.0f}$ kg-cm")
+                st.write(f"- $b = {b_cm:.0f}$ cm (Strip Width)")
+                st.write(f"- $d = {d_eff:.2f}$ cm, $\phi = 0.9$")
                 
-                bar_area = 3.14159 * (d_bar/10)**2 / 4
-                n_bars = max(np.ceil(As/bar_area), 2)
-                spacing = min(b_cm/n_bars, 2*h_slab, 45)
-                res_txt = f"**{int(n_bars)}-DB{d_bar} @ {int(spacing)}**"
-        except:
-            res_txt = "Error"
+                # คำนวณ Rn
+                denom = 0.9 * b_cm * (d_eff**2)
+                Rn = Mu_kgcm / denom if denom > 0 else 0
+                
+                st.latex(r"R_n = \frac{M_u}{\phi b d^2} = " + f"\\frac{{{Mu_kgcm:,.0f}}}{{{denom:,.0f}}} = {Rn:.2f}" + r" \text{ ksc}")
+                
+                st.markdown("#### 2. Calculate $\\rho$")
+                term = 1 - (2*Rn)/(0.85*fc)
+                
+                if term < 0:
+                    st.error(f"❌ **FAIL:** Section too small! (Term in root is negative: {term:.3f})")
+                    st.stop()
+                    
+                rho_req = (0.85*fc/fy) * (1 - np.sqrt(term))
+                rho_min = 0.0018
+                rho_design = max(rho_req, rho_min)
+                
+                st.write(f"- $\\rho_{{req}} = {rho_req:.5f}$")
+                st.write(f"- $\\rho_{{min}} = {rho_min}$")
+                st.markdown(f"👉 **Use $\\rho = {rho_design:.5f}$**")
 
-        summary_rows.append({
-            "Zone": zone['name'],
-            "Moment (kg-m)": f"{zone['M']:,.0f}",
-            "Width (m)": f"{zone['b']:.2f}",
-            "Design": res_txt
-        })
-
-    st.table(pd.DataFrame(summary_rows))
-    
-    with st.expander("🔎 ดูวิธีทำละเอียด (Show Steps)"):
-        # ตรงนี้ใส่ Code แสดงวิธีทำละเอียด (เหมือนเวอร์ชั่นก่อน)
-        st.write("แสดงการคำนวณทีละ Step ที่นี่... (Code reused from previous version)")
-        # (เพื่อความกระชับ ผมละโค้ดส่วนนี้ไว้ แต่หลักการคือ copy logic จาก version ก่อนมาใส่ใน loop)
+            with c2:
+                st.markdown("#### 3. Final Selection")
+                As_req = rho_design * b_cm * d_eff
+                st.metric("As Required", f"{As_req:.2f} cm²")
+                
+                # คำนวณจำนวนเหล็ก
+                Ab = 3.14159 * (d_bar/10)**2 / 4
+                n_bars = max(np.ceil(As_req/Ab), 2)
+                
+                # คำนวณ Spacing
+                s_calc = b_cm / n_bars
+                s_max = min(2*h_slab, 45)
+                s_final = min(s_calc, s_max)
+                
+                st.success(f"""
+                **SELECT:**
+                ### {int(n_bars)} - DB{d_bar}
+                **@ {int(s_final)} cm**
+                """)
+                st.caption(f"Actual As = {n_bars*Ab:.2f} cm²")
