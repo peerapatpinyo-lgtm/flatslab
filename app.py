@@ -4,7 +4,7 @@ import report
 
 st.set_page_config(page_title="Pro Flat Slab Design", layout="wide", page_icon="🏗️")
 
-# --- ONE-STOP CONTROL SIDEBAR ---
+# --- SIDEBAR INPUTS ---
 with st.sidebar:
     st.title("🏗️ Design Controls")
     
@@ -12,7 +12,7 @@ with st.sidebar:
         col1, col2 = st.columns(2)
         lx = col1.number_input("Lx (m)", 3.0, 15.0, 8.0, step=0.1)
         ly = col2.number_input("Ly (m)", 3.0, 15.0, 8.0, step=0.1)
-        h_user = st.number_input("Slab Thickness (mm)", 100, 500, 200, step=10, help="User defined thickness")
+        h_user = st.number_input("Slab Thickness (mm)", 100, 500, 200, step=10)
         
         c1 = st.number_input("Col Width (mm)", 200, 1500, 500)
         c2 = st.number_input("Col Depth (mm)", 200, 1500, 500)
@@ -47,10 +47,10 @@ with st.sidebar:
     st.divider()
     btn_calc = st.button("🚀 Run Analysis & Verification", type="primary", use_container_width=True)
 
-# --- MAIN DISPLAY ---
+# --- MAIN LOGIC ---
 if btn_calc:
     with st.spinner("Processing Linked Calculation..."):
-        # Call the unified engine function
+        # Call Unified Engine
         data = engine.analyze_and_verify_system(
             lx, ly, h_user, c1, c2, lc_h, 
             sdl, ll, fc, fy, 
@@ -65,8 +65,3 @@ if st.session_state.get('run'):
 else:
     st.markdown("## 👋 Ready to Design")
     st.info("👈 Please enter parameters in the Sidebar and click 'Run Analysis'.")
-    st.markdown("""
-    **System Features:**
-    * **Fully Linked:** Rebar selection affects $d$ (effective depth) directly.
-    * **Unified Check:** Shear, Deflection, and Flexure are checked against the *actual* user inputs.
-    """)
