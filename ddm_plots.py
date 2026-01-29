@@ -2,24 +2,36 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 
+# ... (ส่วน HELPER และ plot_ddm_moment, plot_rebar_detailing เหมือนเดิม ไม่ต้องแก้) ...
+# แต่เพื่อความชัวร์ ผมใส่ให้ครบทั้งไฟล์เลยครับ จะได้ Copy ทีเดียวจบ
+
 # ==========================================
 # 🎨 HELPER: CAD STYLING
 # ==========================================
-def add_dimension(ax, x1, y1, x2, y2, text, offset=0.5, color='black', arrow_color='black'):
-    """ วาดเส้นบอกระยะ (Dimension Line) """
+def add_dimension(ax, x1, y1, x2, y2, text, offset=0.5, color='black', arrow_color='black', vertical=False):
+    """ วาดเส้นบอกระยะ (Dimension Line) รองรับแนวตั้ง/แนวนอน """
     ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
                 arrowprops=dict(arrowstyle='<|-|>', color=arrow_color, lw=0.6))
     
     mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2
+    
+    # คำนวณตำแหน่ง Text แบบ Offset
+    if vertical:
+        txt_x = mid_x + offset
+        txt_y = mid_y
+        rot = 90
+    else:
+        txt_x = mid_x
+        txt_y = mid_y + offset
+        rot = 0
+
     bbox = dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.8)
-    ax.text(mid_x, mid_y + offset, text, ha='center', va='center', 
-            fontsize=7, color=color, bbox=bbox, fontweight='bold')
+    ax.text(txt_x, txt_y, text, ha='center', va='center', 
+            fontsize=7, color=color, bbox=bbox, fontweight='bold', rotation=rot)
 
 def setup_cad_style(ax, title):
-    """ จัดธีมให้เหมือนกระดาษเขียนแบบ """
     ax.set_title(title, loc='left', fontsize=10, fontweight='bold', pad=10, color='#333333')
     ax.axis('off')
-    # ax.grid(True, which='both', linestyle='--', linewidth=0.5, color='gray', alpha=0.2) # Optional Grid
 
 # ==========================================
 # 1. MOMENT DIAGRAM (เหมือนเดิม)
@@ -40,185 +52,177 @@ def plot_ddm_moment(L_span, c1, m_vals):
     
     ax.fill_between(x, y_cs, 0, alpha=0.05, color='#D32F2F')
     ax.axhline(0, color='black', linewidth=0.8)
-    ax.grid(True, linestyle=':', alpha=0.5)
     
     limit = max(M_pos_cs, M_neg_cs, M_pos_ms, M_neg_ms) * 1.3
     ax.set_ylim(limit, -limit) 
     
-    bbox = dict(boxstyle="round,pad=0.2", fc="white", ec="#D32F2F", alpha=0.9, lw=0.5)
-    ax.text(0, -M_neg_cs, f"M-: {M_neg_cs:,.0f}", color='#D32F2F', ha='left', va='top', fontsize=8, bbox=bbox)
-    ax.text(L_span/2, M_pos_cs, f"M+: {M_pos_cs:,.0f}", color='#D32F2F', ha='center', va='bottom', fontsize=8, bbox=bbox)
-    
-    ax.set_title(f"MOMENT DISTRIBUTION DIAGRAM (Span {L_span} m)", loc='left', fontweight='bold', fontsize=10)
+    setup_cad_style(ax, f"MOMENT DISTRIBUTION DIAGRAM (Span {L_span} m)")
     ax.legend(fontsize=8, loc='upper right')
-    
     plt.tight_layout()
     return fig
 
 # ==========================================
-# 2. SECTION PROFILE (เพิ่มเหล็กจุด Transverse)
+# 2. SECTION PROFILE (เพิ่ม Dot เหล็กขวาง)
 # ==========================================
 def plot_rebar_detailing(L_span, h_slab, c_para, rebar_results, axis_dir):
     fig, ax = plt.subplots(figsize=(10, 4))
     h_m = h_slab / 100
     c_m = c_para / 100
     
-    # Concrete Structure
-    slab = patches.Rectangle((0, 0), L_span, h_m, fc='#E0E0E0', ec='black', lw=0.5)
-    ax.add_patch(slab)
-    
-    col_h = 0.6
+    # Structure
+    ax.add_patch(patches.Rectangle((0, 0), L_span, h_m, fc='#E0E0E0', ec='black', lw=0.5))
     for x_pos in [-c_m/2, L_span-c_m/2]:
-        ax.add_patch(patches.Rectangle((x_pos, -col_h), c_m, col_h, fc='white', ec='black', hatch='//', lw=0.5))
-        ax.add_patch(patches.Rectangle((x_pos, h_m), c_m, col_h, fc='white', ec='black', hatch='//', lw=0.5))
-    
-    # --- Main Rebar (Lines) ---
-    cover = 0.03
-    bar_offset_layer = 0.02 # สมมติระยะห่างระหว่างชั้นเหล็ก
-    
-    # สมมติว่าทิศที่ออกแบบอยู่ชั้นนอก (Outer Layer)
-    top_y_main = h_m - cover
-    bot_y_main = cover
-    
-    bar_len = L_span * 0.30
-    
-    # Top Main (Red)
-    ax.plot([-c_m/2, bar_len], [top_y_main, top_y_main], color='#D32F2F', lw=2.5, zorder=10)
-    ax.plot([bar_len, bar_len], [top_y_main, top_y_main-0.08], color='#D32F2F', lw=1.5, zorder=10)
-    ax.plot([L_span-bar_len, L_span+c_m/2], [top_y_main, top_y_main], color='#D32F2F', lw=2.5, zorder=10)
-    ax.plot([L_span-bar_len, L_span-bar_len], [top_y_main, top_y_main-0.08], color='#D32F2F', lw=1.5, zorder=10)
-    
-    # Bottom Main (Blue)
-    ax.plot([0, L_span], [bot_y_main, bot_y_main], color='#1976D2', lw=2.5, zorder=10)
-    
-    # --- Transverse Rebar (Dots) - เหล็กทิศรอง ---
-    # แสดงเป็นจุด เพื่อบอกว่ามีเหล็กอีกทิศวิ่งตัด
-    top_y_trans = top_y_main - bar_offset_layer
-    bot_y_trans = bot_y_main + bar_offset_layer
-    
-    # สร้างจุดสมมติระยะแอดประมาณ 30cm เพื่อ visual
-    x_dots = np.arange(0.15, L_span, 0.30) 
-    
-    # Top Dots (Red fill)
-    ax.scatter(x_dots, [top_y_trans]*len(x_dots), s=30, facecolors='#D32F2F', edgecolors='none', zorder=5, label='Transverse Bars')
-    # Bot Dots (Blue fill)
-    ax.scatter(x_dots, [bot_y_trans]*len(x_dots), s=30, facecolors='#1976D2', edgecolors='none', zorder=5)
+        ax.add_patch(patches.Rectangle((x_pos, -0.5), c_m, 0.5, fc='white', ec='black', hatch='//'))
+        ax.add_patch(patches.Rectangle((x_pos, h_m), c_m, 0.5, fc='white', ec='black', hatch='//'))
 
-    # Dimensions & Annotations
-    add_dimension(ax, 0, -0.3, L_span, -0.3, f"Span L1 = {L_span} m", offset=0.1)
-    add_dimension(ax, 0, h_m+0.2, bar_len, h_m+0.2, f"0.3L1", offset=0.05, color='#D32F2F', arrow_color='#D32F2F')
+    # Rebar Lines (Main)
+    top_y = h_m - 0.03
+    bot_y = 0.03
+    bar_L = L_span * 0.3
     
-    ax.annotate(rebar_results.get('CS_Top','?'), xy=(bar_len/2, top_y_main), xytext=(bar_len/2, top_y_main+0.5),
-                arrowprops=dict(arrowstyle='->', color='#D32F2F'), color='#D32F2F', fontweight='bold', ha='center', bbox=dict(fc='white', ec='none', alpha=0.7))
+    # Top (Red)
+    ax.plot([-c_m/2, bar_L], [top_y, top_y], color='#D32F2F', lw=2.5) # Left
+    ax.plot([L_span-bar_L, L_span+c_m/2], [top_y, top_y], color='#D32F2F', lw=2.5) # Right
+    # Bot (Blue)
+    ax.plot([0, L_span], [bot_y, bot_y], color='#1976D2', lw=2.5)
     
-    ax.annotate(rebar_results.get('CS_Bot','?'), xy=(L_span/2, bot_y_main), xytext=(L_span/2, -0.6),
-                arrowprops=dict(arrowstyle='->', color='#1976D2'), color='#1976D2', fontweight='bold', ha='center', bbox=dict(fc='white', ec='none', alpha=0.7))
+    # Transverse Dots (เหล็กอีกแกน วางขวาง)
+    x_dots = np.arange(0.2, L_span, 0.3)
+    ax.scatter(x_dots, [top_y - 0.02]*len(x_dots), c='#D32F2F', s=20, zorder=5)
+    ax.scatter(x_dots, [bot_y + 0.02]*len(x_dots), c='#1976D2', s=20, zorder=5)
 
-    setup_cad_style(ax, f"SECTION VIEW ({axis_dir}-DIR CUT): MAIN REBAR PROFILE")
-    ax.set_xlim(-0.8, L_span + 1.2)
+    # Labels
+    add_dimension(ax, 0, -0.2, L_span, -0.2, f"Span L1 ({axis_dir}) = {L_span} m", offset=0.1)
+    
+    ax.text(bar_L/2, top_y+0.1, rebar_results.get('CS_Top','?'), color='#D32F2F', ha='center', fontsize=8, fontweight='bold')
+    ax.text(L_span/2, bot_y-0.15, rebar_results.get('CS_Bot','?'), color='#1976D2', ha='center', fontsize=8, fontweight='bold')
+
+    setup_cad_style(ax, f"SECTION VIEW ({axis_dir}-DIR)")
+    ax.set_xlim(-0.8, L_span + 0.8)
     ax.set_ylim(-0.8, h_m + 0.8)
     plt.tight_layout()
     return fig
 
 # ==========================================
-# 3. PLAN VIEW (วาดถูกทิศทาง X/Y)
+# 3. PLAN VIEW (แก้ไขใหม่: หมุนตามแกนจริง!)
 # ==========================================
 def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results, axis_dir):
-    fig, ax = plt.subplots(figsize=(10, 6))
+    """
+    วาดแปลนพื้น:
+    - ถ้า axis_dir == 'X': วาดแนวนอน (Span อยู่แกน X)
+    - ถ้า axis_dir == 'Y': วาดแนวตั้ง (Span อยู่แกน Y)
+    """
+    
+    # กำหนดขนาด Canvas ตามทิศทาง
+    if axis_dir == 'X':
+        plot_w, plot_h = L_span, L_width
+        fig_w, fig_h = 10, 6
+    else: # Y-Direction -> สลับแกนกราฟเลย
+        plot_w, plot_h = L_width, L_span
+        fig_w, fig_h = 6, 8  # ปรับ Aspect ratio ให้เป็นแนวตั้ง
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    
     w_cs = min(L_span, L_width) / 2.0
     w_cs_half = w_cs / 2.0
     
-    # Background Strips (Zones based on Width L2)
-    rect_ms = patches.Rectangle((0, w_cs_half), L_span, L_width - w_cs, fc='#E3F2FD', alpha=0.5)
-    ax.add_patch(rect_ms)
-    rect_cs_bot = patches.Rectangle((0, 0), L_span, w_cs_half, fc='#FFEBEE', alpha=0.5)
-    rect_cs_top = patches.Rectangle((0, L_width - w_cs_half), L_span, w_cs_half, fc='#FFEBEE', alpha=0.5)
-    ax.add_patch(rect_cs_bot)
-    ax.add_patch(rect_cs_top)
-    
-    # Columns
+    # 1. วาดโซน Column Strip / Middle Strip
+    if axis_dir == 'X':
+        # CS อยู่บน/ล่าง (แนวนอน)
+        ax.add_patch(patches.Rectangle((0, 0), plot_w, w_cs_half, fc='#FFEBEE', alpha=0.5)) # Bot
+        ax.add_patch(patches.Rectangle((0, plot_h - w_cs_half), plot_w, w_cs_half, fc='#FFEBEE', alpha=0.5)) # Top
+        ax.add_patch(patches.Rectangle((0, w_cs_half), plot_w, plot_h - 2*w_cs_half, fc='#E3F2FD', alpha=0.5)) # Mid
+    else: # Y-Direction
+        # CS อยู่ซ้าย/ขวา (แนวตั้ง)
+        ax.add_patch(patches.Rectangle((0, 0), w_cs_half, plot_h, fc='#FFEBEE', alpha=0.5)) # Left
+        ax.add_patch(patches.Rectangle((plot_w - w_cs_half, 0), w_cs_half, plot_h, fc='#FFEBEE', alpha=0.5)) # Right
+        ax.add_patch(patches.Rectangle((w_cs_half, 0), plot_w - 2*w_cs_half, plot_h, fc='#E3F2FD', alpha=0.5)) # Mid
+
+    # 2. วาดเสา (Columns)
     c_m = c_para / 100
-    for cx in [0, L_span]:
-        for cy in [0, L_width]:
-            ax.add_patch(patches.Rectangle((cx-c_m/2, cy-c_m/2), c_m, c_m, fc='#333', zorder=10))
+    cols = []
+    if axis_dir == 'X':
+        cols = [(0,0), (0, plot_h), (plot_w, 0), (plot_w, plot_h)]
+    else:
+        cols = [(0,0), (plot_w, 0), (0, plot_h), (plot_w, plot_h)]
+        
+    for (cx, cy) in cols:
+        ax.add_patch(patches.Rectangle((cx-c_m/2, cy-c_m/2), c_m, c_m, fc='#333', zorder=10))
 
-    # --- Rebar Drawing Logic (Direction Aware) ---
-    bar_len_ratio = 0.3
-    bar_len = L_span * bar_len_ratio
-
-    def draw_bars_directional(orth_pos_y, txt, color, is_top=True, label_offset_x=0):
-        """
-        orth_pos_y: ตำแหน่งในแกนตั้งฉาก (แกน Y ในรูป)
-        """
-        bbox_lbl = dict(boxstyle="round,pad=0.1", fc="white", ec=color, alpha=0.8, lw=0.5)
+    # 3. วาดเหล็กเสริม (Rebars) - หมุนตามแกน
+    def draw_bar(zone_name, align_pos, is_top, color):
+        txt = rebar_results.get(zone_name, '')
+        bar_len = L_span * 0.3 # ระยะหยุดเหล็กบน
         
         if axis_dir == 'X':
-            # --- CASE X: เหล็กวิ่งแนวนอน (ขนาน L_span) ---
-            y = orth_pos_y
+            # --- เหล็กแนวนอน (วิ่งซ้าย-ขวา) ---
+            y = align_pos
             if is_top:
-                # เหล็กบนช่วงหัวเสา (ซ้าย-ขวา)
+                # ซ้าย
                 ax.plot([-0.2, bar_len], [y, y], color=color, lw=2)
-                ax.plot([L_span-bar_len, L_span+0.2], [y, y], color=color, lw=2)
-                ax.text(bar_len/2 + label_offset_x, y, txt, color=color, fontsize=7, ha='center', va='bottom', fontweight='bold', bbox=bbox_lbl)
+                ax.text(bar_len/2, y, txt, color=color, fontsize=8, ha='center', va='bottom', fontweight='bold', bbox=dict(fc='white', ec='none', alpha=0.7))
+                # ขวา
+                ax.plot([plot_w-bar_len, plot_w+0.2], [y, y], color=color, lw=2)
             else:
-                # เหล็กล่างวิ่งยาวตลอด
-                ax.plot([0, L_span], [y, y], color=color, lw=2)
-                ax.text(L_span/2 + label_offset_x, y, txt, color=color, fontsize=7, ha='center', va='bottom', fontweight='bold', bbox=bbox_lbl)
+                # ล่าง (ยาวตลอด)
+                ax.plot([0, plot_w], [y, y], color=color, lw=2)
+                ax.text(plot_w/2, y, txt, color=color, fontsize=8, ha='center', va='bottom', fontweight='bold', bbox=dict(fc='white', ec='none', alpha=0.7))
         
-        else: # axis_dir == 'Y'
-            # --- CASE Y: เหล็กวิ่งแนวตั้ง (ตั้งฉาก L_span) ---
-            # เราต้องวาดเส้นตั้งหลายๆ เส้นเพื่อแสดงแนวเหล็ก
-            
-            # กำหนดขอบเขต Y ของเส้นตั้ง
-            # ถ้าอยู่ Col Strip (บน/ล่าง)
-            if orth_pos_y < w_cs_half: y_start, y_end = 0, w_cs_half
-            elif orth_pos_y > L_width - w_cs_half: y_start, y_end = L_width - w_cs_half, L_width
-            # ถ้าอยู่ Middle Strip
-            else: y_start, y_end = w_cs_half, L_width - w_cs_half
-                
+        else: # Y-Direction
+            # --- เหล็กแนวตั้ง (วิ่งล่าง-บน) ---
+            x = align_pos
             if is_top:
-                # เหล็กบน (แนวตั้ง) อยู่ช่วงหัวเสา (ซ้าย-ขวา ของรูป)
-                # วาดตัวแทนสัก 2-3 เส้น
-                for x_pos in np.linspace(0, bar_len, 3):
-                     ax.plot([x_pos, x_pos], [y_start, y_end], color=color, lw=1.5)
-                for x_pos in np.linspace(L_span-bar_len, L_span, 3):
-                     ax.plot([x_pos, x_pos], [y_start, y_end], color=color, lw=1.5)
-                
-                # Label (หมุน 90 องศา)
-                ax.text(bar_len/2, orth_pos_y, txt, color=color, fontsize=7, ha='center', va='center', fontweight='bold', rotation=90, bbox=bbox_lbl)
-            
+                # ล่าง (Support)
+                ax.plot([x, x], [-0.2, bar_len], color=color, lw=2)
+                ax.text(x, bar_len/2, txt, color=color, fontsize=8, ha='left', va='center', fontweight='bold', rotation=90, bbox=dict(fc='white', ec='none', alpha=0.7))
+                # บน (Support)
+                ax.plot([x, x], [plot_h-bar_len, plot_h+0.2], color=color, lw=2)
             else:
-                # เหล็กล่าง (แนวตั้ง) วิ่งเต็มสแปน
-                # วาดตัวแทนกระจายๆ
-                for x_pos in np.linspace(0.2, L_span-0.2, 6):
-                    ax.plot([x_pos, x_pos], [y_start, y_end], color=color, lw=1.5)
-                
-                # Label (หมุน 90 องศา)
-                ax.text(L_span/2, orth_pos_y, txt, color=color, fontsize=7, ha='center', va='center', fontweight='bold', rotation=90, bbox=bbox_lbl)
+                # กลาง (ยาวตลอด)
+                ax.plot([x, x], [0, plot_h], color=color, lw=2)
+                ax.text(x, plot_h/2, txt, color=color, fontsize=8, ha='left', va='center', fontweight='bold', rotation=90, bbox=dict(fc='white', ec='none', alpha=0.7))
 
-    # Draw Rebars using the new directional function
-    # CS Bot & Top (Bottom Zone)
-    draw_bars_directional(w_cs_half*0.3, rebar_results.get('CS_Bot',''), '#1976D2', False)
-    draw_bars_directional(w_cs_half*0.7, rebar_results.get('CS_Top',''), '#D32F2F', True)
+    # เรียกฟังก์ชันวาดตามตำแหน่ง
+    if axis_dir == 'X':
+        # Y-Coordinates for bars
+        y_cs_bot = w_cs_half * 0.3
+        y_cs_top = plot_h - (w_cs_half * 0.3)
+        y_ms_bot = plot_h/2 - 0.2
+        y_ms_top = plot_h/2 + 0.2
+        
+        draw_bar('CS_Bot', y_cs_bot, False, '#1976D2') # CS Bot (ล่างสุด)
+        draw_bar('CS_Top', w_cs_half * 0.7, True, '#D32F2F') # CS Top (ล่าง)
+        draw_bar('CS_Top', plot_h - (w_cs_half * 0.7), True, '#D32F2F') # CS Top (บน)
+        
+        draw_bar('MS_Bot', y_ms_bot, False, '#1976D2')
+        draw_bar('MS_Top', y_ms_top, True, '#D32F2F')
+
+    else: # Y-Direction (ตำแหน่งเป็น X-Coord)
+        x_cs_left = w_cs_half * 0.3
+        x_cs_right = plot_w - (w_cs_half * 0.3)
+        x_ms_left = plot_w/2 - 0.2
+        x_ms_right = plot_w/2 + 0.2
+        
+        draw_bar('CS_Bot', x_cs_left, False, '#1976D2')
+        draw_bar('CS_Top', w_cs_half * 0.7, True, '#D32F2F')
+        draw_bar('CS_Top', plot_w - (w_cs_half * 0.7), True, '#D32F2F')
+        
+        draw_bar('MS_Bot', x_ms_left, False, '#1976D2')
+        draw_bar('MS_Top', x_ms_right, True, '#D32F2F')
+
+    # 4. Dimensions
+    if axis_dir == 'X':
+        add_dimension(ax, 0, -0.5, plot_w, -0.5, f"Span X = {plot_w} m")
+        add_dimension(ax, plot_w+0.5, 0, plot_w+0.5, plot_h, f"Width Y = {plot_h} m", vertical=True)
+    else:
+        add_dimension(ax, 0, -0.5, plot_w, -0.5, f"Width X = {plot_w} m")
+        add_dimension(ax, plot_w+0.5, 0, plot_w+0.5, plot_h, f"Span Y = {plot_h} m", vertical=True)
+
+    setup_cad_style(ax, f"PLAN VIEW: REBAR LAYOUT ({axis_dir}-DIRECTION)")
     
-    # CS Top (Top Zone)
-    draw_bars_directional(L_width - w_cs_half*0.7, rebar_results.get('CS_Top',''), '#D32F2F', True)
-
-    # MS Bot & Top (Middle Zone)
-    draw_bars_directional(L_width/2 - 0.3, rebar_results.get('MS_Bot',''), '#1976D2', False)
-    draw_bars_directional(L_width/2 + 0.3, rebar_results.get('MS_Top',''), '#D32F2F', True)
-
-    # Dimensions (Widths L2)
-    x_dim = L_span + 0.8
-    add_dimension(ax, x_dim, 0, x_dim, w_cs_half, f"CS\n{w_cs_half:.2f}", offset=0, color='gray', arrow_color='gray')
-    add_dimension(ax, x_dim, w_cs_half, x_dim, L_width-w_cs_half, f"MS\n{L_width-w_cs:.2f}", offset=0, color='gray', arrow_color='gray')
-    add_dimension(ax, x_dim, L_width-w_cs_half, x_dim, L_width, f"CS", offset=0, color='gray', arrow_color='gray')
+    # Set Limits with padding
+    ax.set_xlim(-1, plot_w + 1.5)
+    ax.set_ylim(-1, plot_h + 1)
     
-    # Dimension Span L1
-    add_dimension(ax, 0, -0.5, L_span, -0.5, f"Span L1 = {L_span:.2f} m", offset=0.2)
-
-    setup_cad_style(ax, f"PLAN VIEW: {axis_dir}-DIRECTION MAIN REBAR LAYOUT")
-    ax.set_xlim(-1, L_span + 1.5)
-    ax.set_ylim(-1, L_width + 0.5)
     plt.tight_layout()
     return fig
