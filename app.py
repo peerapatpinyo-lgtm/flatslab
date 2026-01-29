@@ -102,14 +102,14 @@ st.markdown("---")
 # ==========================
 # 5. TABS
 # ==========================
-# เรียงลำดับตามที่ขอ: Drawings -> DDM -> EFM
 tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings & Plan", "2️⃣ DDM Calculation", "3️⃣ EFM Stiffness"])
 
 with tab1:
     tab_drawings.render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, moment_vals)
 
 with tab2:
-    tab_ddm.render(Mo, L1, L2, h_slab, d_eff, fc, fy, d_bar, moment_vals)
+    # --- แก้ไขจุดที่ Error ตรงนี้ครับ (เพิ่ม w_u, c1_w, ln เข้าไป) ---
+    tab_ddm.render(Mo, L1, L2, h_slab, d_eff, fc, fy, d_bar, moment_vals, w_u, c1_w, ln)
 
 with tab3:
     tab_efm.render(c1_w, c2_w, L1, L2, lc, h_slab, fc)
