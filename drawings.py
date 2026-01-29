@@ -1,51 +1,45 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-def draw_section(h_mm, cover_mm, c1_m, ln_m, d_mm, top_txt, bot_txt):
+def draw_section(h_mm, cover_mm, c1_m, span_draw_m, d_mm, top_txt, bot_txt):
     """
-    Draws a proportional section of the slab with reinforcement cut-off points.
+    Draws a schematic section of the slab/column strip.
     """
     fig, ax = plt.subplots(figsize=(10, 4))
     
-    # Dimensions (scaled for visualization)
-    col_w = c1_m * 1000
-    span = ln_m * 1000
-    total_w = col_w + span + col_w
-    slab_h = h_mm
+    # Dimensions for plotting
+    col_w = c1_m * 1000  # mm
+    slab_h = h_mm        # mm
+    span = span_draw_m * 1000 # mm
     
-    # 1. Concrete Geometry
-    # Left Column
-    ax.add_patch(patches.Rectangle((-col_w, -1000), col_w, 1000+slab_h, facecolor='#D3D3D3', edgecolor='black'))
-    # Right Column
-    ax.add_patch(patches.Rectangle((span, -1000), col_w, 1000+slab_h, facecolor='#D3D3D3', edgecolor='black'))
+    # 1. Concrete Section (Grey)
     # Slab
-    ax.add_patch(patches.Rectangle((0, 0), span, slab_h, facecolor='#F0F0F0', edgecolor='black'))
+    rect_slab = patches.Rectangle((0, 0), span + col_w, slab_h, linewidth=1, edgecolor='none', facecolor='#E0E0E0')
+    ax.add_patch(rect_slab)
     
-    # 2. Rebar Drawing
-    # Top Bar (Negative Moment) - Extends 0.30 Ln
-    cutoff_len = 0.30 * span
-    top_y = slab_h - cover_mm
-    ax.plot([-col_w/2, cutoff_len], [top_y, top_y], 'r-', linewidth=3, label='Top Bar')
-    ax.plot([span - cutoff_len, span + col_w/2], [top_y, top_y], 'r-', linewidth=3)
+    # Column
+    rect_col = patches.Rectangle((0, -500), col_w, 500 + slab_h, linewidth=1, edgecolor='none', facecolor='#BDBDBD')
+    ax.add_patch(rect_col)
     
-    # Bottom Bar (Positive Moment) - Continuous
-    bot_y = cover_mm
-    ax.plot([0 + 50, span - 50], [bot_y, bot_y], 'b-', linewidth=3, label='Bot Bar')
+    # 2. Rebar (Red Lines)
+    eff_d_top = h_mm - cover_mm
+    eff_d_bot = cover_mm
     
-    # 3. Annotations
-    ax.text(cutoff_len, top_y + 20, f"Cut-off: 0.30Ln ({cutoff_len/1000:.2f}m)", ha='center', fontsize=9, color='red')
-    ax.text(span/2, top_y + 60, top_txt, ha='center', fontsize=10, weight='bold', color='darkred')
-    ax.text(span/2, bot_y - 40, bot_txt, ha='center', fontsize=10, weight='bold', color='blue')
+    # Top Bar (Main reinforcement at column)
+    ax.plot([0, span/3], [eff_d_top, eff_d_top], color='red', linewidth=3, label='Top Rebar')
+    ax.text(100, eff_d_top + 20, top_txt, color='red', fontsize=10, fontweight='bold')
     
-    # Dimensions
-    ax.annotate(f"Ln = {ln_m:.2f} m", xy=(span/2, slab_h/2), ha='center', va='center')
-    ax.annotate(f"h = {h_mm} mm", xy=(-20, slab_h/2), ha='right', va='center', rotation=90)
+    # Bot Bar (Span reinforcement)
+    ax.plot([col_w, span + col_w], [eff_d_bot, eff_d_bot], color='blue', linewidth=3, label='Bot Rebar')
+    ax.text(span/2, eff_d_bot + 20, bot_txt, color='blue', fontsize=10, fontweight='bold')
     
-    # Settings
-    ax.set_xlim(-col_w - 200, span + col_w + 200)
-    ax.set_ylim(-500, slab_h + 300)
-    ax.set_aspect('auto') # Auto aspect to fit slab and span
+    # 3. Dimensions & Annotations
+    ax.set_xlim(-200, span + col_w + 200)
+    ax.set_ylim(-600, slab_h + 300)
+    ax.set_aspect('equal')
     ax.axis('off')
-    ax.set_title("Reinforcement Detail (Schematic)", fontsize=12)
+    
+    plt.title(f"Section Detail (h={h_mm}mm, d={d_mm:.0f}mm)", fontsize=12)
+    plt.tight_layout()
     
     return fig
