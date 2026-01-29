@@ -1,97 +1,71 @@
 import streamlit as st
-import pandas as pd
-import drawings
+import formatter
 
-def render_unified_report(data):
-    """
-    Renders the full report using ONLY data passed from engine.
-    No calculations allowed here.
-    """
+def render(data):
+    i = data['inputs']
+    l = data['loads']
+    s = data['shear']
+    f = data['flexure']
     
-    # Unpack for easier access (Read-Only)
-    meta = data['meta']
-    shear = data['shear']
-    flex = data['flexure']
-    defl = data['deflection']
-    geo = data['geometry']
-    status = data['global_status']
+    st.title("🏗️ Structural Calculation Report")
+    st.markdown("---")
 
-    # --- 1. HEADER & STATUS ---
-    st.markdown("## 📑 Structural Calculation Report")
+    # --- SECTION 1: GEOMETRY & MATERIALS ---
+    st.header("1. Geometry & Materials")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.write(f"**Dimensions:**")
+        st.write(f"Thickness (h): {i['h']} mm")
+        st.write(f"Cover (cc): {i['cover']} mm")
+    with c2:
+        st.write(f"**Column:**")
+        st.write(f"Size: {i['c1']} x {i['c2']} mm")
+        st.write(f"Position: {i['pos']}")
+    with c3:
+        st.write(f"**Materials:**")
+        st.write(f"fc': {i['fc']} ksc")
+        st.write(f"fy: {i['fy']} ksc")
+
+    # --- SECTION 2: LOAD ANALYSIS ---
+    st.header("2. Load Analysis")
+    st.latex(formatter.fmt_load_trace(i['h'], i['sdl'], i['ll'], l['sw'], l['qu']))
+
+    # --- SECTION 3: SHEAR ANALYSIS ---
+    st.header("3. Punching Shear Verification")
     
-    if status == "SAFE":
-        st.success(f"✅ **DESIGN PASSED:** The structure is SAFE under defined loads.")
-    else:
-        st.error(f"❌ **DESIGN FAILED:** Please review Shear or Reinforcement.")
-        
-    st.divider()
-
-    # --- 2. INPUT SUMMARY ---
-    st.markdown("### 1. Input Summary")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Span (Lx x Ly)", f"{meta['lx']} x {meta['ly']} m")
-    c2.metric("Thickness", f"{meta['h']} mm")
-    c3.metric("Concrete (fc')", f"{meta['fc']} ksc")
-    c4.metric("Steel (fy)", f"{meta['fy']} ksc")
+    st.subheader("3.1 Effective Depth Calculation")
+    # Live d update displayed here
+    st.latex(formatter.fmt_d_calc(i['h'], i['cover'], (i['top_db']+i['bot_db'])/2, s['d_mm']))
     
-    st.caption(f"**Loads:** SDL = {meta['sdl']}, LL = {meta['ll']} kg/m²")
-
-    # --- 3. SHEAR CHECK ---
-    st.markdown("### 2. Punching Shear Check")
-    col_s1, col_s2 = st.columns([1, 2])
+    st.subheader("3.2 Critical Section Properties")
+    st.latex(formatter.fmt_shear_geometry(i['c1'], i['c2'], s['d_mm'], s['bo'], i['pos']))
     
-    with col_s1:
-        s_color = "green" if shear['status'] == "PASS" else "red"
-        st.markdown(f"Status: :{s_color}[**{shear['status']}**]")
-        st.metric("Utilization Ratio", f"{shear['ratio']:.2f}")
+    st.subheader("3.3 Shear Capacity (ACI 318-19)")
+    st.markdown("Checking all 3 equations to find governing $V_c$:")
+    st.latex(formatter.fmt_shear_capacity(
+        i['fc'] * 0.098, s['beta'], s['alpha'], s['d_mm'], s['bo'],
+        s['vc1'], s['vc2'], s['vc3'], s['vc_final'], s['phi_vc_kg'] * 9.8
+    ))
     
-    with col_s2:
-        st.write(f"Effective Depth ($d$): **{shear['d_mm']:.0f} mm**")
-        st.write(f"Critical Perimeter ($b_o$): **{shear['bo_mm']:.0f} mm**")
-        st.write(f"Shear Demand ($V_u$): **{shear['vu']/1000:.2f} tons**")
-        st.write(f"Shear Capacity ($\phi V_c$): **{shear['phi_vc']/1000:.2f} tons**")
+    st.subheader("3.4 Shear Check")
+    st.latex(formatter.fmt_shear_check(s['vu_kg'] * 9.8, s['phi_vc_kg'] * 9.8))
 
-    st.divider()
-
-    # --- 4. FLEXURE & REBAR ---
-    st.markdown("### 3. Flexural Verification")
-    st.write(f"Total Static Moment ($M_o$): **{flex['mo']:,.0f} kg-m**")
+    # --- SECTION 4: FLEXURAL DESIGN ---
+    st.header("4. Flexural Design & Detailing")
     
-    # Prepare DataFrame from prepared list
-    df_rows = []
-    for r in flex['results']:
-        df_rows.append({
-            "Location": r['location'],
-            "Moment (Mu)": f"{r['mu']:,.0f}",
-            "Rebar": f"DB{r['user_db']}@{r['user_sp']}",
-            "As Prov": f"{r['as_prov']:.2f}",
-            "As Req": f"{max(r['as_req'], r['as_min']):.2f}",
-            "Util": f"{r['utilization']:.2f}",
-            "Status": r['status']
-        })
+    st.markdown(f"**Total Static Moment ($M_o$):** {f['mo']:,.0f} kg-m")
     
-    st.dataframe(pd.DataFrame(df_rows), use_container_width=True)
+    st.subheader("4.1 Top Reinforcement (Column Strip - Negative)")
+    r_top = f['top']
+    st.latex(formatter.fmt_moment_calc(
+        r_top[0], i['fy'], s['d_mm'], r_top[1], r_top[2], r_top[3], i['top_db'], i['top_sp'], r_top[4]
+    ))
+    
+    st.subheader("4.2 Bottom Reinforcement (Column Strip - Positive)")
+    r_bot = f['bot']
+    st.latex(formatter.fmt_moment_calc(
+        r_bot[0], i['fy'], s['d_mm'], r_bot[1], r_bot[2], r_bot[3], i['bot_db'], i['bot_sp'], r_bot[4]
+    ))
 
-    # --- 5. DEFLECTION ---
-    st.markdown("### 4. Deflection Check (Immediate)")
-    d_col = "green" if defl['status'] == "PASS" else "red"
-    st.markdown(f"Delta: **{defl['val']:.2f} mm** vs Limit: **{defl['lim']:.2f} mm** (:{d_col}[**{defl['status']}**])")
-
-    st.divider()
-
-    # --- 6. DRAWING ---
-    st.markdown("### 5. Construction Detail")
-    try:
-        # Extract rebar strings for drawing
-        # Assumes index 0 is Top, index 1 is Bot from engine list
-        top_str = f"DB{flex['results'][0]['user_db']}@{flex['results'][0]['user_sp']}"
-        bot_str = f"DB{flex['results'][1]['user_db']}@{flex['results'][1]['user_sp']}"
-        
-        fig = drawings.draw_section(
-            meta['h'], geo['cover'], geo['c1'], 
-            meta['lx']/2, shear['d_mm'], 
-            top_str, bot_str
-        )
-        st.pyplot(fig)
-    except Exception as e:
-        st.warning(f"Drawing unavailable: {e}")
+    st.markdown("---")
+    st.success("🏁 Calculation Complete. All values are explicitly derived above.")
