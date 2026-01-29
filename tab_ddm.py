@@ -16,10 +16,8 @@ def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
     ])
     
     with tab_x:
-        # ส่ง axis_id = "X"
         render_interactive_direction(data_x, h_slab, d_eff, fc, fy, "X")
     with tab_y:
-        # ส่ง axis_id = "Y"
         render_interactive_direction(data_y, h_slab, d_eff, fc, fy, "Y")
 
 # ========================================================
@@ -28,8 +26,8 @@ def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
 def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     
     # 1. Unpack Data
-    L_span = data['L_span']   # Length of Span (L1)
-    L_width = data['L_width'] # Width of Span (L2)
+    L_span = data['L_span']
+    L_width = data['L_width']
     c_para = data['c_para']
     Mo = data['Mo']
     m_vals = data['M_vals']
@@ -47,54 +45,73 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
         Rn = (M_val * 100) / denom
         limit = 1 - (2*Rn)/(0.85*fc)
         
-        if limit < 0: return 999.99 # Fail geometry
+        if limit < 0: return 999.99
         
         rho = (0.85*fc/fy) * (1 - np.sqrt(limit))
         rho = max(rho, 0.0018)
         return rho * b_cm * d_eff
 
-    # Calc Req for UI guide
     req_cs_top = get_as_req(m_vals['M_cs_neg'], w_cs)
     req_cs_bot = get_as_req(m_vals['M_cs_pos'], w_cs)
     req_ms_top = get_as_req(m_vals['M_ms_neg'], w_ms)
     req_ms_bot = get_as_req(m_vals['M_ms_pos'], w_ms)
 
-    # 3. UI Inputs (Left / Right Layout)
+    # 3. UI Inputs (Updated Colors)
     st.markdown(f"### 🎛️ Rebar Selection: {axis_id}-Axis")
-    c_info1, c_info2 = st.columns(2)
-    c_info1.metric(f"Span Length ($L_1$)", f"{L_span:.2f} m")
-    c_info2.metric(f"Strip Width ($L_2$)", f"{L_width:.2f} m")
+    c_info1, c_info2, c_info3 = st.columns(3)
+    c_info1.metric(f"Span ($L_1$)", f"{L_span:.2f} m")
+    c_info2.metric(f"Width ($L_2$)", f"{L_width:.2f} m")
+    c_info3.metric(f"Moment ($M_o$)", f"{Mo:,.0f} kg-m")
+    st.write("")
 
-    col_cs, col_gap, col_ms = st.columns([1, 0.1, 1])
+    col_cs, col_gap, col_ms = st.columns([1, 0.05, 1])
     
-    # --- CS INPUTS ---
+    # --- CS INPUTS (ใช้สีใหม่จาก ddm_plots) ---
     with col_cs:
-        st.error(f"🏛️ COLUMN STRIP (w = {w_cs:.2f}m)")
+        # ใช้สีพื้นหลังเดียวกับในกราฟ (CLR_ZONE_CS = #FDEDEC)
+        st.markdown(
+            """<div style="background-color:#FDEDEC; padding:12px; border-radius:8px; border-left: 6px solid #C0392B;">
+            <strong style="color:#C0392B; font-size:1.1em;">🏛️ COLUMN STRIP</strong><br>
+            <small style="color:#555;">Width = """ + f"{w_cs:.2f} m</small></div>", 
+            unsafe_allow_html=True
+        )
+        st.write("")
         
         # CS Top
-        st.markdown(f"**Top (Support)** <small>Req: {req_cs_top:.2f}</small>", unsafe_allow_html=True)
+        st.markdown(f"**🟥 Top (Support)** <small style='color:#777'>(Req: {req_cs_top:.2f})</small>", unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1.5])
         d_cs_t = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_cst_{axis_id}")
         s_cs_t = c2.number_input("@Spacing", 5, 40, 20, 5, key=f"s_cst_{axis_id}")
         
+        st.write("---")
+
         # CS Bot
-        st.markdown(f"**Bot (Mid)** <small>Req: {req_cs_bot:.2f}</small>", unsafe_allow_html=True)
+        st.markdown(f"**🟦 Bot (Mid)** <small style='color:#777'>(Req: {req_cs_bot:.2f})</small>", unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1.5])
         d_cs_b = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_csb_{axis_id}")
         s_cs_b = c2.number_input("@Spacing", 5, 45, 25, 5, key=f"s_csb_{axis_id}")
 
-    # --- MS INPUTS ---
+    # --- MS INPUTS (ใช้สีใหม่จาก ddm_plots) ---
     with col_ms:
-        st.info(f"🌊 MIDDLE STRIP (w = {w_ms:.2f}m)")
+        # ใช้สีพื้นหลังเดียวกับในกราฟ (CLR_ZONE_MS = #EBF5FB)
+        st.markdown(
+            """<div style="background-color:#EBF5FB; padding:12px; border-radius:8px; border-left: 6px solid #2980B9;">
+            <strong style="color:#2980B9; font-size:1.1em;">🌊 MIDDLE STRIP</strong><br>
+            <small style="color:#555;">Width = """ + f"{w_ms:.2f} m</small></div>", 
+            unsafe_allow_html=True
+        )
+        st.write("")
         
         # MS Top
-        st.markdown(f"**Top (Support)** <small>Req: {req_ms_top:.2f}</small>", unsafe_allow_html=True)
+        st.markdown(f"**🟥 Top (Support)** <small style='color:#777'>(Req: {req_ms_top:.2f})</small>", unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1.5])
         d_ms_t = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_mst_{axis_id}", index=0)
         s_ms_t = c2.number_input("@Spacing", 10, 50, 30, 5, key=f"s_mst_{axis_id}")
 
+        st.write("---")
+
         # MS Bot
-        st.markdown(f"**Bot (Mid)** <small>Req: {req_ms_bot:.2f}</small>", unsafe_allow_html=True)
+        st.markdown(f"**Bot (Mid)** <small style='color:#777'>(Req: {req_ms_bot:.2f})</small>", unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1.5])
         d_ms_b = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_msb_{axis_id}")
         s_ms_b = c2.number_input("@Spacing", 5, 45, 25, 5, key=f"s_msb_{axis_id}")
@@ -135,8 +152,8 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
         rebar_str = f"DB{d_sel}@{s_sel}"
         rebar_summary[z['id']] = rebar_str
         
-        # HTML Formatting
-        color = "green" if ratio <= 1.0 else "red"
+        # HTML Formatting (ใช้สีเข้มขึ้น)
+        color = "#27AE60" if ratio <= 1.0 else "#C0392B" # Green / Red
         table_data.append({
             "Location": z['name'],
             "Mu (kg-m)": f"{Mu:,.0f}",
@@ -160,18 +177,15 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
     st.write("---")
     st.markdown("### 🎨 Engineer Drawings")
     
-    # 5.1 Moment (ใส่ try-except เผื่อ Error)
     try:
         fig_mom = ddm_plots.plot_ddm_moment(L_span, c_para, m_vals)
         st.pyplot(fig_mom)
     except Exception as e:
         st.error(f"Plot Error (Moment): {e}")
 
-    # 5.2 Section & Plan
     c_draw1, c_draw2 = st.columns(2)
     
     with c_draw1:
-        st.caption(f"Section View ({axis_id}-Axis)")
         try:
             fig_sec = ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_summary, axis_id)
             st.pyplot(fig_sec)
@@ -179,9 +193,7 @@ def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
             st.error(f"Plot Error (Section): {e}")
             
     with c_draw2:
-        st.caption(f"Plan View ({axis_id}-Axis Layout)")
         try:
-            # สำคัญ: ส่ง parameter ให้ครบ!
             fig_plan = ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_summary, axis_id)
             st.pyplot(fig_plan)
         except Exception as e:
