@@ -1,219 +1,286 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 
-# ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="Flat Slab Design Analysis", layout="wide")
+# Set page layout
+st.set_page_config(page_title="Detailed Flat Slab Calculation", layout="wide")
 
-st.title("🏗️ Flat Slab Design: DDM & EFM Analysis")
-st.markdown("โปรแกรมคำนวณพื้นไร้คานแบบละเอียด แสดงที่มาของตัวเลขทุกขั้นตอน")
+# --- Helper Function สำหรับแสดงการคำนวณแบบละเอียด ---
+def show_calculation_step(title, latex_formula, substitution_str, result_str, unit, note=""):
+    """
+    ฟังก์ชันสำหรับแสดงผลลัพธ์ทีละขั้นตอน: สูตร -> การแทนค่า -> คำตอบ
+    """
+    st.markdown(f"#### {title}")
+    if note:
+        st.caption(f"*{note}*")
+    
+    # 1. แสดงสูตร (Symbolic)
+    st.latex(latex_formula)
+    
+    # 2. แสดงการแทนค่า (Substitution)
+    # ใช้ text ธรรมดาหรือ latex ก็ได้ แต่ latex จะสวยกว่า
+    st.markdown(f"**แทนค่า:**")
+    st.latex(substitution_str)
+    
+    # 3. แสดงผลลัพธ์
+    st.success(f"**= {result_str} {unit}**")
+    st.markdown("---")
 
-# --- 1. SIDEBAR INPUTS ---
-st.sidebar.header("1. Input Parameters")
+st.title("🏗️ Detailed Flat Slab Analysis (ACI 318)")
+st.markdown("ระบบคำนวณพื้นไร้คาน แสดงวิธีทำละเอียดทุกขั้นตอน (Formula -> Substitution -> Result)")
 
-# Material Properties
-st.sidebar.subheader("Material Properties")
-fc = st.sidebar.number_input("Concrete Strength, f'c (ksc)", value=240.0)
-fy = st.sidebar.number_input("Steel Yield Strength, fy (ksc)", value=4000.0)
-Ec = 15100 * (fc**0.5) # ACI Formula estimate (ksc)
+# ==========================================
+# 1. INPUT SECTION
+# ==========================================
+with st.sidebar:
+    st.header("1. Design Parameters")
+    
+    st.subheader("Material Properties")
+    fc = st.number_input("f'c (ksc)", value=240.0, step=10.0)
+    fy = st.number_input("fy (ksc)", value=4000.0, step=100.0)
+    
+    st.subheader("Geometry (Dimensions)")
+    L1 = st.number_input("L1: Span Length (ทิศทางที่คิด) (m)", value=6.0, step=0.1)
+    L2 = st.number_input("L2: Transverse Span (ทิศทางขวาง) (m)", value=5.0, step=0.1)
+    h_slab = st.number_input("Slab Thickness (cm)", value=20.0, step=1.0)
+    l_c = st.number_input("Storey Height (m)", value=3.0, step=0.1)
+    
+    st.subheader("Column Size")
+    c1 = st.number_input("c1 (Parallel to L1) (cm)", value=40.0, step=5.0)
+    c2 = st.number_input("c2 (Transverse) (cm)", value=40.0, step=5.0)
+    
+    st.subheader("Loads")
+    SDL = st.number_input("Superimposed Dead Load (kg/m²)", value=100.0)
+    LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
-# Geometry
-st.sidebar.subheader("Geometry")
-L1 = st.sidebar.number_input("Span Length L1 (Direction of Analysis) (m)", value=6.0)
-L2 = st.sidebar.number_input("Transverse Span Length L2 (m)", value=5.0)
-h_slab = st.sidebar.number_input("Slab Thickness (cm)", value=20.0)
-l_c = st.sidebar.number_input("Storey Height (m)", value=3.0)
+# ==========================================
+# 2. PRE-CALCULATION (Internal Logic)
+# ==========================================
+# Convert units for calculation (Everything to kg, cm)
+L1_cm = L1 * 100
+L2_cm = L2 * 100
+lc_cm = l_c * 100
+Ec = 15100 * np.sqrt(fc) # ksc
 
-st.sidebar.subheader("Column Dimensions")
-c1 = st.sidebar.number_input("Column Dimension c1 (Parallel to L1) (cm)", value=40.0)
-c2 = st.sidebar.number_input("Column Dimension c2 (Transverse) (cm)", value=40.0)
+# Load Calcs
+w_self = (h_slab / 100) * 2400 # kg/m2
+w_dead = w_self + SDL
+w_u = 1.2 * w_dead + 1.6 * LL # kg/m2
 
-# Loads
-st.sidebar.subheader("Loads")
-SDL = st.sidebar.number_input("Superimposed Dead Load (kg/m^2)", value=100.0)
-LL = st.sidebar.number_input("Live Load (kg/m^2)", value=300.0)
+# ==========================================
+# 3. DISPLAY: LOAD & MATERIAL
+# ==========================================
+st.header("Step 1: Material & Load Properties")
 
-# --- 2. CALCULATION FUNCTIONS ---
+col1, col2 = st.columns(2)
 
-def calculate_loads(h_slab, SDL, LL):
-    # Density of concrete approx 2400 kg/m3
-    w_self = (h_slab / 100) * 2400
-    w_dead = w_self + SDL
-    w_u = 1.2 * w_dead + 1.6 * LL
-    return w_self, w_dead, w_u
+with col1:
+    show_calculation_step(
+        "Modulus of Elasticity (Ec)",
+        r"E_c = 15,100 \sqrt{f'_c}",
+        fr"E_c = 15,100 \times \sqrt{{{fc:.0f}}}",
+        f"{Ec:,.2f}",
+        "ksc"
+    )
 
-def ddm_analysis(L1, L2, w_u, c1, ln):
-    # Total Static Moment
-    Mo = (w_u * L2 * (ln**2)) / 8
-    
-    # Simplified Distribution (Interior Span)
-    # Note: These percentages depend on constraints (beam presence etc.)
-    # Assuming flat plate (no beams)
-    res = {
-        "Mo": Mo,
-        "Neg_M": Mo * 0.65,
-        "Pos_M": Mo * 0.35,
-        "Col_Strip_Neg": (Mo * 0.65) * 0.75,
-        "Mid_Strip_Neg": (Mo * 0.65) * 0.25,
-        "Col_Strip_Pos": (Mo * 0.35) * 0.60,
-        "Mid_Strip_Pos": (Mo * 0.35) * 0.40
-    }
-    return res
+with col2:
+    # Load combination detail
+    show_calculation_step(
+        "Factored Load (Wu)",
+        r"w_u = 1.2(DL_{self} + SDL) + 1.6(LL)",
+        fr"w_u = 1.2({w_self:.1f} + {SDL}) + 1.6({LL})",
+        f"{w_u:,.2f}",
+        "kg/m²"
+    )
 
-def efm_stiffness(c1, c2, L1, L2, h_slab, l_c, Ec):
-    # Units conversion to meters/kg where needed, but keeping consistent helps
-    # Inputs in cm need conversion for Inertia calculations
-    
-    # 1. Slab Moment of Inertia (Is)
-    # Gross section
-    Is = (L2 * 100 * (h_slab**3)) / 12  # cm^4
-    
-    # 2. Column Moment of Inertia (Ic)
-    Ic = (c2 * (c1**3)) / 12 # cm^4
-    
-    # 3. Slab Stiffness (Ks) - Simplified for Interior
-    # Using coefficient 4EI/L
-    Ks = (4 * Ec * Is) / (L1 * 100) # kg-cm
-    
-    # 4. Column Stiffness (Kc)
-    Kc = (4 * Ec * Ic) / (l_c * 100) # kg-cm (Assume fixed far end for simplicity of demo)
-    # Note: In real EFM, Kc involves infinite stiffness at joint
-    
-    # 5. Torsional Member Stiffness (Kt)
-    # Based on ACI Code
-    x = min(c1, h_slab)
-    y = max(c1, h_slab) # Approximation for rect section
-    # C = constant for torsion
-    C = (1 - 0.63 * (x/y)) * (x**3 * y) / 3
-    
-    # Kt formula: Kt = sum(9 * Ec * C / (L2 * (1 - c2/L2)**3))
-    # This is a complex derivation, showing simplified version for demo
-    Kt = (9 * Ec * C) / ((L2 * 100) * (1 - (c2/(L2*100)))**3) * 2 # *2 for both sides of column
-    
-    # 6. Equivalent Column Stiffness (Kec)
-    # Formula: 1/Kec = 1/Sigma(Kc) + 1/Kt
-    Sum_Kc = 2 * Kc # Upper and Lower columns
-    inv_Kec = (1 / Sum_Kc) + (1 / Kt)
-    Kec = 1 / inv_Kec
-    
-    # 7. Distribution Factor (DF)
-    # DF = Ks / (Ks + Kec)
-    DF = Ks / (Ks + Kec)
-    
-    return {
-        "Is": Is, "Ic": Ic, "Ks": Ks, "Kc": Kc, 
-        "C": C, "Kt": Kt, "Sum_Kc": Sum_Kc, "Kec": Kec, "DF": DF
-    }
+# ==========================================
+# 4. EQUIVALENT FRAME METHOD (DETAILED)
+# ==========================================
+st.header("Step 2: Equivalent Frame Method (EFM) Stiffness Calculation")
+st.info("ส่วนนี้จะคำนวณ Stiffness ของจุดต่อ (Joint) อย่างละเอียด เพื่อหา Distribution Factor (DF)")
 
-# --- 3. MAIN DISPLAY LOGIC ---
+# --- 2.1 Slab Stiffness (Ks) ---
+Is = (L2_cm * (h_slab**3)) / 12
+Ks = (4 * Ec * Is) / L1_cm
 
-# Preliminary Calcs
-ln = L1 - (c1/100) # Clear span
-w_self, w_dead, w_u = calculate_loads(h_slab, SDL, LL)
+st.subheader("2.1 Slab Stiffness ($K_s$)")
+with st.expander("ดูวิธีทำละเอียด Ks", expanded=True):
+    # Inertia
+    show_calculation_step(
+        "Slab Moment of Inertia (Is)",
+        r"I_s = \frac{L_2 \cdot h^3}{12}",
+        fr"I_s = \frac{{{L2_cm:.0f} \cdot {h_slab:.0f}^3}}{{12}}",
+        f"{Is:,.2f}",
+        "cm⁴",
+        note="คิดเต็มหน้าตัด (Gross Section)"
+    )
+    # Stiffness
+    show_calculation_step(
+        "Slab Stiffness (Ks)",
+        r"K_s = \frac{4 E_c I_s}{L_1}",
+        fr"K_s = \frac{{4 \cdot {Ec:,.2f} \cdot {Is:,.2f}}}{{{L1_cm:.0f}}}",
+        f"{Ks:,.2f}",
+        "kg-cm"
+    )
 
-st.header("2. Analysis Results")
+# --- 2.2 Column Stiffness (Kc) ---
+Ic = (c2 * (c1**3)) / 12
+Kc = (4 * Ec * Ic) / lc_cm
 
-# Display Loads
-st.subheader("Step 1: Load Calculation")
-col1, col2, col3 = st.columns(3)
-col1.metric("Self Weight", f"{w_self:.2f} kg/m²")
-col2.metric("Total Dead Load", f"{w_dead:.2f} kg/m²")
-col3.metric("Factored Load (Wu)", f"{w_u:.2f} kg/m²")
+st.subheader("2.2 Column Stiffness ($K_c$)")
+with st.expander("ดูวิธีทำละเอียด Kc", expanded=True):
+    show_calculation_step(
+        "Column Moment of Inertia (Ic)",
+        r"I_c = \frac{c_2 \cdot c_1^3}{12}",
+        fr"I_c = \frac{{{c2:.0f} \cdot {c1:.0f}^3}}{{12}}",
+        f"{Ic:,.2f}",
+        "cm⁴"
+    )
+    show_calculation_step(
+        "Column Stiffness (Kc)",
+        r"K_c = \frac{4 E_c I_c}{l_c}",
+        fr"K_c = \frac{{4 \cdot {Ec:,.2f} \cdot {Ic:,.2f}}}{{{lc_cm:.0f}}}",
+        f"{Kc:,.2f}",
+        "kg-cm",
+        note="สมมติปลายอีกด้านเป็น Fixed (Far end fixed)"
+    )
 
-st.latex(r"w_u = 1.2(DL) + 1.6(LL)")
+# --- 2.3 Torsional Stiffness (Kt) ---
+st.subheader("2.3 Torsional Member Stiffness ($K_t$)")
+st.markdown("ส่วนที่ยากที่สุดของ EFM คือการหาค่าความแข็งของการบิดตัว (Torsion) ด้านข้างเสา")
 
-# Check DDM Suitability
-st.subheader("Step 2: Method Selection Check (ACI 318)")
-limit_ratio = 2.0
-ratio = max(L1, L2) / min(L1, L2)
-st.write(f"- Span Ratio ($L_{{long}}/L_{{short}}$): **{ratio:.2f}** (Limit: {limit_ratio})")
+# Calculate C (Torsional Constant)
+x = min(c1, h_slab)
+y = max(c1, h_slab) # Note: For Rectangular section approx
+term1 = (1 - 0.63 * (x/y))
+term2 = (x**3 * y) / 3
+C = term1 * term2
 
-use_ddm = True
-if ratio > limit_ratio:
-    st.error("⚠️ Span ratio exceeds 2.0. DDM is NOT allowed. Must use EFM.")
-    use_ddm = False
-else:
-    st.success("✅ Geometry fits DDM criteria.")
+# Calculate Kt
+# Formula: Kt = sum( 9EcC / [ L2(1 - c2/L2)^3 ] )
+# สมมติมี Torsional member 2 ด้าน (ซ้ายขวาของเสา) -> คูณ 2
+denominator_part = (1 - (c2/L2_cm))**3
+Kt_one_side = (9 * Ec * C) / (L2_cm * denominator_part)
+Kt = 2 * Kt_one_side 
 
-method = st.radio("Select Method to View Details:", ["Direct Design Method (DDM)", "Equivalent Frame Method (EFM)"])
+with st.expander("ดูวิธีทำละเอียด Kt (Complex)", expanded=True):
+    st.write(f"**พิจารณาหน้าตัดรับแรงบิด:** x (ด้านสั้น) = {x} cm, y (ด้านยาว) = {y} cm")
+    
+    # Show C Calculation
+    show_calculation_step(
+        "Torsional Constant (C)",
+        r"C = \left(1 - 0.63 \frac{x}{y}\right) \frac{x^3 y}{3}",
+        fr"C = \left(1 - 0.63 \frac{{{x}}}{{{y}}}\right) \frac{{{x}^3 \cdot {y}}}{{3}}",
+        f"{C:,.2f}",
+        "cm⁴"
+    )
+    
+    # Show Kt Calculation
+    st.markdown("#### Torsional Stiffness ($K_t$)")
+    st.latex(r"K_t = \sum \frac{9 E_c C}{L_2 (1 - \frac{c_2}{L_2})^3}")
+    st.markdown("**แทนค่า (คิด 2 ด้าน ซ้าย-ขวา):**")
+    
+    # Generate substitution string for Kt
+    sub_kt = fr"K_t = 2 \times \frac{{9 \cdot {Ec:,.2f} \cdot {C:,.2f}}}{{{L2_cm:.0f} (1 - \frac{{{c2}}}{{{L2_cm}}})^3}}"
+    st.latex(sub_kt)
+    st.success(f"**= {Kt:,.2f} kg-cm**")
 
-st.markdown("---")
+# --- 2.4 Equivalent Column Stiffness (Kec) ---
+st.subheader("2.4 Equivalent Column Stiffness ($K_{ec}$)")
+Sum_Kc = 2 * Kc # เสาบน + เสาล่าง
+inv_Kec = (1/Sum_Kc) + (1/Kt)
+Kec = 1/inv_Kec
 
-if method == "Direct Design Method (DDM)":
-    if not use_ddm:
-        st.warning("Showing DDM calculations strictly for educational purposes (Code Violation).")
+with st.expander("ดูวิธีทำละเอียด Kec", expanded=True):
+    st.markdown(f"**Sum of Columns ($\Sigma K_c$):** เสาบน + เสาล่าง = {Kc:,.2f} + {Kc:,.2f} = **{Sum_Kc:,.2f}** kg-cm")
     
-    st.header("Direct Design Method Calculation")
-    
-    ddm_res = ddm_analysis(L1, L2, w_u, c1, ln)
-    
-    st.markdown("### 3.1 Total Static Moment ($M_o$)")
-    st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
-    st.write(f"แทนค่า: $M_o = \\frac{{{w_u:.2f} \\times {L2} \\times {ln:.2f}^2}}{{8}}$")
-    st.info(f"**Total Static Moment ($M_o$) = {ddm_res['Mo']:.2f} kg-m**")
-    
-    st.markdown("### 3.2 Longitudinal Distribution (Interior Span)")
-    st.write("กระจายโมเมนต์รวมไปยัง Negative และ Positive Moment (ACI Table)")
-    
-    df_ddm = pd.DataFrame({
-        "Location": ["Negative Moment (65%)", "Positive Moment (35%)"],
-        "Total Moment (kg-m)": [ddm_res['Neg_M'], ddm_res['Pos_M']]
-    })
-    st.table(df_ddm)
-    
-    st.markdown("### 3.3 Transverse Distribution (Column vs Middle Strip)")
-    
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("**Negative Moment Distribution**")
-        st.write(f"- Column Strip (75%): **{ddm_res['Col_Strip_Neg']:.2f} kg-m**")
-        st.write(f"- Middle Strip (25%): **{ddm_res['Mid_Strip_Neg']:.2f} kg-m**")
-    with col_b:
-        st.markdown("**Positive Moment Distribution**")
-        st.write(f"- Column Strip (60%): **{ddm_res['Col_Strip_Pos']:.2f} kg-m**")
-        st.write(f"- Middle Strip (40%): **{ddm_res['Mid_Strip_Pos']:.2f} kg-m**")
+    show_calculation_step(
+        "Equivalent Stiffness Formula",
+        r"\frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t}",
+        fr"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{{Sum_Kc:,.2f}}} + \frac{{1}}{{{Kt:,.2f}}}",
+        f"{Kec:,.2f}",
+        "kg-cm",
+        note="Kec จะมีค่าน้อยกว่า Sum Kc เสมอ เพราะถูกลดทอนด้วย Kt"
+    )
 
-elif method == "Equivalent Frame Method (EFM)":
-    
-    st.header("Equivalent Frame Method Calculation")
-    st.markdown("ในวิธี EFM เราจะแปลงโครงสร้างพื้นและเสาให้เป็น **Equivalent Frame** เพื่อหาค่า Stiffness")
-    
-    efm_res = efm_stiffness(c1, c2, L1, L2, h_slab, l_c, Ec)
-    
-    # 1. Slab Stiffness
-    st.subheader("1. Slab Stiffness ($K_s$)")
-    st.latex(r"I_s = \frac{L_2 h^3}{12}")
-    st.write(f"Inertia Slab ($I_s$): {efm_res['Is']:,.2f} $cm^4$")
-    st.latex(r"K_s = \frac{4E_c I_s}{L_1}")
-    st.write(f"Stiffness Slab ($K_s$): **{efm_res['Ks']:,.2f}** kg-cm")
-    
-    # 2. Column Stiffness
-    st.subheader("2. Column Stiffness ($K_c$)")
-    st.latex(r"I_c = \frac{c_2 c_1^3}{12}")
-    st.write(f"Inertia Column ($I_c$): {efm_res['Ic']:,.2f} $cm^4$")
-    st.write(f"Stiffness Column ($K_c$): **{efm_res['Kc']:,.2f}** kg-cm")
-    
-    # 3. Torsional Member
-    st.subheader("3. Torsional Member Stiffness ($K_t$)")
-    st.markdown("ส่วนที่รับแรงบิด (Torsion) บริเวณหัวเสาที่เชื่อมต่อกับพื้น")
-    st.latex(r"K_t = \sum \frac{9 E_c C}{L_2 (1 - c_2/L_2)^3}")
-    st.write(f"Torsional Constant ($C$): {efm_res['C']:,.2f} $cm^4$")
-    st.write(f"Torsional Stiffness ($K_t$): **{efm_res['Kt']:,.2f}** kg-cm")
-    
-    # 4. Equivalent Column
-    st.subheader("4. Equivalent Column Stiffness ($K_{ec}$)")
-    st.markdown("เป็นการรวมความแข็งของเสา ($K_c$) และส่วนรับแรงบิด ($K_t$) เข้าด้วยกัน")
-    st.latex(r"\frac{1}{K_{ec}} = \frac{1}{\sum K_c} + \frac{1}{K_t}")
-    st.write(f"Sum Columns ($2 \\times K_c$): {efm_res['Sum_Kc']:,.2f}")
-    st.success(f"**Equivalent Column Stiffness ($K_{{ec}}$): {efm_res['Kec']:,.2f} kg-cm**")
-    
-    # 5. Distribution Factors
-    st.subheader("5. Distribution Factors (DF) at Joint")
-    st.markdown("ปัจจัยการกระจายโมเมนต์เข้าสู่พื้นและเสาเทียบเท่า")
-    st.latex(r"DF_{slab} = \frac{K_s}{K_s + K_{ec}}")
-    
-    df_val = efm_res['DF']
-    st.metric("Distribution Factor to Slab", f"{df_val:.4f}")
-    st.metric("Distribution Factor to Column (Equivalent)", f"{1 - df_val:.4f}")
-    
-    st.info("💡 Next Step: ค่า DF นี้จะถูกนำไปใช้ในกระบวนการ Moment Distribution Method (Hardy Cross) เพื่อกระจาย Fixed End Moment (FEM) จนสมดุล")
+# ==========================================
+# 5. DISTRIBUTION FACTORS (DF)
+# ==========================================
+st.header("Step 3: Distribution Factors (DF)")
+st.markdown("คำนวณสัดส่วนการกระจายโมเมนต์ที่จุดต่อ (Interior Joint)")
+
+DF_slab = Ks / (Ks + Kec)
+DF_col = Kec / (Ks + Kec) # This goes to the equivalent column
+
+col_df1, col_df2 = st.columns(2)
+
+with col_df1:
+    show_calculation_step(
+        "DF Slab (ถ่ายเข้าพื้น)",
+        r"DF_{slab} = \frac{K_s}{K_s + K_{ec}}",
+        fr"DF_{{slab}} = \frac{{{Ks:,.2f}}}{{{Ks:,.2f} + {Kec:,.2f}}}",
+        f"{DF_slab:.4f}",
+        "(-)"
+    )
+
+with col_df2:
+    show_calculation_step(
+        "DF Column (ถ่ายเข้าเสา)",
+        r"DF_{col} = \frac{K_{ec}}{K_s + K_{ec}}",
+        fr"DF_{{col}} = \frac{{{Kec:,.2f}}}{{{Ks:,.2f} + {Kec:,.2f}}}",
+        f"{DF_col:.4f}",
+        "(-)"
+    )
+
+st.warning(f"Note: ผลรวม DF ต้องเท่ากับ 1.00 -> ({DF_slab:.4f} + {DF_col:.4f} = {DF_slab+DF_col:.4f}) ✅")
+
+# ==========================================
+# 6. DIRECT DESIGN METHOD (MOMENT DISTRIBUTION)
+# ==========================================
+st.header("Step 4: Design Moments (Direct Design Method Check)")
+ln = L1 - (c1/100)
+Mo = (w_u * L2 * ln**2) / 8
+
+st.subheader("4.1 Total Static Moment ($M_o$)")
+show_calculation_step(
+    "Static Moment",
+    r"M_o = \frac{w_u L_2 l_n^2}{8}",
+    fr"M_o = \frac{{{w_u:.2f} \cdot {L2} \cdot ({L1}-{c1/100})^2}}{{8}}",
+    f"{Mo:,.2f}",
+    "kg-m"
+)
+
+st.subheader("4.2 Moment Distribution Table")
+st.markdown("ตารางกระจายโมเมนต์เข้าแถบเสา (Column Strip) และแถบกลาง (Middle Strip)")
+
+# Coefficients (Simplified for Interior Span, Flat Plate)
+# Negative Moment
+neg_m = Mo * 0.65
+neg_cs_ratio = 0.75
+neg_ms_ratio = 0.25
+# Positive Moment
+pos_m = Mo * 0.35
+pos_cs_ratio = 0.60
+pos_ms_ratio = 0.40
+
+data = {
+    "Section": ["Negative Moment (-)", "Negative Moment (-)", "Positive Moment (+)", "Positive Moment (+)"],
+    "Strip Type": ["Column Strip", "Middle Strip", "Column Strip", "Middle Strip"],
+    "Total Moment Portion": [f"0.65 Mo = {neg_m:,.2f}", f"0.65 Mo = {neg_m:,.2f}", f"0.35 Mo = {pos_m:,.2f}", f"0.35 Mo = {pos_m:,.2f}"],
+    "% Distribution": [f"{neg_cs_ratio*100}%", f"{neg_ms_ratio*100}%", f"{pos_cs_ratio*100}%", f"{pos_ms_ratio*100}%"],
+    "Calculation": [
+        f"{neg_m:,.2f} * {neg_cs_ratio}",
+        f"{neg_m:,.2f} * {neg_ms_ratio}",
+        f"{pos_m:,.2f} * {pos_cs_ratio}",
+        f"{pos_m:,.2f} * {pos_ms_ratio}"
+    ],
+    "Design Moment (kg-m)": [
+        neg_m * neg_cs_ratio,
+        neg_m * neg_ms_ratio,
+        pos_m * pos_cs_ratio,
+        pos_m * pos_ms_ratio
+    ]
+}
+
+df_res = st.dataframe(data)
+
+st.success("🏁 การคำนวณเสร็จสิ้น: คุณสามารถนำค่า Design Moment ในตารางไปคำนวณเหล็กเสริม (As) ต่อได้เลย")
