@@ -4,207 +4,185 @@ import numpy as np
 import ddm_plots 
 
 # ========================================================
-# 1. ENTRY POINT (MAIN FUNCTION)
+# 1. MAIN ENTRY POINT
 # ========================================================
 def render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u):
     st.markdown("## 2. Interactive Direct Design Method")
-    st.info("💡 ปรับเลือกเหล็กเสริมด้านล่าง ผลลัพธ์และรายการคำนวณจะอัปเดตอัตโนมัติ")
+    st.info("💡 เลือกขนาดเหล็กเสริมให้ผ่านทุกหน้าตัด (Ratio <= 1.0)")
 
-    # สร้าง Tab แยกทิศทาง X และ Y
     tab_x, tab_y = st.tabs([
-        f"🏗️ Design X-Direction ({data_x['L_span']}m)", 
-        f"🏗️ Design Y-Direction ({data_y['L_span']}m)"
+        f"🏗️ Design X-Direction (Span {data_x['L_span']}m)", 
+        f"🏗️ Design Y-Direction (Span {data_y['L_span']}m)"
     ])
     
     with tab_x:
+        # ส่ง axis_id = "X"
         render_interactive_direction(data_x, h_slab, d_eff, fc, fy, "X")
     with tab_y:
+        # ส่ง axis_id = "Y"
         render_interactive_direction(data_y, h_slab, d_eff, fc, fy, "Y")
 
 # ========================================================
 # 2. LOGIC & UI FOR EACH DIRECTION
 # ========================================================
 def render_interactive_direction(data, h_slab, d_eff, fc, fy, axis_id):
-    # --- 1. PREPARE DATA ---
-    L_span = data['L_span']
-    L_width = data['L_width']
+    
+    # 1. Unpack Data
+    L_span = data['L_span']   # Length of Span (L1)
+    L_width = data['L_width'] # Width of Span (L2)
     c_para = data['c_para']
     Mo = data['Mo']
     m_vals = data['M_vals']
     
-    # ความกว้างแถบ (Column Strip / Middle Strip)
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
 
-    # --- 2. HELPER: Estimate Required Steel (For UI Guidance) ---
+    # 2. Helper: Estimate Required Steel
     def get_as_req(M_val, b_width_m):
+        if b_width_m <= 0: return 0
         b_cm = b_width_m * 100
         denom = 0.9 * b_cm * d_eff**2
         if denom == 0: return 0
         
         Rn = (M_val * 100) / denom
-        limit_check = 1 - (2*Rn)/(0.85*fc)
+        limit = 1 - (2*Rn)/(0.85*fc)
         
-        if limit_check < 0: return 999 # Fail (Section too deep)
+        if limit < 0: return 999.99 # Fail geometry
         
-        rho = (0.85*fc/fy) * (1 - np.sqrt(limit_check))
-        rho = max(rho, 0.0018) # Minimum steel check
+        rho = (0.85*fc/fy) * (1 - np.sqrt(limit))
+        rho = max(rho, 0.0018)
         return rho * b_cm * d_eff
 
-    # คำนวณเหล็กที่ต้องการเบื้องต้นเพื่อโชว์ใน UI
+    # Calc Req for UI guide
     req_cs_top = get_as_req(m_vals['M_cs_neg'], w_cs)
     req_cs_bot = get_as_req(m_vals['M_cs_pos'], w_cs)
     req_ms_top = get_as_req(m_vals['M_ms_neg'], w_ms)
     req_ms_bot = get_as_req(m_vals['M_ms_pos'], w_ms)
 
-    # --- 3. UI SECTION (SPATIAL LAYOUT) ---
-    st.markdown(f"### 🎛️ Parameters & Rebar Selection ({axis_id}-Direction)")
-    
-    # แสดงค่าพารามิเตอร์หลัก
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Span Length ($L_1$)", f"{L_span:.2f} m")
-    c2.metric("Width ($L_2$)", f"{L_width:.2f} m")
-    c3.metric("Static Moment ($M_o$)", f"{Mo:,.0f} kg-m")
-    
-    st.write("---")
+    # 3. UI Inputs (Left / Right Layout)
+    st.markdown(f"### 🎛️ Rebar Selection: {axis_id}-Axis")
+    c_info1, c_info2 = st.columns(2)
+    c_info1.metric(f"Span Length ($L_1$)", f"{L_span:.2f} m")
+    c_info2.metric(f"Strip Width ($L_2$)", f"{L_width:.2f} m")
 
-    # จัดหน้าจอ Input แยกซ้ายขวา (CS | Gap | MS)
     col_cs, col_gap, col_ms = st.columns([1, 0.1, 1])
     
-    # === ZONE 1: COLUMN STRIP (LEFT) ===
+    # --- CS INPUTS ---
     with col_cs:
-        st.markdown(
-            """<div style="background-color:#fff5f5; padding:10px; border-radius:5px; border-left: 5px solid #d62728; margin-bottom:10px;">
-            <strong style="color:#d62728;">🏛️ COLUMN STRIP (ริมเสา)</strong></div>""", 
-            unsafe_allow_html=True
-        )
+        st.error(f"🏛️ COLUMN STRIP (w = {w_cs:.2f}m)")
         
-        # CS Top (Negative Moment)
-        st.markdown(f"**🟥 Top (Support)** <small style='color:gray'>(Req: {req_cs_top:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1, 1.5])
-        d_cs_top = c_a.selectbox("Dia", [12, 16, 20, 25, 28], key=f"d_cst_{axis_id}")
-        s_cs_top = c_b.number_input("@Spacing (cm)", 5, 40, 20, step=5, key=f"s_cst_{axis_id}")
+        # CS Top
+        st.markdown(f"**Top (Support)** <small>Req: {req_cs_top:.2f}</small>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        d_cs_t = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_cst_{axis_id}")
+        s_cs_t = c2.number_input("@Spacing", 5, 40, 20, 5, key=f"s_cst_{axis_id}")
         
-        # CS Bot (Positive Moment)
-        st.markdown(f"**🟦 Bot (Mid)** <small style='color:gray'>(Req: {req_cs_bot:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1, 1.5])
-        d_cs_bot = c_a.selectbox("Dia", [12, 16, 20, 25, 28], key=f"d_csb_{axis_id}")
-        s_cs_bot = c_b.number_input("@Spacing (cm)", 5, 45, 25, step=5, key=f"s_csb_{axis_id}")
+        # CS Bot
+        st.markdown(f"**Bot (Mid)** <small>Req: {req_cs_bot:.2f}</small>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        d_cs_b = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_csb_{axis_id}")
+        s_cs_b = c2.number_input("@Spacing", 5, 45, 25, 5, key=f"s_csb_{axis_id}")
 
-    # === ZONE 2: MIDDLE STRIP (RIGHT) ===
+    # --- MS INPUTS ---
     with col_ms:
-        st.markdown(
-            """<div style="background-color:#f0f8ff; padding:10px; border-radius:5px; border-left: 5px solid #1f77b4; margin-bottom:10px;">
-            <strong style="color:#1f77b4;">🌊 MIDDLE STRIP (กลางพื้น)</strong></div>""", 
-            unsafe_allow_html=True
-        )
+        st.info(f"🌊 MIDDLE STRIP (w = {w_ms:.2f}m)")
         
-        # MS Top (Negative Moment)
-        st.markdown(f"**🟥 Top (Support)** <small style='color:gray'>(Req: {req_ms_top:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1, 1.5])
-        d_ms_top = c_a.selectbox("Dia", [12, 16, 20, 25, 28], key=f"d_mst_{axis_id}", index=0)
-        s_ms_top = c_b.number_input("@Spacing (cm)", 10, 50, 30, step=5, key=f"s_mst_{axis_id}")
+        # MS Top
+        st.markdown(f"**Top (Support)** <small>Req: {req_ms_top:.2f}</small>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        d_ms_t = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_mst_{axis_id}", index=0)
+        s_ms_t = c2.number_input("@Spacing", 10, 50, 30, 5, key=f"s_mst_{axis_id}")
 
-        # MS Bot (Positive Moment)
-        st.markdown(f"**🟦 Bot (Mid)** <small style='color:gray'>(Req: {req_ms_bot:.2f} cm²)</small>", unsafe_allow_html=True)
-        c_a, c_b = st.columns([1, 1.5])
-        d_ms_bot = c_a.selectbox("Dia", [12, 16, 20, 25, 28], key=f"d_msb_{axis_id}")
-        s_ms_bot = c_b.number_input("@Spacing (cm)", 5, 45, 25, step=5, key=f"s_msb_{axis_id}")
+        # MS Bot
+        st.markdown(f"**Bot (Mid)** <small>Req: {req_ms_bot:.2f}</small>", unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1.5])
+        d_ms_b = c1.selectbox("Dia", [12,16,20,25,28], key=f"d_msb_{axis_id}")
+        s_ms_b = c2.number_input("@Spacing", 5, 45, 25, 5, key=f"s_msb_{axis_id}")
 
-    # --- 4. DETAILED CALCULATION TABLE ---
-    st.markdown("### 📊 Detailed Calculation")
-    
-    # รวบรวม Input จาก User
+    # 4. Calculation Logic
     user_inputs = {
-        "CS_Top": (d_cs_top, s_cs_top),
-        "CS_Bot": (d_cs_bot, s_cs_bot),
-        "MS_Top": (d_ms_top, s_ms_top),
-        "MS_Bot": (d_ms_bot, s_ms_bot)
+        "CS_Top": (d_cs_t, s_cs_t), "CS_Bot": (d_cs_b, s_cs_b),
+        "MS_Top": (d_ms_t, s_ms_t), "MS_Bot": (d_ms_b, s_ms_b)
     }
     
-    # ข้อมูลแต่ละโซนเพื่อวนลูปคำนวณ
     zones = [
-        {"id": "CS_Top", "name": "Column Strip - Top", "M": m_vals["M_cs_neg"], "b": w_cs},
-        {"id": "CS_Bot", "name": "Column Strip - Bot", "M": m_vals["M_cs_pos"], "b": w_cs},
-        {"id": "MS_Top", "name": "Middle Strip - Top", "M": m_vals["M_ms_neg"], "b": w_ms},
-        {"id": "MS_Bot", "name": "Middle Strip - Bot", "M": m_vals["M_ms_pos"], "b": w_ms},
+        {"id": "CS_Top", "name": "Column Strip-Top", "M": m_vals["M_cs_neg"], "b": w_cs},
+        {"id": "CS_Bot", "name": "Column Strip-Bot", "M": m_vals["M_cs_pos"], "b": w_cs},
+        {"id": "MS_Top", "name": "Middle Strip-Top", "M": m_vals["M_ms_neg"], "b": w_ms},
+        {"id": "MS_Bot", "name": "Middle Strip-Bot", "M": m_vals["M_ms_pos"], "b": w_ms},
     ]
 
     table_data = []
-    rebar_summary = {} # เก็บค่าไว้ส่งให้กราฟวาด
-    is_safe_all = True
+    rebar_summary = {}
+    is_safe = True
     
     for z in zones:
         Mu = z['M']
         b_cm = z['b'] * 100
-        
-        # 1. Retrieve User Selection
         d_sel, s_sel = user_inputs[z['id']]
         
-        # 2. Calculate Capacity (Phi Mn)
         Ab = 3.1416 * (d_sel/10)**2 / 4
         As_prov = (b_cm / s_sel) * Ab
         
         a = (As_prov * fy) / (0.85 * fc * b_cm)
         Mn = As_prov * fy * (d_eff - a/2)
-        PhiMn = 0.9 * Mn / 100 # Convert to kg-m
+        PhiMn = 0.9 * Mn / 100
         
-        # 3. Check Ratio
-        if PhiMn <= 0:
-            ratio = 999
-        else:
-            ratio = Mu / PhiMn
-            
-        status = "✅ OK" if ratio <= 1.0 else "❌ Fail"
-        if ratio > 1.0: is_safe_all = False
-
-        # 4. Prepare Data for Table & Plot
+        ratio = Mu/PhiMn if PhiMn > 0 else 999
+        status = "OK" if ratio <= 1.0 else "FAIL"
+        if ratio > 1.0: is_safe = False
+        
         rebar_str = f"DB{d_sel}@{s_sel}"
         rebar_summary[z['id']] = rebar_str
         
-        # Format HTML for Colors
-        ratio_html = f"<span style='color:{'green' if ratio<=1 else 'red'}'><b>{ratio:.2f}</b></span>"
-        status_html = f"<span style='color:{'green' if ratio<=1 else 'red'}'>{status}</span>"
-        
+        # HTML Formatting
+        color = "green" if ratio <= 1.0 else "red"
         table_data.append({
-            "Zone": z['name'],
+            "Location": z['name'],
             "Mu (kg-m)": f"{Mu:,.0f}",
-            "Design": f"<b>{rebar_str}</b>",
-            "As Prov (cm2)": f"{As_prov:.2f}",
-            "Phi Mn (kg-m)": f"{PhiMn:,.0f}",
-            "Ratio": ratio_html,
-            "Status": status_html
+            "Rebar": f"<b>{rebar_str}</b>",
+            "As (cm2)": f"{As_prov:.2f}",
+            "PhiMn": f"{PhiMn:,.0f}",
+            "Ratio": f"<span style='color:{color}'><b>{ratio:.2f}</b></span>",
+            "Check": f"<span style='color:{color}'>{status}</span>"
         })
-        
-    # Display Table using HTML (เพื่อเลี่ยงปัญหา tabulate และได้สีสวย)
+
+    # Show Table
+    st.write("---")
+    st.markdown("### 📊 Calculation Summary")
     df = pd.DataFrame(table_data)
     st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
     
-    # --- 5. DRAWINGS (PLOTS) ---
-    st.write("---")
-    st.markdown("### 🎨 Engineering Drawings")
-    
-    # 5.1 Moment Diagram (จาก ddm_plots)
-    fig_mom = ddm_plots.plot_ddm_moment(L_span, c_para, m_vals)
-    st.pyplot(fig_mom)
-    
-    st.write("") # Spacer
+    if not is_safe:
+        st.error("⚠️ Warning: Some sections are failing (Ratio > 1.0)")
 
-    # 5.2 Section & Plan Views (ส่ง axis_id ไปด้วยเพื่อให้วาดถูกทิศ)
+    # 5. DRAWINGS
+    st.write("---")
+    st.markdown("### 🎨 Engineer Drawings")
+    
+    # 5.1 Moment (ใส่ try-except เผื่อ Error)
+    try:
+        fig_mom = ddm_plots.plot_ddm_moment(L_span, c_para, m_vals)
+        st.pyplot(fig_mom)
+    except Exception as e:
+        st.error(f"Plot Error (Moment): {e}")
+
+    # 5.2 Section & Plan
     c_draw1, c_draw2 = st.columns(2)
     
     with c_draw1:
-        st.markdown(f"*(A) Section Profile ({axis_id}-Dir Cut)*")
-        # เรียกกราฟรูปตัด
-        fig_sec = ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_summary, axis_id)
-        st.pyplot(fig_sec)
-        
+        st.caption(f"Section View ({axis_id}-Axis)")
+        try:
+            fig_sec = ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_summary, axis_id)
+            st.pyplot(fig_sec)
+        except Exception as e:
+            st.error(f"Plot Error (Section): {e}")
+            
     with c_draw2:
-        st.markdown(f"*(B) Plan View Layout (Showing {axis_id}-Bars)*")
-        # เรียกกราฟแปลน
-        fig_plan = ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_summary, axis_id)
-        st.pyplot(fig_plan)
-
-    # Global Warning if any section fails
-    if not is_safe_all:
-        st.error("⚠️ คำเตือน: มีบางหน้าตัดรับน้ำหนักไม่ไหว (Ratio > 1.0) กรุณาเพิ่มขนาดเหล็กหรือลดระยะแอด")
+        st.caption(f"Plan View ({axis_id}-Axis Layout)")
+        try:
+            # สำคัญ: ส่ง parameter ให้ครบ!
+            fig_plan = ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_summary, axis_id)
+            st.pyplot(fig_plan)
+        except Exception as e:
+            st.error(f"Plot Error (Plan): {e}")
