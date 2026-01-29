@@ -1,120 +1,189 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-# ---------------------------------------------------------
-# IMPORT ฟังก์ชันวาดรูปจากไฟล์ geometry_view.py
-# ---------------------------------------------------------
-from geometry_view import plot_geometry_detailed 
+from geometry_view import plot_geometry_detailed
 
 # ==========================================
-# 1. PAGE CONFIGURATION
+# 1. SETUP & STYLING
 # ==========================================
-st.set_page_config(page_title="Advanced Flat Slab Design", layout="wide")
-
-# Custom CSS
+st.set_page_config(page_title="Pro Flat Slab Design", layout="wide", page_icon="🏗️")
 st.markdown("""
 <style>
-    .stMetric { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; }
+    .big-font { font-size:20px !important; font-weight: bold; }
+    .stAlert { padding: 10px; border-radius: 5px; }
+    .pass { color: #198754; font-weight: bold; }
+    .fail { color: #dc3545; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# Helper Function
-def show_step(title, latex_eq, sub_eq, result, unit, note=None):
-    st.markdown(f"#### {title}")
-    if note: st.caption(f"ℹ️ *{note}*")
-    st.latex(latex_eq)
-    c1, c2 = st.columns([3, 1])
-    c1.markdown("**Substitution:**"); c1.latex(sub_eq)
-    c2.markdown("**Result:**"); c2.metric(unit, result)
+# Helper for showing formulas
+def math_row(label, formula, sub, result, unit, status=None):
+    c1, c2, c3 = st.columns([2, 2, 1])
+    with c1: st.markdown(f"**{label}**"); st.latex(formula)
+    with c2: st.markdown(f"Substituting:"); st.latex(sub)
+    with c3: 
+        st.markdown(f"Result ({unit})")
+        st.metric("", result)
+        if status == "PASS": st.markdown(":white_check_mark: <span class='pass'>PASS</span>", unsafe_allow_html=True)
+        elif status == "FAIL": st.markdown(":x: <span class='fail'>FAIL</span>", unsafe_allow_html=True)
     st.markdown("---")
 
 # ==========================================
 # 2. SIDEBAR INPUTS
 # ==========================================
-st.sidebar.title("🛠️ Parameters")
-with st.sidebar.expander("1. Material", expanded=True):
-    fc = st.number_input("f'c (ksc)", value=240.0)
-    fy = st.number_input("fy (ksc)", value=4000.0)
+st.sidebar.header("🏗️ Project Parameters")
+
+with st.sidebar.expander("1. Material & Section", expanded=True):
+    fc = st.number_input("f'c (ksc)", 240.0, step=10.0)
+    fy = st.number_input("fy (ksc)", 4000.0, step=100.0)
+    h_slab = st.number_input("Slab Thickness (cm)", 20.0, step=1.0)
+    cover = st.number_input("Concrete Cover (cm)", 2.5, step=0.5)
+    d_bar = st.selectbox("Main Rebar Diameter (mm)", [12, 16, 20, 25, 28], index=1)
 
 with st.sidebar.expander("2. Geometry", expanded=True):
-    L1 = st.number_input("L1 (Span) [m]", value=6.0)
-    L2 = st.number_input("L2 (Width) [m]", value=5.0)
-    h_slab = st.number_input("h (Slab Thickness) [cm]", value=20.0)
-    l_c = st.number_input("lc (Storey Height) [m]", value=3.0)
+    L1 = st.number_input("L1: Span Length (m)", 6.0)
+    L2 = st.number_input("L2: Transverse Span (m)", 6.0)
+    lc = st.number_input("Storey Height (m)", 3.0)
+    c1 = st.number_input("c1: Col width // L1 (cm)", 40.0)
+    c2 = st.number_input("c2: Col width // L2 (cm)", 40.0)
 
-with st.sidebar.expander("3. Columns", expanded=True):
-    c1 = st.number_input("c1 (Parallel L1) [cm]", value=40.0)
-    c2 = st.number_input("c2 (Transverse) [cm]", value=40.0)
-
-with st.sidebar.expander("4. Loads", expanded=True):
-    SDL = st.number_input("SDL [kg/m²]", value=100.0)
-    LL = st.number_input("Live Load [kg/m²]", value=300.0)
+with st.sidebar.expander("3. Loads", expanded=True):
+    SDL = st.number_input("SDL (kg/m²)", 150.0)
+    LL = st.number_input("Live Load (kg/m²)", 300.0)
 
 # ==========================================
-# 3. CALCULATIONS (Engine)
+# 3. CALCULATION ENGINE
 # ==========================================
-L1_cm, L2_cm, lc_cm = L1*100, L2*100, l_c*100
-Ec = 15100 * np.sqrt(fc)
+# Units & Constants
+d_eff = h_slab - cover - (d_bar/10/2) # Effective depth (cm)
+L1_cm, L2_cm, lc_cm = L1*100, L2*100, lc*100
+Ec = 15100 * np.sqrt(fc) # ksc
 
 # Loads
-w_self = (h_slab/100) * 2400
-w_u = 1.2 * (w_self + SDL) + 1.6 * LL
+w_self = (h_slab/100)*2400
+w_u = 1.2*(w_self + SDL) + 1.6*LL
 
-# Stiffness
-Is = (L2_cm * h_slab**3) / 12
-Ks = (4 * Ec * Is) / L1_cm
-Ic = (c2 * c1**3) / 12  
-Kc = (4 * Ec * Ic) / lc_cm
+# A. Stiffness (EFM)
+Is = (L2_cm * h_slab**3)/12
+Ic = (c2 * c1**3)/12
+Ks = 4*Ec*Is/L1_cm
+Kc = 4*Ec*Ic/lc_cm
 
-# Torsion
 x, y = min(c1, h_slab), max(c1, h_slab)
-C = (1 - 0.63*(x/y)) * (x**3 * y) / 3
-Kt = 2 * (9 * Ec * C) / (L2_cm * (1 - c2/L2_cm)**3)
-
-# Equivalent & DF
+C_tor = (1 - 0.63*(x/y)) * (x**3 * y)/3
+Kt = 2 * (9*Ec*C_tor) / (L2_cm * (1 - c2/L2_cm)**3)
 Kec = 1 / (1/(2*Kc) + 1/Kt)
-DF_slab = Ks / (Ks + Kec)
+DF_slab = Ks/(Ks+Kec)
+DF_col = 1 - DF_slab
 
-# DDM Moment
-ln = L1 - c1/100
-Mo = (w_u * L2 * ln**2) / 8
+# B. Punching Shear (ACI 318)
+# Critical Perimeter bo
+c1_d = c1 + d_eff
+c2_d = c2 + d_eff
+bo = 2*c1_d + 2*c2_d
+# Shear Demand (Vu) - Approx for interior column
+area_trib = L1 * L2
+area_col_crit = (c1_d/100) * (c2_d/100)
+Vu = w_u * (area_trib - area_col_crit) # kg
+
+# Shear Capacity (Vc)
+beta = max(L1, L2) / min(L1, L2) # Aspect ratio
+phi = 0.85
+# Formula 1 (Basic): 1.06 * sqrt(fc) * bo * d
+Vc_basic = 1.06 * np.sqrt(fc) * bo * d_eff
+PhiVc = phi * Vc_basic
+
+# Check Status
+shear_status = "PASS" if PhiVc >= Vu else "FAIL"
+thick_status = "PASS" if h_slab >= (max(L1_cm, L2_cm)/33) else "FAIL" # ACI Table 8.3.1.1 (ln/33 for fy=4000)
 
 # ==========================================
-# 4. MAIN LAYOUT
+# 4. MAIN DISPLAY
 # ==========================================
-st.title("🏗️ Flat Slab Analyzer: DDM & EFM")
+st.title("🏗️ Professional Flat Slab Design")
+st.markdown(f"**Analysis Status:** {'✅ SAFE' if shear_status=='PASS' and thick_status=='PASS' else '❌ CRITICAL'}")
 
-tab_calc, tab_view = st.tabs(["📝 Calculation Details", "📐 Geometry Visualization"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Dashboard & Safety", 
+    "📝 Detailed Calculation", 
+    "📐 Geometry View",
+    "📥 Summary Report"
+])
 
-# --- TAB 1: Calculation ---
-with tab_calc:
-    st.header("1. Load & Stiffness Summary")
-    c1_ui, c2_ui, c3_ui = st.columns(3)
-    c1_ui.metric("Factored Load (Wu)", f"{w_u:.1f} kg/m²")
-    c2_ui.metric("Slab Stiffness (Ks)", f"{Ks:,.0f} kg-cm")
-    c3_ui.metric("Col. Stiffness (Kc)", f"{Kc:,.0f} kg-cm")
+# --- TAB 1: DASHBOARD ---
+with tab1:
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Factored Load (Wu)", f"{w_u:,.0f}", "kg/m²")
+    col2.metric("Effective Depth (d)", f"{d_eff:.2f}", "cm")
+    col3.metric("Shear Capacity (φVc)", f"{PhiVc:,.0f}", "kg", delta_color="normal" if shear_status=="PASS" else "inverse")
+    col4.metric("Shear Demand (Vu)", f"{Vu:,.0f}", "kg", delta=f"{Vu/PhiVc*100:.1f}% Utilized", delta_color="inverse")
 
-    st.header("2. Detailed Steps")
-    with st.expander("Show Detailed EFM Calculation", expanded=True):
-        show_step("Column Inertia (Ic)", r"I_c = \frac{c_2 c_1^3}{12}", 
-                 fr"I_c = \frac{{{c2:.0f} \cdot {c1:.0f}^3}}{{12}}", f"{Ic:,.2f}", "cm⁴")
-        show_step("Equivalent Stiffness (Kec)", r"\frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t}", 
-                 fr"K_{{ec}} (Calculated)", f"{Kec:,.2f}", "kg-cm")
+    st.subheader("🛑 Design Checks Summary")
+    chk1, chk2 = st.columns(2)
+    with chk1:
+        if shear_status == "PASS":
+            st.success(f"**Punching Shear: PASSED** (Ratio {Vu/PhiVc:.2f} < 1.0)")
+        else:
+            st.error(f"**Punching Shear: FAILED** (Increase Slab Thickness or Concrete Strength)")
+    with chk2:
+        min_h = max(L1_cm, L2_cm)/33
+        if thick_status == "PASS":
+            st.success(f"**Min. Thickness: PASSED** (Provided {h_slab}cm > Limit {min_h:.1f}cm)")
+        else:
+            st.warning(f"**Min. Thickness: WARNING** (Provided {h_slab}cm < Limit {min_h:.1f}cm). Check Deflection!")
 
-    st.header("3. Design Moments (DDM)")
-    df_m = pd.DataFrame({
-        "Zone": ["Col Strip (-)", "Mid Strip (-)", "Col Strip (+)", "Mid Strip (+)"],
-        "Moment (kg-m)": [Mo*0.65*0.75, Mo*0.65*0.25, Mo*0.35*0.60, Mo*0.35*0.40]
-    })
-    st.table(df_m)
-
-# --- TAB 2: Visualization ---
-with tab_view:
-    st.header("Geometry & Structural Parameters")
-    st.markdown("แสดงค่าตัวแปร $h, I_c, L_1, L_2, c_1, c_2$ ในตำแหน่งจริง")
+# --- TAB 2: DETAILED CALCULATION ---
+with tab2:
+    st.header("1. Load Analysis")
+    math_row("Design Load", r"w_u = 1.2DL + 1.6LL", 
+             fr"1.2({w_self+SDL}) + 1.6({LL})", f"{w_u:.1f}", "kg/m²")
     
-    # เรียกใช้ฟังก์ชันจากไฟล์ geometry_view.py
-    fig = plot_geometry_detailed(L1, L2, c1, c2, h_slab, l_c, Ic)
+    st.header("2. Equivalent Frame Method (Stiffness)")
+    with st.expander("Show EFM Derivation", expanded=True):
+        math_row("Slab Stiffness (Ks)", r"K_s = \frac{4E_c I_s}{L_1}", 
+                 fr"\frac{{4 \cdot {Ec:.0f} \cdot {Is:.0f}}}{{{L1_cm}}}", f"{Ks:,.0f}", "kg-cm")
+        math_row("Torsional Stiffness (Kt)", r"K_t = \sum \frac{9E_c C}{L_2(1-c_2/L_2)^3}", 
+                 fr"\text{{Complex Term}}", f"{Kt:,.0f}", "kg-cm")
+        math_row("Equivalent Col Stiffness (Kec)", r"\frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t}", 
+                 fr"\text{{Series Combination}}", f"{Kec:,.0f}", "kg-cm")
+        st.info(f"👉 **Distribution Factor (DF) to Slab:** {DF_slab:.4f}")
+
+    st.header("3. Punching Shear Check (Critical)")
+    st.latex(r"\phi V_c = 0.85 \cdot 1.06 \sqrt{f'_c} \cdot b_o \cdot d")
+    with st.expander("Show Shear Detail", expanded=True):
+        math_row("Critical Perimeter (bo)", r"b_o = 2(c_1+d) + 2(c_2+d)", 
+                 fr"2({c1}+{d_eff:.1f}) + 2({c2}+{d_eff:.1f})", f"{bo:.1f}", "cm")
+        math_row("Shear Strength (φVc)", r"\phi V_c", 
+                 fr"0.85 \cdot 1.06 \sqrt{{{fc}}} \cdot {bo:.1f} \cdot {d_eff:.1f}", f"{PhiVc:,.0f}", "kg", shear_status)
+
+# --- TAB 3: GEOMETRY ---
+with tab3:
+    st.pyplot(plot_geometry_detailed(L1, L2, c1, c2, h_slab, lc, Ic))
+
+# --- TAB 4: REPORT ---
+with tab4:
+    st.header("📥 Project Summary Report")
+    report_text = f"""
+    FLAT SLAB DESIGN REPORT
+    -----------------------
+    Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}
     
-    st.pyplot(fig)
-    st.success("✅ **Tip:** ลองปรับค่า h หรือ L1 ใน Sidebar แล้วกดดูรูปใหม่ กราฟิกจะขยับตามทันที")
+    [INPUTS]
+    - Concrete (fc'): {fc} ksc
+    - Steel (fy): {fy} ksc
+    - Slab Thickness: {h_slab} cm
+    - Span: {L1}m x {L2}m
+    - Load: SDL={SDL}, LL={LL} kg/m2
+    
+    [RESULTS]
+    - Factored Load (Wu): {w_u:.2f} kg/m2
+    - Slab Stiffness (Ks): {Ks:,.0f} kg-cm
+    - Equiv. Col Stiffness (Kec): {Kec:,.0f} kg-cm
+    - DF Slab: {DF_slab:.4f}
+    
+    [SAFETY CHECKS]
+    - Punching Shear: {shear_status} (Demand: {Vu:,.0f} kg / Cap: {PhiVc:,.0f} kg)
+    - Min Thickness: {thick_status} (Req: {max(L1,L2)*100/33:.1f} cm)
+    """
+    st.text_area("Copy text below:", report_text, height=300)
+    st.download_button("Download Report (.txt)", report_text, "design_report.txt")
