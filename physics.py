@@ -36,12 +36,9 @@ def get_moment_distribution(continuity, strip_type):
         dist_factors = (0.26, 0.52, 0.70)
     else: 
         # Interior Span (Default)
-        dist_factors = (0.65, 0.35, 0.65) # Symetric Neg
+        dist_factors = (0.65, 0.35, 0.65) # Symmetric Neg
     
     # 2. Lateral Distribution (Col Strip vs Middle Strip)
-    # This is a simplification. Real ACI depends on alpha1 * l2 / l1
-    # Assuming alpha = 0 (Flat Plate)
-    
     neg_factor, pos_factor, _ = dist_factors
     
     if strip_type == "Column Strip":
