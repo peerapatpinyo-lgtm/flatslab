@@ -60,7 +60,7 @@ def calc_general_demands(lx, ly, h_mm, c1, c2, sdl, ll, pos):
     mo_kgm = (qu * ly * ln**2) / 8
     mo_kNm = mo_kgm * GRAV / 1000.0
     
-    # Distribute Moment (Approx Coeffs)
+    # Distribute Moment (Approx Coeffs for Exterior/Interior avg)
     mu_neg = mo_kNm * 0.65 # Top
     mu_pos = mo_kNm * 0.35 # Bottom
     
@@ -117,10 +117,7 @@ def verify_reinforcement(demands, fc_ksc, fy_ksc, cover, top_db, top_s, bot_db, 
     as_prov_bot = get_as_prov(bot_db, bot_s)
     st_bot = "PASS" if as_prov_bot >= max(as_req_bot, as_min) and bot_s <= 2*h else "FAIL"
 
-    # 3. Punching Shear (Depends on d_avg) 
-
-[Image of punching shear perimeter]
-
+    # 3. Punching Shear (Depends on d_avg)
     # Geometry
     pos = d_dict['pos']
     if pos == "Interior":
@@ -191,7 +188,7 @@ with st.sidebar:
 
 if calc_btn:
     st.session_state.demands = calc_general_demands(lx, ly, h, c1, c2, sdl, ll, pos)
-    # Reset rebar inputs triggers if needed, but Streamlit handles widget state well
+    # Streamlit will re-run and show the main area
 
 # --- MAIN AREA: Report & Interactive Design ---
 st.title("🏗️ Interactive Flat Slab Design")
@@ -207,7 +204,7 @@ if st.session_state.demands:
         st.subheader("2. Load Analysis")
         st.latex(fmt_load_calc(dm['h'], sdl, ll, dm['dl'], dm['qu']))
     with c2_ui:
-        st.info(f"**Structural Context:** {dm['pos']} Column | Size {dm['c1']}x{dm['c2']} mm")
+        st.info(f"**Structural Context:** {dm['pos']} Column | Size {dm['c1']}x{dm['c2']} mm | Span {dm['lx']}x{dm['ly']} m")
 
     st.markdown("---")
     
@@ -223,7 +220,7 @@ if st.session_state.demands:
         with col_top:
             st.subheader("Top Rebar (Negative Moment)")
             st.write(f"**Demand:** $M_u = {dm['mu_top']:.2f}$ kN-m")
-            # User Input
+            # User Input - Key change triggers rerun
             t_db = st.selectbox("Top Bar Size (mm)", [10,12,16,20,25], index=2, key="t_db")
             t_sp = st.number_input("Top Spacing (mm)", 50, 450, 200, step=25, key="t_sp")
         
@@ -231,7 +228,7 @@ if st.session_state.demands:
         with col_bot:
             st.subheader("Bottom Rebar (Positive Moment)")
             st.write(f"**Demand:** $M_u = {dm['mu_bot']:.2f}$ kN-m")
-            # User Input
+            # User Input - Key change triggers rerun
             b_db = st.selectbox("Bot Bar Size (mm)", [10,12,16,20,25], index=1, key="b_db")
             b_sp = st.number_input("Bot Spacing (mm)", 50, 450, 250, step=25, key="b_sp")
 
