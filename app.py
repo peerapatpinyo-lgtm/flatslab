@@ -6,6 +6,14 @@ import math
 # ==========================================
 st.set_page_config(page_title="Flat Slab ACI 318-19 Design", layout="wide", page_icon="🏢")
 
+# --- FIX: AUTO-CLEAR STALE STATE ---
+# ตรวจสอบว่าข้อมูลใน Memory เป็นเวอร์ชันเก่าหรือไม่ ถ้าใช่ให้ล้างทิ้งทันทีป้องกัน Error
+if 'calc_data' in st.session_state and st.session_state.calc_data is not None:
+    # โค้ดใหม่ต้องมี key ชื่อ 'i' ถ้าไม่มีแสดงว่าเป็นข้อมูลขยะจากเวอร์ชันเก่า
+    if 'i' not in st.session_state.calc_data:
+        st.session_state.calc_data = None
+        # st.rerun() # Uncomment if using newer Streamlit versions
+
 # ==========================================
 # 2. MODULE: FORMATTER (Show the Math)
 # ==========================================
@@ -244,9 +252,6 @@ def render_report(data):
     st.title("🏗️ Structural Calculation Report (ACI 318-19)")
     st.markdown("---")
     
-    #  
-    # (Optional visual placeholder for user context)
-
     # 1. Geometry
     st.header("1. Geometry & Materials")
     c1, c2, c3 = st.columns(3)
@@ -271,7 +276,6 @@ def render_report(data):
     st.latex(fmt_vu_calc(r['qu'], i['lx'], i['ly'], r['a_inside'], r['vu']))
     
     st.subheader("3.3 Capacity Check")
-    # 
     st.latex(fmt_shear_check(r['vu_des'], r['phi_vc'], r['shear_ratio'], r['shear_status']))
     
     if r['shear_status'] == "FAIL":
@@ -288,8 +292,6 @@ def render_report(data):
     fb = r['flex_bot']
     st.latex(fmt_flexure_design("Bot (Inner)", fb['mu'], fb['d'], fb['as_req'], fb['as_prov'], i['bot_db'], i['bot_sp'], fb['rho_chk'], fb['sp_chk']))
 
-    # 
-    
     st.success("Analysis Complete.")
 
 # ==========================================
@@ -328,11 +330,18 @@ with st.sidebar:
         
         submitted = st.form_submit_button("🚀 Run Analysis")
 
+# --- Execution ---
 if submitted:
     data = run_analysis(lx, ly, h, c1, c2, sdl, ll, fc, fy, cover, pos, top_db, top_sp, bot_db, bot_sp)
     st.session_state.calc_data = data
 
+# --- Safe Render ---
 if st.session_state.calc_data:
-    render_report(st.session_state.calc_data)
+    # Double check key existence to prevent stale state crash
+    if 'i' in st.session_state.calc_data:
+        render_report(st.session_state.calc_data)
+    else:
+        st.warning("⚠️ Data structure mismatch. Please click 'Run Analysis' again to update.")
+        st.session_state.calc_data = None
 else:
     st.info("👈 Please define parameters and Calculate.")
