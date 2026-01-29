@@ -22,30 +22,55 @@ DB_PROPERTIES = {
 def get_bar_area(db_mm):
     return DB_PROPERTIES.get(int(db_mm), math.pi * ((db_mm/10/2)**2))
 
+# --- EFM Stiffness Modules ---
+
+def get_inertia_gross(b_m, h_m):
+    """Calculates Gross Moment of Inertia (m4)"""
+    return (b_m * (h_m**3)) / 12.0
+
+def get_torsional_constant_c(x, y):
+    """
+    Calculates Torsional Constant C per ACI (x < y)
+    C = Sum [ (1 - 0.63(x/y)) * (x^3 * y) / 3 ]
+    """
+    term1 = 1 - 0.63 * (x / y)
+    term2 = (x**3 * y) / 3.0
+    return term1 * term2
+
+def get_torsional_stiffness_kt(E, C, l2, c2):
+    """
+    Calculates Kt (Torsional Stiffness)
+    Kt = (9 * E * C) / (l2 * (1 - c2/l2)^3)
+    """
+    denom = l2 * ((1 - (c2/l2))**3)
+    if denom == 0: return 999999999 # Rigid if c2 approx l2
+    return (9 * E * C) / denom
+
+def get_equivalent_column_stiffness(sum_kc, kt):
+    """
+    Calculates Kec (Equivalent Column Stiffness)
+    1/Kec = 1/Sum_Kc + 1/Kt
+    """
+    if sum_kc == 0: return 0
+    if kt == 0: return 0 # Pinned
+    
+    inv_kec = (1/sum_kc) + (1/kt)
+    return 1 / inv_kec
+
 def get_moment_distribution(continuity, strip_type):
-    """
-    Returns coefficients [Neg_Ext, Pos, Neg_Int] based on continuity.
-    Simplified ACI Direct Design Method coefficients.
-    """
-    # 1. Total Static Moment Distribution (Neg Ext, Pos, Neg Int)
+    """DDM Coefficients (Legacy Support)"""
     if continuity == "End Span (Integral w/ Beam)":
-        # Case: Slab with beams between all supports
         dist_factors = (0.16, 0.57, 0.70)
     elif continuity == "End Span (Slab Only)":
-        # Case: Flat Plate without edge beam
         dist_factors = (0.26, 0.52, 0.70)
     else: 
-        # Interior Span (Default)
-        dist_factors = (0.65, 0.35, 0.65) # Symmetric Neg
+        dist_factors = (0.65, 0.35, 0.65)
     
-    # 2. Lateral Distribution (Col Strip vs Middle Strip)
     neg_factor, pos_factor, _ = dist_factors
     
     if strip_type == "Column Strip":
-        # CS takes ~75% of Neg, ~60% of Pos
         return neg_factor * 0.75, pos_factor * 0.60
     else:
-        # MS takes ~25% of Neg, ~40% of Pos
         return neg_factor * 0.25, pos_factor * 0.40
 
 def get_min_thickness_limit(ln, pos):
@@ -66,7 +91,7 @@ def get_geometry(c1, c2, d, pos):
         acrit = (c1 + d/2) * (c2 + d)
         alpha = 30
         bo_str = "2(c_1+d/2) + (c_2+d)"
-    else: # Corner
+    else: 
         bo = (c1 + d/2) + (c2 + d/2)
         acrit = (c1 + d/2) * (c2 + d/2)
         alpha = 20
