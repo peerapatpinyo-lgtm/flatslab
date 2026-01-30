@@ -12,125 +12,32 @@ plt.rcParams.update({
 })
 
 # ==========================================
-# 1. CORE LOGIC: MOMENT DISTRIBUTION
+# 1. VISUALIZATION FUNCTIONS (Embedded)
 # ==========================================
 
-def run_moment_distribution(FEM_L, FEM_R, DF_L, DF_R, iterations=4):
-    """
-    Simulate Hardy Cross Loop for a single span with two joints.
-    Left Joint (A) -- Slab (AB) -- Right Joint (B)
-    """
-    # History Log
-    history = []
-    
-    # Initial State
-    M_A_slab = FEM_L  # CCW (+)
-    M_B_slab = FEM_R  # CW (-)
-    
-    # Accumulators for final sum
-    Total_MA = 0
-    Total_MB = 0
-    
-    # Add Initial Row
-    history.append({
-        "Step": "1. FEM (Fixed End)",
-        "Joint A (Slab)": M_A_slab,
-        "Joint B (Slab)": M_B_slab,
-        "Action": "Initial Load"
-    })
-    
-    Total_MA += M_A_slab
-    Total_MB += M_B_slab
-
-    # Iterative Loop
-    bal_A = 0
-    bal_B = 0
-    
-    curr_unbal_A = M_A_slab # Simplified: Assume Col Moment is 0 initially or balanced by structure
-    curr_unbal_B = M_B_slab
-    
-    # For a single span isolated analysis (Simplified EFM):
-    # We balance the slab moment against the column stiffness.
-    # Unbalanced Moment = M_slab (since column has 0 load initially)
-    
-    # Correction: The logic needs to handle the residual moment
-    m_resid_A = M_A_slab
-    m_resid_B = M_B_slab
-
-    for i in range(iterations):
-        # --- 1. BALANCE ---
-        # At Joint A: Unbalanced = m_resid_A. We need to distribute -Unbal * DF_slab
-        # Note: DF_slab is the portion going back into the slab.
-        dist_A = -1 * m_resid_A * DF_L
-        dist_B = -1 * m_resid_B * DF_R
-        
-        history.append({
-            "Step": f"Iter {i+1}: Balance (x -DF)",
-            "Joint A (Slab)": dist_A,
-            "Joint B (Slab)": dist_B,
-            "Action": f"Distribute: M x -DF"
-        })
-        
-        Total_MA += dist_A
-        Total_MB += dist_B
-        
-        # --- 2. CARRY OVER (CO) ---
-        co_to_A = dist_B * 0.5
-        co_to_B = dist_A * 0.5
-        
-        history.append({
-            "Step": f"Iter {i+1}: Carry Over (CO)",
-            "Joint A (Slab)": co_to_A,
-            "Joint B (Slab)": co_to_B,
-            "Action": "CO = M_bal x 0.5"
-        })
-        
-        Total_MA += co_to_A
-        Total_MB += co_to_B
-        
-        # Prepare for next loop
-        m_resid_A = co_to_A
-        m_resid_B = co_to_B
-
-    # Summary Row
-    history.append({
-        "Step": "🏁 Final Design Moment",
-        "Joint A (Slab)": Total_MA,
-        "Joint B (Slab)": Total_MB,
-        "Action": "Sum All"
-    })
-    
-    return pd.DataFrame(history), Total_MA, Total_MB
-
-# ==========================================
-# 2. VISUALIZATION FUNCTIONS
-# ==========================================
-
-def plot_stick_model(Ks, Kc_sum, Kt, Kec):
+def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
+    """วาดโมเดลโครงสร้างจำลอง"""
     fig, ax = plt.subplots(figsize=(6, 2.5))
     ax.axhline(0, color='black', linewidth=1) 
     ax.plot([0, 0], [-1, 1], color='gray', linewidth=3, alpha=0.3)
     ax.plot([0.2, 0.2], [-0.2, 0.2], color='orange', lw=2, linestyle='--')
     ax.text(0.25, 0, f"Torsion ($K_t$)\n{Kt/1e5:.1f}E5", color='orange', va='center', fontsize=8)
     ax.text(-0.5, 0.1, f"Slab ($K_s$)\n{Ks/1e5:.1f}E5", ha='center', color='blue', fontsize=8)
-    ax.text(-0.1, 0.8, f"Col\n{Kc_sum/2e5:.1f}E5", ha='right', color='gray', fontsize=8)
+    ax.text(-0.1, 0.8, f"Col (Sum)\n{Sum_Kc/1e5:.1f}E5", ha='right', color='gray', fontsize=8)
     ax.annotate(f"Joint $K_{{ec}}$\n= {Kec/1e5:.1f}E5", xy=(0, 0), xytext=(0.6, 0.5),
                 arrowprops=dict(facecolor='green', shrink=0.05), fontsize=9, fontweight='bold', color='green', ha='center')
     ax.set_xlim(-1.2, 1.2); ax.set_ylim(-1.2, 1.2); ax.axis('off')
     return fig
 
 def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
+    """วาดกราฟโมเมนต์"""
     fig, ax = plt.subplots(figsize=(8, 3))
     x = np.linspace(0, L1, 200)
-    # Generate simplified curve based on 3 points
     M_x = np.zeros_like(x)
     for i, xi in enumerate(x):
-        # Hermite-like interpolation or simple blending
+        # สร้างกราฟจำลอง (Blending functions)
         t = xi / L1
-        # Linear interp of ends
         M_base = (1-t)*(-abs(M_neg_L)) + t*(-abs(M_neg_R))
-        # Add Parabola bump
-        w_fake = 8 * M_pos / L1**2 # Approximate
         M_bump = 4 * (M_pos + (abs(M_neg_L)+abs(M_neg_R))/2) * t * (1-t) 
         M_x[i] = M_base + M_bump
 
@@ -143,16 +50,17 @@ def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     ax.axvspan(L1-c1_m/2, L1+c1_m/2, color='gray', alpha=0.3)
     ax.axhline(0, color='black', lw=0.8)
 
-    ax.text(0, -abs(M_neg_L), f"{M_neg_L:,.0f}", ha='right', color='red', fontweight='bold')
-    ax.text(L1, -abs(M_neg_R), f"{M_neg_R:,.0f}", ha='left', color='red', fontweight='bold')
-    ax.text(L1/2, M_pos, f"{M_pos:,.0f}", ha='center', va='bottom', color='blue', fontweight='bold')
+    ax.text(0, -abs(M_neg_L), f"{M_neg_L:,.0f}", ha='right', color='red', fontweight='bold', fontsize=9)
+    ax.text(L1, -abs(M_neg_R), f"{M_neg_R:,.0f}", ha='left', color='red', fontweight='bold', fontsize=9)
+    ax.text(L1/2, M_pos, f"{M_pos:,.0f}", ha='center', va='bottom', color='blue', fontweight='bold', fontsize=9)
     
     ax.invert_yaxis()
     ax.set_ylabel("Moment (kg-m)"); ax.set_xlabel("Span (m)")
-    ax.set_title("Resulting Moment Envelope", fontweight='bold')
+    ax.set_title("Moment Envelope", fontweight='bold')
     return fig
 
 def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
+    """วาดหน้าตัดคาน"""
     fig, ax = plt.subplots(figsize=(5, 2.0))
     ax.add_patch(patches.Rectangle((0, 0), b_cm, h_cm, facecolor='#E0E0E0', edgecolor='#333333'))
     cover = 2.5; dia_cm = d_bar / 10
@@ -166,130 +74,197 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
     return fig
 
 # ==========================================
-# 3. MAIN RENDER
+# 2. LOGIC: MOMENT DISTRIBUTION
+# ==========================================
+
+def run_moment_distribution(FEM, DF_slab, iterations=4):
+    """
+    วนลูปกระจายโมเมนต์ (Simplified for Single Span EFM Demo)
+    Left Support = Joint A (Continuous/Restrained by Col)
+    Right Support = Joint B (Continuous/Restrained by Col)
+    """
+    history = []
+    
+    # Init
+    M_A = FEM   # CCW (+)
+    M_B = -FEM  # CW (-)
+    
+    history.append({"Step": "1. Fixed End Moment (FEM)", "Joint A": M_A, "Joint B": M_B})
+    
+    curr_unbal_A = M_A
+    curr_unbal_B = M_B
+    
+    total_A = M_A
+    total_B = M_B
+
+    for i in range(iterations):
+        # Balance (Distribute unbalanced moment into SLAB based on DF)
+        # Moment to balance = -1 * Unbalanced * DF
+        # (Note: In real EFM, unbalance comes from difference at joint. Here simplified as residual)
+        
+        bal_A = -1 * curr_unbal_A * DF_slab
+        bal_B = -1 * curr_unbal_B * DF_slab
+        
+        history.append({
+            "Step": f"Iter {i+1}: Balance (-M x DF)", 
+            "Joint A": bal_A, "Joint B": bal_B
+        })
+        
+        total_A += bal_A
+        total_B += bal_B
+        
+        # Carry Over (CO = 0.5 to other side)
+        co_to_A = bal_B * 0.5
+        co_to_B = bal_A * 0.5
+        
+        history.append({
+            "Step": f"Iter {i+1}: Carry Over (CO 0.5)", 
+            "Joint A": co_to_A, "Joint B": co_to_B
+        })
+        
+        total_A += co_to_A
+        total_B += co_to_B
+        
+        # Set new unbalanced for next loop
+        curr_unbal_A = co_to_A
+        curr_unbal_B = co_to_B
+
+    history.append({"Step": "🏁 Final Moment", "Joint A": total_A, "Joint B": total_B})
+    return pd.DataFrame(history), total_A, total_B
+
+# ==========================================
+# 3. MAIN RENDER FUNCTION
 # ==========================================
 def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwargs):
     
-    st.markdown("### 🏗️ EFM Analysis: Moment Distribution Method")
+    st.markdown("### 🏗️ Full EFM Analysis: Stiffness to Design")
     st.markdown("---")
 
-    # --- CALCULATION PREP ---
-    Ec = 15100 * np.sqrt(fc); E_ksm = Ec * 10000
-    # 1. Stiffness
-    Ic_m4 = ((c2_w/100) * (c1_w/100)**3) / 12
-    Is_m4 = (L2 * (h_slab/100)**3) / 12
-    Kc = 4 * E_ksm * Ic_m4 / lc; Sum_Kc = 2 * Kc
-    Ks = 4 * E_ksm * Is_m4 / L1
+    # --- A. PRE-CALCULATION (คำนวณค่าฟิสิกส์ทั้งหมดก่อนแสดงผล) ---
+    Ec = 15100 * np.sqrt(fc) # ksc
+    E_ksm = Ec * 10000 # kg/m2 (ใช้หน่วย m เพื่อ Stiffness)
     
-    # Torsion
+    # 1. Column Stiffness (Kc)
+    Ic_cm4 = (c2_w * c1_w**3) / 12
+    Ic_m4 = Ic_cm4 / (100**4)
+    Kc_val = 4 * E_ksm * Ic_m4 / lc
+    Sum_Kc = 2 * Kc_val # Top + Bottom
+    
+    # 2. Slab Stiffness (Ks)
+    Is_cm4 = (L2*100 * h_slab**3) / 12
+    Is_m4 = Is_cm4 / (100**4)
+    Ks_val = 4 * E_ksm * Is_m4 / L1
+    
+    # 3. Torsion Stiffness (Kt)
     x_t, y_t = h_slab, c1_w
-    C_val = (1 - 0.63 * x_t/y_t) * (x_t**3 * y_t) / 3
+    C_term = (1 - 0.63 * (x_t/y_t))
+    C_val = C_term * (x_t**3 * y_t) / 3
     C_m4 = C_val / (100**4)
-    Kt = 2 * 9 * E_ksm * C_m4 / (L2 * (1 - (c2_w/100)/L2)**3)
-    Kec = 1 / (1/Sum_Kc + 1/Kt)
-    
-    # 2. Distribution Factors (DF)
-    # สมมติโมเดล 2 Joints: Joint A (Left) - Joint B (Right)
-    # ถ้า col_type = corner -> Joint A อาจเป็น Exterior (Stiffness น้อยกว่า)
-    # แต่เพื่อ demo EFM ที่ชัดเจน สมมติว่าเป็นเสาต้นเดียวกันทั้ง 2 ฝั่งเพื่อดูสมมาตร หรือปรับตาม col_type
-    
-    # DF Slab at Joint A (Left)
-    Sum_K_A = Ks + Kec
-    DF_A_slab = Ks / Sum_K_A  # ส่วนที่เด้งกลับเข้าพื้น
-    DF_A_col = Kec / Sum_K_A  # ส่วนที่ถ่ายลงเสา
-    
-    # DF Slab at Joint B (Right) - Assume same col for simplicity unless specified
-    DF_B_slab = DF_A_slab 
-    DF_B_col = DF_A_col
+    Kt_denom = L2 * (1 - (c2_w/100)/L2)**3
+    Kt_val = 2 * 9 * E_ksm * C_m4 / Kt_denom # Assume Interior (2 arms)
 
-    # 3. FEM Calculation
-    w_line = w_u * L2
+    # 4. Equivalent Column (Kec)
+    inv_Kec = (1/Sum_Kc) + (1/Kt_val)
+    Kec_val = 1/inv_Kec
+    
+    # 5. Distribution Factor (DF)
+    # DF ที่พื้นจะรับโมเมนต์กลับ (Slab DF) = Ks / (Ks + Kec)
+    Total_K = Ks_val + Kec_val
+    DF_slab = Ks_val / Total_K
+    
+    # 6. FEM Calculation
+    w_line = w_u * L2 # kg/m
     FEM = w_line * L1**2 / 12
     
-    # --- UI DASHBOARD ---
-    col1, col2 = st.columns([1.5, 1])
-    with col1: st.pyplot(plot_stick_model(Ks, Sum_Kc, Kt, Kec))
+    # 7. Moment Distribution Run
+    df_iter, M_final_L, M_final_R = run_moment_distribution(FEM, DF_slab)
+    
+    # 8. Face Correction & Midspan
+    Vu = w_line * L1 / 2
+    c1_m = c1_w / 100
+    M_red = Vu * (c1_m/2) - w_line*(c1_m/2)**2 / 2
+    
+    M_neg_design = abs(M_final_L) - M_red # Use Left side for demo
+    Mo = w_line * L1**2 / 8
+    M_pos_design = Mo - M_neg_design # Statics approx
+
+    # --- B. DASHBOARD ---
+    
+    col1, col2 = st.columns([1.2, 1])
+    with col1:
+        st.pyplot(plot_stick_model(Ks_val, Sum_Kc, Kt_val, Kec_val))
     with col2:
-        st.info("📊 **Stiffness & D.F.**")
-        st.write(f"- $K_s$ (Slab): {Ks/1e5:.2f}E5")
-        st.write(f"- $K_{{ec}}$ (Col+Tor): {Kec/1e5:.2f}E5")
-        st.metric("Distribution Factor (DF)", f"{DF_A_slab:.3f}", help="DF ของพื้นเทียบกับจุดต่อรวม (Ks / ΣK)")
+        st.info("📊 **Analysis Summary**")
+        st.write(f"**Slab Stiffness ($K_s$):** {Ks_val/1e5:.2f} E5")
+        st.write(f"**Equiv. Column ($K_{{ec}}$):** {Kec_val/1e5:.2f} E5")
+        st.metric("Slab Distribution Factor ($DF$)", f"{DF_slab:.3f}", help="ค่าโมเมนต์ที่จะกระจายกลับเข้าพื้น")
 
-    # --- TABS ---
-    t1, t2, t3 = st.tabs(["1️⃣ Moment Distribution (Loop)", "2️⃣ Diagram & Result", "3️⃣ Reinforcement"])
+    # --- C. TABS (DETAILED STEPS) ---
+    tab1, tab2, tab3 = st.tabs(["1️⃣ Step 1: Stiffness Calculation", "2️⃣ Step 2: Moment Distribution", "3️⃣ Step 3: RC Design"])
 
-    # === TAB 1: MOMENT DISTRIBUTION LOOP ===
-    with t1:
-        st.markdown("#### 🔄 Cross Method Iteration")
-        st.markdown("กระบวนการกระจายโมเมนต์จนกว่าจะสมดุล (Balancing & Carry Over)")
+    # === TAB 1: STIFFNESS (ละเอียด) ===
+    with tab1:
+        st.markdown("#### 1.1 Column Stiffness ($K_c$)")
+        st.latex(rf"I_c = \frac{{c_2 c_1^3}}{{12}} = \frac{{{c2_w:.0f} \times {c1_w:.0f}^3}}{{12}} = {Ic_cm4:,.0f} \, cm^4")
+        st.latex(rf"\Sigma K_c = 2 \times \frac{{4EI_c}}{{l_c}} = {Sum_Kc/1e5:.2f} \times 10^5 \, kg\cdot m")
         
-        # Explain Formulas
-        c_f1, c_f2 = st.columns(2)
-        with c_f1:
-            st.latex(r"M_{bal} = - (M_{unbalanced} \times DF_{slab})")
-            st.caption("คูณ DF แล้วกลับเครื่องหมายเพื่อต้านแรง")
-        with c_f2:
-            st.latex(r"M_{carry} = M_{bal} \times 0.5")
-            st.caption("ส่งแรงไปปลายอีกด้าน 50% (CO)")
-            
-        # Run Calculation
-        # FEM Left is + (CCW), Right is - (CW)
-        df_dist, M_final_L, M_final_R = run_moment_distribution(FEM, -FEM, DF_A_slab, DF_B_slab)
-        
-        # Display Table
-        st.dataframe(df_dist.style.format({
-            "Joint A (Slab)": "{:,.0f}", 
-            "Joint B (Slab)": "{:,.0f}"
-        }), use_container_width=True)
-        
-        st.write(f"**Note:** FEM เริ่มต้น = {FEM:,.0f} kg-m")
+        st.markdown("#### 1.2 Slab Stiffness ($K_s$)")
+        st.latex(rf"I_s = \frac{{L_2 h^3}}{{12}} = \frac{{{L2*100:.0f} \times {h_slab:.0f}^3}}{{12}} = {Is_cm4:,.0f} \, cm^4")
+        st.latex(rf"K_s = \frac{{4EI_s}}{{L_1}} = {Ks_val/1e5:.2f} \times 10^5 \, kg\cdot m")
 
-    # === TAB 2: DIAGRAM ===
-    with t2:
-        # Face Correction
-        Vu = w_line * L1 / 2
-        M_red = Vu * (c1_w/200) - w_line*(c1_w/200)**2 / 2
-        
-        # Final Design Moments
-        M_neg_L_face = abs(M_final_L) - M_red
-        M_neg_R_face = abs(M_final_R) - M_red
-        
-        # Simple Approx for Positive Moment based on statics
-        Mo = w_line * L1**2 / 8
-        M_pos_mid = Mo - (M_neg_L_face + M_neg_R_face)/2 
+        st.markdown("#### 1.3 Torsional Member ($K_t$)")
+        st.write(f"Section $x={x_t}, y={y_t}$ cm")
+        st.latex(rf"C = \left(1 - 0.63\frac{{{x_t}}}{{{y_t}}}\right)\frac{{{x_t}^3 {y_t}}}{{3}} = {C_val:,.0f} \, cm^4")
+        st.latex(rf"K_t = \frac{{18 E C}}{{L_2(1-c_2/L_2)^3}} = {Kt_val/1e5:.2f} \times 10^5")
 
-        st.markdown("#### Final Moment Envelope")
-        st.pyplot(plot_moment_envelope(L1, -M_neg_L_face, -M_neg_R_face, M_pos_mid, c1_w))
+        st.markdown("#### 1.4 Equivalent Stiffness ($K_{ec}$) & DF")
+        st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{\Sigma K_c}} + \frac{{1}}{{K_t}} \implies K_{{ec}} = \mathbf{{{Kec_val/1e5:.2f} \times 10^5}}")
+        st.latex(rf"DF_{{slab}} = \frac{{K_s}}{{K_s + K_{{ec}}}} = \frac{{{Ks_val:.0f}}}{{{Ks_val:.0f} + {Kec_val:.0f}}} = \mathbf{{{DF_slab:.3f}}}")
+
+    # === TAB 2: MOMENT DISTRIBUTION ===
+    with tab2:
+        st.markdown("#### 2.1 Fixed End Moment (FEM)")
+        st.latex(rf"FEM = \frac{{w L_1^2}}{{12}} = \frac{{{w_line:,.0f} \times {L1}^2}}{{12}} = {FEM:,.0f} \, kg\cdot m")
         
-        st.info(f"**Design Moments (at Face):**\n\n"
-                f"🔴 $M^{{-}}_{{L}}$ = {M_neg_L_face:,.0f} kg-m\n\n"
-                f"🔵 $M^{{+}}_{{Mid}}$ = {M_pos_mid:,.0f} kg-m")
+        st.markdown("#### 2.2 Iteration Table (Hardy Cross)")
+        st.dataframe(df_iter.style.format("{:,.0f}"), use_container_width=True)
+        
+        st.markdown("#### 2.3 Final Design Moment (Face Correction)")
+        st.latex(rf"M_{{face}} = M_{{end}} - V(\frac{{c_1}}{{2}}) + \dots = {abs(M_final_L):,.0f} - {M_red:,.0f} = \mathbf{{{M_neg_design:,.0f}}}")
+        
+        st.pyplot(plot_moment_envelope(L1, -M_neg_design, -M_neg_design, M_pos_design, c1_w))
 
     # === TAB 3: DESIGN ===
-    with t3:
-        # Design Params
-        d_eff = h_slab - 2.5 - (mat_props.get('d_bar', 12)/20)
+    with tab3:
+        # Rebar Logic
+        fy = mat_props.get('fy', 4000)
+        d_bar = mat_props.get('d_bar', 12)
+        d_eff = h_slab - 2.5 - d_bar/20
         
-        # Function
-        def get_rebar(Mu_kgm, b_m):
-            Mu = Mu_kgm * 100; b = b_m * 100
-            Rn = Mu / (0.9 * b * d_eff**2)
-            try: rho = (0.85*fc/mat_props['fy'])*(1 - np.sqrt(1 - 2*Rn/(0.85*fc)))
+        def calc_rebar_show(Mu_kgm, b_m):
+            Mu = Mu_kgm * 100
+            Rn = Mu / (0.9 * (b_m*100) * d_eff**2)
+            try: rho = (0.85*fc/fy)*(1 - np.sqrt(max(0, 1 - 2*Rn/(0.85*fc))))
             except: rho = 0.002
             rho = max(rho, 0.0018)
-            As = rho * b * d_eff
-            num = int(np.ceil(As / (np.pi*(mat_props['d_bar']/20)**2 / 4)))
-            return num, As
-            
+            As = rho * (b_m*100) * d_eff
+            num = int(np.ceil(As / (np.pi*(d_bar/20)**2/4)))
+            return Rn, rho, As, num
+
         col_d1, col_d2 = st.columns(2)
+        
         with col_d1:
-            st.markdown("**Column Strip (Top)**")
-            num, As = get_rebar(M_neg_L_face * 0.75, L2/2)
-            st.write(f"Moment: {M_neg_L_face*0.75:,.0f}, As: {As:.2f}")
-            st.pyplot(draw_section_detail(L2*50, h_slab, num, mat_props['d_bar'], "CS Top"))
+            st.subheader("🔴 Column Strip (Top)")
+            Rn, rho, As, num = calc_rebar_show(M_neg_design*0.75, L2/2)
+            st.write(f"**Moment:** {M_neg_design*0.75:,.0f} kg-m")
+            st.latex(rf"R_n={Rn:.2f}, \rho={rho:.4f}")
+            st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
+            st.pyplot(draw_section_detail(L2*50, h_slab, num, d_bar, "CS Top"))
             
         with col_d2:
-            st.markdown("**Middle Strip (Bottom)**")
-            num, As = get_rebar(M_pos_mid * 0.60, L2/2)
-            st.write(f"Moment: {M_pos_mid*0.60:,.0f}, As: {As:.2f}")
-            st.pyplot(draw_section_detail(L2*50, h_slab, num, mat_props['d_bar'], "MS Bot"))
+            st.subheader("🔵 Middle Strip (Bottom)")
+            Rn, rho, As, num = calc_rebar_show(M_pos_design*0.60, L2/2)
+            st.write(f"**Moment:** {M_pos_design*0.60:,.0f} kg-m")
+            st.latex(rf"R_n={Rn:.2f}, \rho={rho:.4f}")
+            st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
+            st.pyplot(draw_section_detail(L2*50, h_slab, num, d_bar, "MS Bot"))
