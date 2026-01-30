@@ -13,28 +13,23 @@ plt.rcParams.update({
 })
 
 # ==========================================
-# 1. VISUALIZATION & HELPER FUNCTIONS
+# 1. VISUALIZATION FUNCTIONS (คงเดิมที่สวยแล้ว)
 # ==========================================
 
 def interpret_stiffness(Ks, Kec):
-    """วิเคราะห์ความสัมพันธ์ความแข็ง"""
     total_k = Ks + Kec
     if total_k == 0: return "N/A", "N/A", "gray"
     ratio_col = Kec / total_k
-    
     if ratio_col < 0.25:
-        return "⚠️ Flexible Connection (Slab dominant)", "จุดต่อมีความอ่อนตัวสูง โมเมนต์ส่วนใหญ่จะถ่ายเข้าพื้น (Slab) ควรตรวจสอบการแอ่นตัวและรอยร้าวในพื้น", "orange"
+        return "⚠️ Slab Dominant", "เสาอ่อน/พื้นแข็ง: โมเมนต์ถ่ายเข้าพื้นเยอะ ระวัง Punching Shear", "orange"
     elif ratio_col > 0.65:
-        return "💪 Rigid Connection (Column dominant)", "จุดต่อมีความแข็งเกร็งสูง โมเมนต์ถ่ายเข้าเสาได้ดี ช่วยลดภาระพื้น", "green"
+        return "💪 Column Dominant", "เสาแข็ง: รับโมเมนต์ได้ดี ช่วยลดการแอ่นตัวของพื้น", "green"
     else:
-        return "⚖️ Balanced Stiffness", "สัดส่วนความแข็งเหมาะสม การถ่ายแรงสมดุลดี", "blue"
+        return "⚖️ Balanced", "สัดส่วนความแข็งสมดุลดี", "blue"
 
 def plot_moment_envelope_with_values(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
-    """วาดกราฟโมเมนต์แบบวิศวกรรม (Inverted Y) พร้อมค่ากำกับ"""
-    fig, ax = plt.subplots(figsize=(8, 3.5))
+    fig, ax = plt.subplots(figsize=(8, 3))
     x = np.linspace(0, L1, 150)
-    
-    # Simulate a moment curve
     M_x = np.zeros_like(x)
     for i, xi in enumerate(x):
         if xi < L1/2:
@@ -44,34 +39,28 @@ def plot_moment_envelope_with_values(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
             factor = ((L1-xi) / (L1/2))**2
             M_x[i] = -M_neg_R * (1-factor) + M_pos * factor
 
-    # Plot Area & Line
     ax.fill_between(x, M_x, 0, where=(M_x>0), color='#3498DB', alpha=0.2)
     ax.fill_between(x, M_x, 0, where=(M_x<0), color='#E74C3C', alpha=0.2)
     ax.plot(x, M_x, color='#2C3E50', lw=2)
     
-    # Supports
     c1_m = c1_cm / 100
     ax.axvspan(-c1_m/2, c1_m/2, color='gray', alpha=0.3)
     ax.axvspan(L1-c1_m/2, L1+c1_m/2, color='gray', alpha=0.3)
     ax.axhline(0, color='black', lw=1)
 
-    # Labels
-    ax.text(c1_m/2, -M_neg_L, f"  $M^{{-}}_{{face}}$\n  {M_neg_L:,.0f}", ha='left', va='center', color='#C0392B', fontweight='bold')
-    ax.text(L1/2, M_pos, f"$M^{{+}}_{{mid}}$\n{M_pos:,.0f}", ha='center', va='bottom', color='#2980B9', fontweight='bold')
+    ax.text(c1_m/2, -M_neg_L, f"  {M_neg_L:,.0f}", ha='left', va='center', color='#C0392B', fontweight='bold', fontsize=8)
+    ax.text(L1/2, M_pos, f"{M_pos:,.0f}", ha='center', va='bottom', color='#2980B9', fontweight='bold', fontsize=8)
 
     ax.invert_yaxis()
-    ax.set_title("Design Moment Envelope (Diagram)", loc='left', fontweight='bold')
-    ax.set_xlabel("Span Length (m)")
-    ax.set_ylabel("Moment (kg-m)")
+    ax.set_title("Moment Envelope (kg-m)", loc='left', fontweight='bold', fontsize=10)
+    ax.set_xlabel("Span (m)")
     ax.set_xlim(-c1_m, L1+c1_m)
     return fig
 
 def draw_rebar_section(width_cm, height_cm, cover_cm, num_bars, bar_dia_mm, title):
-    """วาดหน้าตัดคอนกรีตและเหล็กเสริมจริง"""
-    fig, ax = plt.subplots(figsize=(6, 2.5))
-    # Concrete
-    ax.add_patch(patches.Rectangle((0, 0), width_cm, height_cm, facecolor='#ECF0F1', edgecolor='#7F8C8D', lw=2))
-    # Rebars
+    fig, ax = plt.subplots(figsize=(6, 2.0))
+    ax.add_patch(patches.Rectangle((0, 0), width_cm, height_cm, facecolor='#ECF0F1', edgecolor='#7F8C8D', lw=1.5))
+    
     bar_dia_cm = bar_dia_mm / 10.0
     eff_width_bars = width_cm - 2*cover_cm - bar_dia_cm
     if num_bars > 1:
@@ -86,44 +75,13 @@ def draw_rebar_section(width_cm, height_cm, cover_cm, num_bars, bar_dia_mm, titl
     for x in x_pos:
         ax.add_patch(patches.Circle((x, y_pos), bar_dia_cm/2, facecolor='#C0392B', edgecolor='black'))
         
-    # Labels
-    ax.text(width_cm/2, height_cm*1.1, title, ha='center', fontweight='bold')
-    ax.text(width_cm/2, height_cm/2, f"{width_cm:.0f}x{height_cm:.0f} cm", ha='center', color='gray', alpha=0.5)
+    ax.text(width_cm/2, height_cm*1.15, title, ha='center', fontweight='bold', fontsize=10)
     if num_bars > 0:
-        ax.text(width_cm/2, y_pos-bar_dia_cm*1.5, f"{num_bars}-DB{bar_dia_mm}", ha='center', color='#C0392B', fontweight='bold')
-        if num_bars > 1:
-             ax.text(width_cm/2, y_pos-bar_dia_cm*3, f"@ {spacing:.0f} cm c/c", ha='center', fontsize=8)
+        ax.text(width_cm/2, y_pos-bar_dia_cm*2, f"{num_bars}-DB{bar_dia_mm}", ha='center', color='#C0392B', fontweight='bold')
 
     ax.set_aspect('equal')
     ax.axis('off')
-    ax.set_ylim(-height_cm*0.2, height_cm*1.3)
-    return fig
-
-# --- Original Concept Plots ---
-def plot_concept_torsion(c1, c2, h):
-    fig, ax = plt.subplots(figsize=(4, 2.5))
-    ax.add_patch(patches.Rectangle((-c2/2-h*2, -h), c2+h*4, h, fc='lightgray', ec='gray', label='Slab'))
-    ax.add_patch(patches.Rectangle((-c2/2, -h-20), c2, 20, fc='gray', ec='k', label='Column'))
-    # Torsion Member
-    ax.add_patch(patches.Rectangle((-c2/2, -h), c2, h, fc='#E74C3C', alpha=0.5, hatch='///'))
-    ax.text(0, -h/2, f"Torsional Member\nSection $c_1 \\times h$", ha='center', va='center', fontsize=8, color='white')
-    ax.axis('equal'); ax.axis('off'); ax.set_title("Concept: Torsional Section", fontsize=9)
-    return fig
-
-def plot_concept_stick_model(Ks, Kec, Kt):
-    fig, ax = plt.subplots(figsize=(4, 2))
-    ax.plot([-1, 0], [0, 0], 'b-', lw=2); ax.plot([0, 1], [0, 0], 'b-', lw=2)
-    ax.text(0.5, 0.1, f"$K_s$", ha='center', color='b')
-    # Spring & Col
-    ax.plot([0, 0], [0, -0.3], 'r-', lw=2)
-    ax.plot([0.05, -0.05, 0.05, -0.05, 0], [-0.3, -0.4, -0.5, -0.6, -0.7], 'orange', lw=1.5) # Spring
-    ax.text(0.2, -0.5, f"$K_t$", color='orange', va='center')
-    ax.plot([0, 0], [-0.7, -1.0], 'r-', lw=2)
-    ax.text(0.2, -0.85, f"$\\Sigma K_c$", color='r', va='center')
-    # Equivalent
-    ax.annotate(f"$K_{{ec}}$", xy=(-0.1, -0.5), xytext=(-0.8, -0.5), arrowprops=dict(arrowstyle='->', color='r'), color='r')
-    ax.axis('equal'); ax.axis('off'); ax.set_xlim(-1, 1); ax.set_ylim(-1.1, 0.2)
-    ax.set_title("Concept: Equivalent Frame", fontsize=9)
+    ax.set_ylim(-height_cm*0.3, height_cm*1.4)
     return fig
 
 # ==========================================
@@ -131,167 +89,173 @@ def plot_concept_stick_model(Ks, Kec, Kt):
 # ==========================================
 def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwargs):
     
-    st.markdown("### 🏗️ Equivalent Frame Method (EFM) Analysis & Design")
+    st.markdown("### 🏗️ Equivalent Frame Method (Detailed Analysis)")
     st.markdown("---")
 
-    # --- 0. Perform Calculations (Back-end) ---
-    Ec = 15100 * np.sqrt(fc)
-    E_ksm = Ec * 10000
+    # --- Calculation Prep ---
+    Ec = 15100 * np.sqrt(fc) # ksc
+    E_ksm = Ec * 10000 # kg/m2 (for stiffness calc in m units)
     
-    # Stiffness
-    Ic = (c2_w/100) * (c1_w/100)**3 / 12
-    Is = L2 * (h_slab/100)**3 / 12
-    Kc_abs = 4 * E_ksm * Ic / lc; Sum_Kc = 2 * Kc_abs
-    Ks_abs = 4 * E_ksm * Is / L1
-
-    x, y = h_slab, c1_w
-    C_val = (1 - 0.63 * x/y) * (x**3 * y) / 3
+    # 1. Stiffness Parameters
+    # Column
+    Ic_cm4 = (c2_w * c1_w**3) / 12
+    Ic_m4 = Ic_cm4 / (100**4)
+    Kc_abs = 4 * E_ksm * Ic_m4 / lc
+    Sum_Kc = 2 * Kc_abs # Above + Below
+    
+    # Slab
+    Is_cm4 = (L2*100 * h_slab**3) / 12
+    Is_m4 = Is_cm4 / (100**4)
+    Ks_abs = 4 * E_ksm * Is_m4 / L1
+    
+    # Torsion
+    x = min(c1_w, h_slab) # rough approx for rectangular part
+    y = max(c1_w, h_slab) # actually should be based on section logic, simplfied here
+    # Refine x,y for torsion member (c1 x h)
+    x_t, y_t = h_slab, c1_w 
+    C_val = (1 - 0.63 * x_t/y_t) * (x_t**3 * y_t) / 3
     C_m4 = C_val / (100**4)
     num_arms = 1 if col_type == 'corner' else 2
     Kt_abs = num_arms * 9 * E_ksm * C_m4 / (L2 * (1 - (c2_w/100)/L2)**3)
 
+    # Equiv Column
     if Kt_abs > 0: Kec_abs = 1 / (1/Sum_Kc + 1/Kt_abs)
     else: Kec_abs = Sum_Kc
-
+    
+    # DF
     Sum_K_joint = Ks_abs + Kec_abs
     DF_col = Kec_abs / Sum_K_joint if Sum_K_joint > 0 else 0
-    
-    # Moments
+
+    # 2. Moment Design
     w_line = w_u * L2
     Mo = w_line * L1**2 / 8
-    # Simplified ACI Coeffs for Demo
-    coef_neg = 0.65 if col_type=='interior' else 0.5
-    coef_pos = 0.35 if col_type=='interior' else 0.5
+    
+    # Coefficients
+    coef_neg = 0.65 if col_type=='interior' else 0.50
+    coef_pos = 0.35
     M_neg_CL = Mo * coef_neg
     M_pos_mid = Mo * coef_pos
-    # Reduction
+    
+    # Face Correction
     Vu = w_line * L1 / 2
     c1_m = c1_w / 100
     M_red = Vu*(c1_m/2) - w_line*(c1_m/2)**2 / 2
+    M_neg_face = M_neg_CL - M_red
     
-    # --- FIXED VARIABLE NAME HERE ---
-    M_neg_face = M_neg_CL - M_red 
-
-    # Reinforcement Prep
+    # 3. Rebar Prep
     fy = mat_props.get('fy', 4000)
     d_bar = mat_props.get('d_bar', 12)
     cover = mat_props.get('cover', 2.5)
     d_eff = h_slab - cover - (d_bar/20)
 
-    # --- 1. DASHBOARD OVERVIEW ---
+    # --- PART 1: DASHBOARD (Clean Visuals) ---
     status, advice, color = interpret_stiffness(Ks_abs, Kec_abs)
     
-    col_d1, col_d2, col_d3 = st.columns([1, 1, 1.5])
-    with col_d1:
-        st.metric("Joint Stiffness ($K_{ec}$)", f"{Kec_abs:,.0e}", help="ความแข็งเสมือนของจุดต่อเสา")
-    with col_d2:
-        st.metric("Moment to Column", f"{DF_col*100:.1f}%", help="% โมเมนต์ที่ถ่ายเข้าเสา (DF_col)")
-    with col_d3:
+    c1, c2, c3 = st.columns([1, 1, 1.5])
+    with c1: st.metric("Joint Stiffness ($K_{ec}$)", f"{Kec_abs:,.0e}")
+    with c2: st.metric("DF Column", f"{DF_col*100:.1f}%")
+    with c3: 
         st.markdown(f"**Status:** :{color}[{status}]")
         st.caption(advice)
 
-    # Show Moment Envelope
     st.pyplot(plot_moment_envelope_with_values(L1, M_neg_face, M_neg_face, M_pos_mid, c1_w))
-
     st.markdown("---")
 
-    # --- 2. DEEP DIVE TABS ---
-    tab_stiff, tab_moment, tab_design = st.tabs(["1️⃣ Stiffness Analysis", "2️⃣ Moment Distribution", "3️⃣ Reinforcement Design"])
+    # --- PART 2: DETAILED CALCULATION TABS ---
+    tab_stiff, tab_moment, tab_design = st.tabs(["1️⃣ Stiffness Calculation", "2️⃣ Moment Analysis", "3️⃣ RC Design"])
 
-    # ======================= TAB 1: STIFFNESS =======================
+    # --- TAB 1: STIFFNESS DETAILS ---
     with tab_stiff:
-        st.markdown("#### Summary of Stiffness Values")
-        df_stiff = pd.DataFrame({
-            "Component": ["Column ($\Sigma K_c$)", "Slab ($K_s$)", "Torsion ($K_t$)", "**Equiv. Column ($K_{ec}$)**"],
-            "Value (ksc·cm)": [Sum_Kc/100, Ks_abs/100, Kt_abs/100, Kec_abs/100], 
-            "Note": ["2x (Above+Below)", "Span L1", f"{num_arms} arm(s)", "Combined Series"]
-        })
-        st.table(df_stiff.style.format({"Value (ksc·cm)": "{:,.0f}"}))
+        st.markdown("#### 1.1 Column Stiffness ($K_c$)")
+        col_s1, col_s2 = st.columns([1, 1])
+        with col_s1:
+            st.latex(rf"I_c = \frac{{c_2 c_1^3}}{{12}} = \frac{{{c2_w:.0f} \times {c1_w:.0f}^3}}{{12}} = {Ic_cm4:,.0f} \, cm^4")
+        with col_s2:
+            st.latex(rf"K_c = \frac{{4EI_c}}{{l_c}} = {Kc_abs/1e5:.2f} \times 10^5")
+            st.caption(f"Note: Sum Kc (Top+Bot) = {Sum_Kc/1e5:.2f}E5")
 
-        with st.expander("📐 ดูวิธีทำละเอียด และรูปคอนเซปต์"):
-            c_c1, c_c2 = st.columns(2)
-            with c_c1:
-                st.markdown("**Concept 1: Torsional Member**")
-                st.pyplot(plot_concept_torsion(c1_w, c2_w, h_slab))
-                st.markdown("**Concept 2: Stick Model**")
-                st.pyplot(plot_concept_stick_model(Ks_abs, Kec_abs, Kt_abs))
-            
-            with c_c2:
-                st.markdown("**Calculation Steps:**")
-                st.latex(r"1. I_c = \frac{c_2 c_1^3}{12}, \quad I_s = \frac{L_2 h^3}{12}")
-                st.latex(r"2. K = \frac{4EI}{L} \implies K_c, K_s")
-                st.latex(r"3. C = (1 - 0.63\frac{x}{y})\frac{x^3y}{3}")
-                st.latex(r"4. K_t = \sum \frac{9E C}{L_2(1-c_2/L_2)^3}")
-                st.latex(r"5. \frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t}")
-                st.latex(r"6. DF_{col} = \frac{K_{ec}}{K_s + K_{ec}}")
-            
-            st.write(f"**Calculated C:** {C_val:,.0f} cm⁴ (Section {x:.0f}x{y:.0f} cm)")
+        st.markdown("#### 1.2 Slab Stiffness ($K_s$)")
+        st.latex(rf"I_s = \frac{{L_2 h^3}}{{12}} = \frac{{{L2*100:.0f} \times {h_slab:.0f}^3}}{{12}} = {Is_cm4:,.0f} \, cm^4")
+        st.latex(rf"K_s = \frac{{4EI_s}}{{L_1}} = {Ks_abs/1e5:.2f} \times 10^5")
 
-    # ======================= TAB 2: MOMENTS =======================
+        st.markdown("#### 1.3 Torsional Member ($K_t$)")
+        st.latex(rf"C = \left(1 - 0.63\frac{{{x_t}}}{{{y_t}}}\right)\frac{{{x_t}^3 {y_t}}}{{3}} = {C_val:,.0f} \, cm^4")
+        st.latex(rf"K_t = \sum \frac{{9EC}}{{L_2(1-c_2/L_2)^3}} = {Kt_abs/1e5:.2f} \times 10^5")
+
+        st.markdown("#### 1.4 Equivalent Column ($K_{ec}$)")
+        st.info("สมการรวมความแข็ง (Series Combination of Col & Torsion)")
+        st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{\Sigma K_c}} + \frac{{1}}{{K_t}} \rightarrow K_{{ec}} = {Kec_abs:,.0f}")
+
+    # --- TAB 2: MOMENT DETAILS ---
     with tab_moment:
-        st.markdown("#### Summary of Design Moments")
-        st.write(f"**Total Static Moment ($M_o$):** {Mo:,.0f} kg-m")
+        st.markdown("#### 2.1 Static Moment ($M_o$)")
+        st.latex(rf"M_o = \frac{{w_u L_2 L_n^2}}{{8}}")
+        st.write(f"- $w_u = {w_u:,.0f}$ kg/m²")
+        st.write(f"- $L_2 = {L2:.2f}$ m (Transverse width)")
+        st.write(f"- $L_n = L_1 - c_1 = {L1 - c1_w/100:.2f}$ m (Clear span)")
+        st.success(f"**Total Static Moment $M_o$ = {Mo:,.0f} kg-m**")
         
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.metric("Negative Moment ($M^-_{face}$)", f"{M_neg_face:,.0f}", "kg-m")
-        with col_m2:
-            st.metric("Positive Moment ($M^+_{mid}$)", f"{M_pos_mid:,.0f}", "kg-m")
-            
-        with st.expander("🔢 ดูวิธีทำละเอียด การลดค่าโมเมนต์ที่ขอบเสา (Face Correction)"):
-            st.markdown("การลดค่าโมเมนต์จากกึ่งกลางเสา ($M_{CL}$) มาที่ขอบเสา ($M_{face}$)")
-            st.latex(r"M_{face} = M_{CL} - V_u(\frac{c_1}{2}) + \frac{w(c_1/2)^2}{2}")
-            st.write(f"- $M_{{CL}}$ (Negative): {M_neg_CL:,.0f} kg-m")
-            st.write(f"- Shear $V_u \approx$: {Vu:,.0f} kg")
-            st.write(f"- Reduction $\Delta M$: {M_red:,.0f} kg-m")
-            # --- FIXED VARIABLE NAME HERE TOO ---
-            st.write(f"- **Final $M_{{face}}$: {M_neg_face:,.0f} kg-m**")
+        st.markdown("#### 2.2 Face of Support Correction")
+        st.markdown("การลดค่าโมเมนต์จาก Center Line ($M_{CL}$) มาที่ผิวเสา ($M_{face}$)")
+        st.latex(rf"M_{{face}} = M_{{CL}} - \frac{{V_u c_1}}{{2}} + \frac{{w c_1^2}}{{8}}")
+        
+        df_mom = pd.DataFrame({
+            "Location": ["Negative (Interior)", "Positive (Midspan)"],
+            "Coeff (ACI)": [coef_neg, coef_pos],
+            "M_CL (kg-m)": [M_neg_CL, M_pos_mid],
+            "Correction": [f"- {M_red:,.0f}", "0"],
+            "M_Design (kg-m)": [M_neg_face, M_pos_mid]
+        })
+        st.table(df_mom)
 
-    # ======================= TAB 3: DESIGN =======================
+    # --- TAB 3: DESIGN DETAILS ---
     with tab_design:
-        st.markdown("#### Reinforcement Selection Results")
-        st.caption(f"Design Parameters: $f'_c={fc}, f_y={fy}, d={d_eff:.1f}cm$")
+        # Helper for display
+        def get_design_latex(Mu_val, b_val, d_val, Rn_val, rho_val, As_req, As_prov):
+            return [
+                rf"1. M_u = {Mu_val:,.0f} \, kg \cdot m",
+                rf"2. R_n = \frac{{{Mu_val*100:.0f}}}{{0.9 \cdot {b_val*100:.0f} \cdot {d_val:.1f}^2}} = {Rn_val:.2f} \, ksc",
+                rf"3. \rho_{{req}} = {rho_val:.4f} \quad (\rho_{{min}}=0.0018)",
+                rf"4. A_{{s,req}} = {rho_val:.4f} \cdot {b_val*100:.0f} \cdot {d_val:.1f} = {As_req:.2f} \, cm^2"
+            ]
 
-        # Design Function
-        def solve_rebar(Mu_kgm, b_m):
-            Mu = Mu_kgm * 100
-            b = b_m * 100
-            Rn = Mu / (0.9 * b * d_eff**2)
-            try:
-                rho = (0.85*fc/fy) * (1 - np.sqrt(1 - 2*Rn/(0.85*fc)))
-            except: rho = 0.0018 # Fail safe
-            rho = max(rho, 0.0018)
-            As = rho * b * d_eff
-            Ab = np.pi * (d_bar/20)**2
-            num = int(np.ceil(As/Ab))
-            return num, As, rho
-
-        # Simplified Strip Widths
-        b_cs = L2 / 2
-        b_ms = L2 / 2
+        # Calculate Logic
+        b_cs = L2/2
+        b_ms = L2/2
         
-        # Calc
-        num_cs, As_cs, rho_cs = solve_rebar(M_neg_face * 0.75, b_cs)
-        num_ms, As_ms, rho_ms = solve_rebar(M_pos_mid * 0.60, b_ms)
-
-        # Display Results
-        c_d1, c_d2 = st.columns(2)
+        # CS Top Calculation
+        Mu_cs = M_neg_face * 0.75
+        Rn_cs = (Mu_cs*100) / (0.9 * (b_cs*100) * d_eff**2)
+        try: rho_cs = (0.85*fc/fy)*(1 - np.sqrt(1 - 2*Rn_cs/(0.85*fc)))
+        except: rho_cs = 0.0020
+        rho_cs = max(rho_cs, 0.0018)
+        As_cs = rho_cs * (b_cs*100) * d_eff
+        num_cs = int(np.ceil(As_cs / (np.pi*(d_bar/20)**2)))
         
-        with c_d1:
-            st.markdown("**🔴 Column Strip (Top Steel)**")
-            st.write(f"Moment: {(M_neg_face*0.75):,.0f} kg-m")
-            st.write(f"Req. $A_s$: {As_cs:.2f} cm² ($\rho={rho_cs:.4f}$)")
-            st.pyplot(draw_rebar_section(b_cs*100, h_slab, cover, num_cs, d_bar, "CS Top Section"), use_container_width=True)
+        # MS Bot Calculation
+        Mu_ms = M_pos_mid * 0.60
+        Rn_ms = (Mu_ms*100) / (0.9 * (b_ms*100) * d_eff**2)
+        try: rho_ms = (0.85*fc/fy)*(1 - np.sqrt(1 - 2*Rn_ms/(0.85*fc)))
+        except: rho_ms = 0.0020
+        rho_ms = max(rho_ms, 0.0018)
+        As_ms = rho_ms * (b_ms*100) * d_eff
+        num_ms = int(np.ceil(As_ms / (np.pi*(d_bar/20)**2)))
 
-        with c_d2:
-            st.markdown("**🔵 Middle Strip (Bottom Steel)**")
-            st.write(f"Moment: {(M_pos_mid*0.60):,.0f} kg-m")
-            st.write(f"Req. $A_s$: {As_ms:.2f} cm² ($\rho={rho_ms:.4f}$)")
-            st.pyplot(draw_rebar_section(b_ms*100, h_slab, cover, num_ms, d_bar, "MS Bottom Section"), use_container_width=True)
+        # --- Display Section ---
+        c_des1, c_des2 = st.columns(2)
+        
+        with c_des1:
+            st.subheader("🔴 Column Strip (Top)")
+            st.pyplot(draw_rebar_section(b_cs*100, h_slab, cover, num_cs, d_bar, "CS Top"), use_container_width=True)
+            with st.expander("Show Calculation Steps", expanded=True):
+                steps = get_design_latex(Mu_cs, b_cs, d_eff, Rn_cs, rho_cs, As_cs, 0)
+                for s in steps: st.latex(s)
+                st.success(f"Use {num_cs}-DB{d_bar}")
 
-        with st.expander("📝 ดูวิธีทำละเอียด การออกแบบเหล็กเสริม"):
-            st.markdown("ขั้นตอนการคำนวณหาพื้นที่หน้าตัดเหล็กเสริม ($A_s$)")
-            st.latex(r"1. R_n = \frac{M_u}{\phi b d^2}")
-            st.latex(r"2. \rho = \frac{0.85f'_c}{f_y}\left(1 - \sqrt{1 - \frac{2R_n}{0.85f'_c}}\right) \ge \rho_{min}")
-            st.latex(r"3. A_s = \rho b d")
-            st.latex(r"4. \text{Number of bars} = \lceil A_s / A_{bar} \rceil")
+        with c_des2:
+            st.subheader("🔵 Middle Strip (Bottom)")
+            st.pyplot(draw_rebar_section(b_ms*100, h_slab, cover, num_ms, d_bar, "MS Bottom"), use_container_width=True)
+            with st.expander("Show Calculation Steps", expanded=True):
+                steps = get_design_latex(Mu_ms, b_ms, d_eff, Rn_ms, rho_ms, As_ms, 0)
+                for s in steps: st.latex(s)
+                st.success(f"Use {num_ms}-DB{d_bar}")
