@@ -4,12 +4,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-# Try importing the specific visualization module
-try:
-    from viz_torsion import plot_torsion_member
-except ImportError:
-    def plot_torsion_member(*args): return None
-
 # --- Settings & Styles ---
 plt.style.use('default')
 plt.rcParams.update({
@@ -40,16 +34,13 @@ def plot_moment_envelope_with_values(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     fig, ax = plt.subplots(figsize=(8, 3.5))
     x = np.linspace(0, L1, 150)
     
-    # Simulate a moment curve that fits the peaks (Approximation for visual)
-    # Assume roughly parabolic between critical points
+    # Simulate a moment curve
     M_x = np.zeros_like(x)
     for i, xi in enumerate(x):
         if xi < L1/2:
-            # Interpolate Left Neg to Pos Center
             factor = (xi / (L1/2))**2
             M_x[i] = -M_neg_L * (1-factor) + M_pos * factor
         else:
-             # Interpolate Pos Center to Right Neg
             factor = ((L1-xi) / (L1/2))**2
             M_x[i] = -M_neg_R * (1-factor) + M_pos * factor
 
@@ -91,7 +82,7 @@ def draw_rebar_section(width_cm, height_cm, cover_cm, num_bars, bar_dia_mm, titl
     else:
         x_pos = []
 
-    y_pos = cover_cm + bar_dia_cm/2 # Assume bottom/top layer depending on usage
+    y_pos = cover_cm + bar_dia_cm/2 
     for x in x_pos:
         ax.add_patch(patches.Circle((x, y_pos), bar_dia_cm/2, facecolor='#C0392B', edgecolor='black'))
         
@@ -108,7 +99,7 @@ def draw_rebar_section(width_cm, height_cm, cover_cm, num_bars, bar_dia_mm, titl
     ax.set_ylim(-height_cm*0.2, height_cm*1.3)
     return fig
 
-# --- Original Concept Plots (Adapted for cleaner look) ---
+# --- Original Concept Plots ---
 def plot_concept_torsion(c1, c2, h):
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.add_patch(patches.Rectangle((-c2/2-h*2, -h), c2+h*4, h, fc='lightgray', ec='gray', label='Slab'))
@@ -177,7 +168,9 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     Vu = w_line * L1 / 2
     c1_m = c1_w / 100
     M_red = Vu*(c1_m/2) - w_line*(c1_m/2)**2 / 2
-    M_neg_face = M_neg_CL - M_red
+    
+    # --- FIXED VARIABLE NAME HERE ---
+    M_neg_face = M_neg_CL - M_red 
 
     # Reinforcement Prep
     fy = mat_props.get('fy', 4000)
@@ -185,7 +178,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     cover = mat_props.get('cover', 2.5)
     d_eff = h_slab - cover - (d_bar/20)
 
-    # --- 1. DASHBOARD OVERVIEW (ส่วนสรุปภาพรวม) ---
+    # --- 1. DASHBOARD OVERVIEW ---
     status, advice, color = interpret_stiffness(Ks_abs, Kec_abs)
     
     col_d1, col_d2, col_d3 = st.columns([1, 1, 1.5])
@@ -197,12 +190,12 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown(f"**Status:** :{color}[{status}]")
         st.caption(advice)
 
-    # Show Moment Envelope (Engineering Graph)
+    # Show Moment Envelope
     st.pyplot(plot_moment_envelope_with_values(L1, M_neg_face, M_neg_face, M_pos_mid, c1_w))
 
     st.markdown("---")
 
-    # --- 2. DEEP DIVE TABS (ส่วนแสดงรายละเอียดและวิธีทำ) ---
+    # --- 2. DEEP DIVE TABS ---
     tab_stiff, tab_moment, tab_design = st.tabs(["1️⃣ Stiffness Analysis", "2️⃣ Moment Distribution", "3️⃣ Reinforcement Design"])
 
     # ======================= TAB 1: STIFFNESS =======================
@@ -210,12 +203,12 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("#### Summary of Stiffness Values")
         df_stiff = pd.DataFrame({
             "Component": ["Column ($\Sigma K_c$)", "Slab ($K_s$)", "Torsion ($K_t$)", "**Equiv. Column ($K_{ec}$)**"],
-            "Value (ksc·cm)": [Sum_Kc/100, Ks_abs/100, Kt_abs/100, Kec_abs/100], # Adjust unit for display
+            "Value (ksc·cm)": [Sum_Kc/100, Ks_abs/100, Kt_abs/100, Kec_abs/100], 
             "Note": ["2x (Above+Below)", "Span L1", f"{num_arms} arm(s)", "Combined Series"]
         })
         st.table(df_stiff.style.format({"Value (ksc·cm)": "{:,.0f}"}))
 
-        with st.expander("📐 ดูวิธีทำละเอียด และรูปคอนเซปต์ (Detailed Calculation & Concepts)"):
+        with st.expander("📐 ดูวิธีทำละเอียด และรูปคอนเซปต์"):
             c_c1, c_c2 = st.columns(2)
             with c_c1:
                 st.markdown("**Concept 1: Torsional Member**")
@@ -251,16 +244,15 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.write(f"- $M_{{CL}}$ (Negative): {M_neg_CL:,.0f} kg-m")
             st.write(f"- Shear $V_u \approx$: {Vu:,.0f} kg")
             st.write(f"- Reduction $\Delta M$: {M_red:,.0f} kg-m")
-            st.write(f"- **Final $M_{{face}}$: {M_face_neg:,.0f} kg-m**")
-            
-            st.info("Note: In a full analysis, moments are distributed to Column Strip (CS) and Middle Strip (MS) based on ACI tables.")
+            # --- FIXED VARIABLE NAME HERE TOO ---
+            st.write(f"- **Final $M_{{face}}$: {M_neg_face:,.0f} kg-m**")
 
     # ======================= TAB 3: DESIGN =======================
     with tab_design:
         st.markdown("#### Reinforcement Selection Results")
         st.caption(f"Design Parameters: $f'_c={fc}, f_y={fy}, d={d_eff:.1f}cm$")
 
-        # Design Function (Embedded)
+        # Design Function
         def solve_rebar(Mu_kgm, b_m):
             Mu = Mu_kgm * 100
             b = b_m * 100
@@ -278,13 +270,11 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         b_cs = L2 / 2
         b_ms = L2 / 2
         
-        # Calc (Assuming typical distribution for demo)
-        # CS Top (Neg)
+        # Calc
         num_cs, As_cs, rho_cs = solve_rebar(M_neg_face * 0.75, b_cs)
-        # MS Bottom (Pos)
         num_ms, As_ms, rho_ms = solve_rebar(M_pos_mid * 0.60, b_ms)
 
-        # Display Results with Sections
+        # Display Results
         c_d1, c_d2 = st.columns(2)
         
         with c_d1:
@@ -299,7 +289,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.write(f"Req. $A_s$: {As_ms:.2f} cm² ($\rho={rho_ms:.4f}$)")
             st.pyplot(draw_rebar_section(b_ms*100, h_slab, cover, num_ms, d_bar, "MS Bottom Section"), use_container_width=True)
 
-        with st.expander("📝 ดูวิธีทำละเอียด การออกแบบเหล็กเสริม (RC Design Steps)"):
+        with st.expander("📝 ดูวิธีทำละเอียด การออกแบบเหล็กเสริม"):
             st.markdown("ขั้นตอนการคำนวณหาพื้นที่หน้าตัดเหล็กเสริม ($A_s$)")
             st.latex(r"1. R_n = \frac{M_u}{\phi b d^2}")
             st.latex(r"2. \rho = \frac{0.85f'_c}{f_y}\left(1 - \sqrt{1 - \frac{2R_n}{0.85f'_c}}\right) \ge \rho_{min}")
