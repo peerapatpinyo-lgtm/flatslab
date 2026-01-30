@@ -2,6 +2,8 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import math
+# [สำคัญ] บรรทัดนี้ที่ขาดไปครับ
+from calculations import calculate_stiffness 
 
 def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     st.header("3. Equivalent Frame Method (EFM) - Detailed Calculation")
@@ -46,7 +48,11 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     x = h_slab
     y = c1_w # Torsional arm width approx
     C = (1 - 0.63 * x / y) * (x**3 * y) / 3.0
-    Kt = 9 * Ec * C / (L2_cm * (1 - c2_w/L2_cm)**3)
+    
+    # Avoid division by zero
+    denom_kt = (L2_cm * (1 - c2_w/L2_cm)**3)
+    if denom_kt == 0: denom_kt = 0.001
+    Kt = 9 * Ec * C / denom_kt
     
     st.write(f"Dimension of torsion arm: $x={x}$ cm, $y={y}$ cm")
     st.latex(r"C = \left(1 - 0.63 \frac{x}{y}\right) \frac{x^3 y}{3} = \mathbf{" + f"{C:,.0f}" + r"} \text{ cm}^4")
@@ -54,18 +60,23 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
 
     # --- 1.4 Equivalent Column (Kec) ---
     st.markdown("**1.4 Equivalent Column Stiffness ($K_{ec}$)**")
-    if Kt > 0:
+    
+    # Calculate Kec
+    if Kt > 0 and Sum_Kc > 0:
         Kec = 1 / (1/Sum_Kc + 1/Kt)
         st.latex(r"\frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t} \implies K_{ec} = \mathbf{" + f"{Kec:,.0f}" + r"} \text{ kg-cm}")
     else:
-        Kec = Sum_Kc
-        st.write("Kt is negligible, Kec = Sum Kc")
+        Kec = 0
+        st.error("Error in Stiffness Calculation (Divide by zero)")
 
     # --- 1.5 Distribution Factors (DF) ---
     st.markdown("**1.5 Distribution Factors (DF) at Joint**")
     Sum_K_joint = Ks + Kec
-    DF_slab = Ks / Sum_K_joint
-    DF_col = Kec / Sum_K_joint
+    if Sum_K_joint > 0:
+        DF_slab = Ks / Sum_K_joint
+        DF_col = Kec / Sum_K_joint
+    else:
+        DF_slab, DF_col = 0, 0
     
     st.latex(r"DF_{slab} = \frac{K_s}{K_s + K_{ec}} = \frac{" + f"{Ks:,.0f}" + r"}{" + f"{Ks:,.0f} + {Kec:,.0f}" + r"} = \mathbf{" + f"{DF_slab:.3f}" + r"}")
     st.latex(r"DF_{col} = \frac{K_{ec}}{K_s + K_{ec}} = \mathbf{" + f"{DF_col:.3f}" + r"}")
@@ -90,7 +101,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     if col_type == 'interior':
         st.success("Case: Interior Column (สมมุติสมมาตร)")
         st.write("สำหรับเสากลาง โมเมนต์ลบจะถูกควบคุมโดย FEM และการกระจายตามสัดส่วน DDM/EFM ปกติ")
-        M_neg = 0.65 * Mo # ACI DDM coeff as baseline for EFM check
+        M_neg = 0.65 * Mo 
         M_pos = 0.35 * Mo
         st.latex(r"M^- \approx 0.65 M_o = " + f"{M_neg:,.0f} " + r"\text{ kg-m}")
         st.latex(r"M^+ \approx 0.35 M_o = " + f"{M_pos:,.0f} " + r"\text{ kg-m}")
@@ -99,18 +110,13 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
         st.warning(f"Case: Edge/Corner Column ($DF_{{col}} = {DF_col:.3f}$)")
         st.write("สำหรับเสาริม โมเมนต์ลบที่ถ่ายเข้าเสา (Unbalanced Moment) จะขึ้นกับค่า Stiffness ของเสาเทียบกับพื้น")
         
-        # EFM Logic for Edge: Moment transfer to column approx FEM * DF_col
-        # Or using ACI Equivalent Frame concepts:
         M_neg_transfer = FEM * DF_col
-        
         st.latex(r"M^-_{slab} (\text{Transfer}) \approx FEM \times DF_{col}")
         st.latex(r"M^- = " + f"{FEM:,.0f} \\times {DF_col:.3f} = \\mathbf{" + f"{M_neg_transfer:,.0f}" + r"} \text{ kg-m}")
         
-        # Positive moment from statics
-        M_pos_calc = Mo - (M_neg_transfer / 2.0) # Approx statics
-        
-        # Check against minimums
-        M_pos = max(M_pos_calc, 0.50 * Mo) # Don't let pos moment be too small in design
+        # Positive moment
+        M_pos_calc = Mo - (M_neg_transfer / 2.0)
+        M_pos = max(M_pos_calc, 0.50 * Mo)
         
         st.latex(r"M^+ \approx M_o - \frac{M^-}{2} = " + f"{M_pos_calc:,.0f} " + r"\text{ kg-m}")
         st.write(f"*(Design Use $M^+$ = {M_pos:,.0f} kg-m)*")
@@ -123,17 +129,13 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     st.markdown("---")
     st.subheader("3. Lateral Distribution (กระจายเข้าแถบเสา/แถบกลาง)")
     
-    # Determine Percentages based on geometry (Simple ACI Lookups)
-    # L2/L1 ratio, alpha1*L2/L1 (assume beam=0 for flat plate)
-    
     if col_type == 'interior':
         pct_cs_neg = 75
         pct_cs_pos = 60
     else: # Edge
-        pct_cs_neg = 100 # Edge takes all moment to column
+        pct_cs_neg = 100 
         pct_cs_pos = 60
         
-    # Table Data Preparation
     col_strip_width = L2 / 2.0
     mid_strip_width = L2 / 2.0
     
@@ -150,84 +152,92 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
         {"Strip": "Middle Strip (+)", "% Dist": f"{100-pct_cs_pos}%", "Mu (kg-m)": m_ms_pos, "Width (m)": mid_strip_width},
     ]
     
-    st.table(pd.DataFrame(results).set_index("Strip"))
+    df_results = pd.DataFrame(results)
+    st.table(df_results.set_index("Strip"))
 
     # =========================================================================
     # PART 4: REINFORCEMENT DESIGN (คำนวณเหล็กเสริม)
     # =========================================================================
     st.markdown("---")
     st.subheader("4. Reinforcement Design (คำนวณเหล็กเสริม)")
-    st.write("เลือกหนึ่งตำแหน่งเพื่อแสดงรายการคำนวณละเอียด:")
     
     selected_strip = st.selectbox("Select Strip to Design:", [r["Strip"] for r in results])
     
-    # Get values for selected strip
-    sel_data = next(item for item in results if item["Strip"] == selected_strip)
-    Mu_design = sel_data["Mu (kg-m)"]
-    b_design = sel_data["Width (m)"]
-    
-    if Mu_design <= 0:
-        st.warning("Moment is zero or negative, minimum steel applies.")
-        Mu_design = 0.1 # avoid div by zero
+    # Find selected data
+    sel_data = None
+    for item in results:
+        if item["Strip"] == selected_strip:
+            sel_data = item
+            break
+            
+    if sel_data:
+        Mu_design = sel_data["Mu (kg-m)"]
+        b_design = sel_data["Width (m)"]
         
-    st.markdown(f"#### 📐 Design for: {selected_strip}")
-    
-    # 4.1 Parameter Setup
-    d_bar = mat_props['d_bar']
-    cover = mat_props['cover']
-    b_cm = b_design * 100
-    d_eff = h_slab - cover - (d_bar/20.0)
-    phi = 0.90
-    
-    st.markdown("**4.1 Section Parameters**")
-    st.latex(r"b = " + f"{b_cm:.0f}" + r" \text{ cm}, \quad d = h - cover - \phi_{bar}/2 = " + f"{d_eff:.2f}" + r" \text{ cm}")
-    
-    # 4.2 Rn
-    st.markdown("**4.2 Strength Parameter ($R_n$)**")
-    Rn = (Mu_design * 100) / (phi * b_cm * d_eff**2)
-    st.latex(r"R_n = \frac{M_u}{\phi b d^2} = \frac{" + f"{Mu_design:,.0f} \\times 100" + r"}{0.9 \times " + f"{b_cm:.0f} \\times {d_eff:.2f}^2" + r"} = \mathbf{" + f"{Rn:.2f}" + r"} \text{ ksc}")
+        # Guard clause for zero moment
+        if Mu_design <= 0:
+            st.warning("Moment is zero or negative. Minimum steel applies.")
+            Mu_design = 1.0 
+            
+        st.markdown(f"#### 📐 Design for: {selected_strip}")
+        
+        # 4.1 Parameter Setup
+        d_bar = mat_props['d_bar']
+        cover = mat_props['cover']
+        b_cm = b_design * 100
+        d_eff = h_slab - cover - (d_bar/20.0)
+        phi = 0.90
+        
+        st.markdown("**4.1 Section Parameters**")
+        st.latex(r"b = " + f"{b_cm:.0f}" + r" \text{ cm}, \quad d = h - cover - \phi_{bar}/2 = " + f"{d_eff:.2f}" + r" \text{ cm}")
+        
+        # 4.2 Rn
+        st.markdown("**4.2 Strength Parameter ($R_n$)**")
+        Rn = (Mu_design * 100) / (phi * b_cm * d_eff**2)
+        st.latex(r"R_n = \frac{M_u}{\phi b d^2} = \frac{" + f"{Mu_design:,.0f} \\times 100" + r"}{0.9 \times " + f"{b_cm:.0f} \\times {d_eff:.2f}^2" + r"} = \mathbf{" + f"{Rn:.2f}" + r"} \text{ ksc}")
 
-    # 4.3 Rho
-    st.markdown("**4.3 Reinforcement Ratio ($\rho$)**")
-    rho_min = 0.0018
-    term = 2 * Rn / (0.85 * fc)
-    
-    if term >= 1.0:
-        st.error(f"❌ Section too small! (2Rn/0.85fc = {term:.2f} > 1.0). Increase slab thickness.")
-        return
+        # 4.3 Rho
+        st.markdown("**4.3 Reinforcement Ratio ($\rho$)**")
+        rho_min = 0.0018
+        term = 2 * Rn / (0.85 * fc)
         
-    rho_calc = (0.85 * fc / fy) * (1 - np.sqrt(1 - term))
-    st.latex(r"\rho_{calc} = \frac{0.85 f'_c}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f'_c}} \right) = \mathbf{" + f"{rho_calc:.5f}" + r"}")
-    
-    if rho_calc < rho_min:
-        st.info(f"Note: $\\rho_{{calc}}$ ({rho_calc:.5f}) < $\\rho_{{min}}$ ({rho_min}). Use $\\rho_{{min}}$.")
-        rho_use = rho_min
-    else:
-        rho_use = rho_calc
-        
-    st.latex(r"\rho_{required} = \mathbf{" + f"{rho_use:.5f}" + r"}")
+        if term >= 1.0:
+            st.error(f"❌ Section too small! (2Rn/0.85fc = {term:.2f} > 1.0). Increase slab thickness.")
+        else:
+            rho_calc = (0.85 * fc / fy) * (1 - np.sqrt(1 - term))
+            st.latex(r"\rho_{calc} = \frac{0.85 f'_c}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f'_c}} \right) = \mathbf{" + f"{rho_calc:.5f}" + r"}")
+            
+            if rho_calc < rho_min:
+                st.info(f"Note: $\\rho_{{calc}}$ ({rho_calc:.5f}) < $\\rho_{{min}}$ ({rho_min}). Use $\\rho_{{min}}$.")
+                rho_use = rho_min
+            else:
+                rho_use = rho_calc
+                
+            st.latex(r"\rho_{required} = \mathbf{" + f"{rho_use:.5f}" + r"}")
 
-    # 4.4 As & Bar Selection
-    st.markdown("**4.4 Steel Area ($A_s$) & Selection**")
-    As_req = rho_use * b_cm * d_eff
-    st.latex(r"A_s = \rho b d = " + f"{rho_use:.5f} \\times {b_cm:.0f} \\times {d_eff:.2f} = \\mathbf{" + f"{As_req:.2f}" + r"} \text{ cm}^2")
-    
-    # Calculate Bars
-    A_bar = 3.14159 * (d_bar/20.0)**2
-    num_bars = As_req / A_bar
-    spacing = b_cm / num_bars
-    
-    col_res1, col_res2 = st.columns(2)
-    with col_res1:
-        st.markdown(f"**Option A: Count Basis**")
-        st.write(f"Using DB{d_bar} ($A_b = {A_bar:.2f} cm^2$)")
-        st.write(f"Required = {As_req:.2f} / {A_bar:.2f} = {num_bars:.2f} bars")
-        st.success(f"✅ Use **{math.ceil(num_bars)} - DB{d_bar}**")
-        
-    with col_res2:
-        st.markdown(f"**Option B: Spacing Basis**")
-        st.write(f"Theor. Spacing = {spacing:.1f} cm")
-        use_spacing = math.floor(spacing / 5) * 5 # Round down to nearest 5
-        if use_spacing > 30: use_spacing = 30
-        if use_spacing < 10: use_spacing = 10
-        st.success(f"✅ Use **DB{d_bar} @ {use_spacing/100:.2f} m**")
+            # 4.4 As & Bar Selection
+            st.markdown("**4.4 Steel Area ($A_s$) & Selection**")
+            As_req = rho_use * b_cm * d_eff
+            st.latex(r"A_s = \rho b d = " + f"{rho_use:.5f} \\times {b_cm:.0f} \\times {d_eff:.2f} = \\mathbf{" + f"{As_req:.2f}" + r"} \text{ cm}^2")
+            
+            # Calculate Bars
+            A_bar = 3.14159 * (d_bar/20.0)**2
+            num_bars = As_req / A_bar
+            spacing = b_cm / num_bars if num_bars > 0 else 0
+            
+            col_res1, col_res2 = st.columns(2)
+            with col_res1:
+                st.markdown(f"**Option A: Count Basis**")
+                st.write(f"Using DB{d_bar} ($A_b = {A_bar:.2f} cm^2$)")
+                st.success(f"✅ Use **{math.ceil(num_bars)} - DB{d_bar}**")
+                
+            with col_res2:
+                st.markdown(f"**Option B: Spacing Basis**")
+                st.write(f"Theor. Spacing = {spacing:.1f} cm")
+                if spacing > 0:
+                    use_spacing = math.floor(spacing / 5) * 5 
+                    if use_spacing > 30: use_spacing = 30
+                    if use_spacing < 10: use_spacing = 10
+                    st.success(f"✅ Use **DB{d_bar} @ {use_spacing/100:.2f} m**")
+                else:
+                    st.error("Spacing Error")
