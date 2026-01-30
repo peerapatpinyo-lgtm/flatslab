@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 
 # Import Modules
-from calculations import check_punching_shear
+from calculations import check_punching_shear, check_punching_dual_case
 import tab_ddm  # The interactive one
 import tab_drawings # Placeholder
 import tab_efm      # Placeholder
@@ -45,16 +45,23 @@ with st.sidebar.expander("2. Geometry & Drop Panel", expanded=True):
     
     lc = st.number_input("Storey Height (m)", 3.0)
     
-    # ADDED: Column Location for Punching Shear calculation
+    # Column Location for Punching Shear calculation
     col_type = st.selectbox("Column Location", ["interior", "edge", "corner"], help="Select column position for Alpha_s parameter")
     
     # Drop Panel Inputs
     st.markdown("---")
     has_drop = st.checkbox("Has Drop Panel? (เพิ่มแป้นหัวเสา)")
-    h_drop = 0.0
+    
+    # Init variables
+    h_drop, drop_w, drop_l = 0.0, 0.0, 0.0
+    
     if has_drop:
-        h_drop = st.number_input("Drop Thickness (cm)", 10.0)
+        h_drop = st.number_input("Drop Thickness (cm)", 10.0, help="ความหนาที่เพิ่มขึ้นมา (ไม่รวมพื้น)")
         st.caption(f"ℹ️ Total Thickness at Column = {h_slab:.0f} + {h_drop:.0f} = **{h_slab+h_drop:.0f} cm**")
+        
+        c_d1, c_d2 = st.columns(2)
+        drop_w = c_d1.number_input("Drop Width X (cm)", 250.0, help="Dimension parallel to Lx")
+        drop_l = c_d2.number_input("Drop Length Y (cm)", 200.0, help="Dimension parallel to Ly")
 
 # --- Group 3: Loads ---
 with st.sidebar.expander("3. Loads", expanded=True):
@@ -75,10 +82,10 @@ w_self = (h_slab/100)*2400
 w_u = 1.2*(w_self + SDL) + 1.6*LL
 
 # Effective Depth Calculation
-# 1. For Mid-Span (Flexure) -> Slab only
+# 1. For Mid-Span (Flexure) & Outer Punching Check -> Slab only
 d_eff_slab = h_slab - cover - (d_bar/20.0)
-# 2. For Punching Shear -> Slab + Drop Panel
-d_eff_punch = (h_slab + h_drop) - cover - (d_bar/20.0)
+# 2. For Inner Punching Check -> Slab + Drop Panel
+d_eff_total = (h_slab + h_drop) - cover - (d_bar/20.0)
 
 # ==========================
 # 3. ANALYSIS LOGIC
@@ -99,14 +106,23 @@ M_vals_y = {
     "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40
 }
 
-# --- Punching Shear Check ---
-c1_d = cx + d_eff_punch
-c2_d = cy + d_eff_punch
-area_crit = (c1_d/100) * (c2_d/100)
-Vu_punch = w_u * (Lx*Ly - area_crit) # Total Load - Area inside critical perimeter
-
-# Call Updated Function (MODIFIED: added col_type parameter)
-punch_res = check_punching_shear(Vu_punch, fc, cx, cy, d_eff_punch, col_type=col_type)
+# --- Punching Shear Check (SMART SWITCH) ---
+if has_drop:
+    # Use the new DUAL CHECK logic
+    punch_res = check_punching_dual_case(
+        w_u, Lx, Ly, fc, cx, cy, 
+        d_eff_total, d_eff_slab, 
+        drop_w, drop_l, col_type
+    )
+else:
+    # Use the LEGACY SINGLE CHECK logic
+    # Need to calculate Vu manually for this function
+    c1_d = cx + d_eff_total
+    c2_d = cy + d_eff_total
+    area_crit = (c1_d/100) * (c2_d/100)
+    Vu_punch = w_u * (Lx*Ly - area_crit)
+    
+    punch_res = check_punching_shear(Vu_punch, fc, cx, cy, d_eff_total, col_type=col_type)
 
 # ==========================
 # 4. DASHBOARD & DISPLAY
@@ -133,53 +149,60 @@ with col_d3:
 with st.expander("🔎 View Punching Shear Calculation Details (รายการคำนวณ)", expanded=False):
     st.markdown("#### รายการคำนวณแรงเฉือนทะลุ (Punching Shear Calculation)")
     
-    c1, c2 = st.columns([1, 1.2])
+    # Display logic depends on whether it's Dual or Single check
+    is_dual = punch_res.get('is_dual', False)
     
+    if is_dual:
+        st.warning(f"⚠️ **Drop Panel System Detected:** Performing 2-step check.")
+        st.markdown(f"**Governing Case:** {punch_res['note']}")
+        
+        # Comparison Table
+        res1 = punch_res['check_1']
+        res2 = punch_res['check_2']
+        
+        comp_data = {
+            "Check Location": ["1. Inner (Column Face)", "2. Outer (Drop Edge)"],
+            "d (cm)": [f"{res1['d']:.2f}", f"{res2['d']:.2f}"],
+            "b0 (cm)": [f"{res1['b0']:.2f}", f"{res2['b0']:.2f}"],
+            "Vu (kg)": [f"{res1['Vu']:,.0f}", f"{res2['Vu']:,.0f}"],
+            "phi Vc (kg)": [f"{res1['Vc_design']:,.0f}", f"{res2['Vc_design']:,.0f}"],
+            "Ratio": [f"{res1['ratio']:.2f}", f"{res2['ratio']:.2f}"],
+            "Status": [res1['status'], res2['status']]
+        }
+        st.table(comp_data)
+        
+    else:
+        st.info("ℹ️ Single Check (No Drop Panel or Flat Plate)")
+
+    # Show Details of the GOVERNING case
+    st.markdown("---")
+    st.markdown("### 📝 Detailed Check for Governing Case")
+    
+    c1, c2 = st.columns([1, 1.2])
     with c1:
-        st.markdown("**1. Design Parameters**")
-        st.write(f"- Column Size: {cx:.0f} x {cy:.0f} cm")
-        st.write(f"- Column Position: **{col_type.capitalize()}**") # Added detail
-        st.write(f"- Drop Panel: {'Yes' if has_drop else 'No'} (+{h_drop} cm)")
-        st.write(f"- Effective Depth ($d$): **{d_eff_punch:.2f} cm**")
-        st.write(f"- Critical Perimeter ($b_o$): **{punch_res['b0']:.2f} cm**")
+        st.markdown("**Design Parameters**")
+        st.write(f"- $b_o$: **{punch_res['b0']:.2f} cm**")
+        st.write(f"- $d$: **{punch_res['d']:.2f} cm**")
+        st.write(f"- $\\alpha_s$: **{punch_res['alpha_s']}** ({col_type})")
         
     with c2:
-        st.markdown("**2. Factored Shear Force ($V_u$)**")
-        st.latex(r"V_u = w_u \times (L_1 L_2 - A_{crit})")
-        st.latex(f"V_u = {w_u:,.0f} \\times ({Lx}\\times{Ly} - {area_crit:.2f}) = \\mathbf{{{punch_res['Vu']:,.0f}}} \\text{{ kg}}")
+        st.markdown("**Forces**")
+        st.latex(f"V_u = \\mathbf{{{punch_res['Vu']:,.0f}}} \\text{{ kg}}")
+        st.latex(f"\\phi V_c = \\mathbf{{{punch_res['Vc_design']:,.0f}}} \\text{{ kg}}")
 
-    st.markdown("---")
-    st.markdown("**3. Concrete Shear Strength ($V_c$) per ACI 318**")
-    st.caption("ตรวจสอบทั้ง 3 สมการ แล้วใช้ค่าน้อยที่สุด (Governing Value)")
-    
+    st.markdown("**ACI 318 Strength Equations (ksc units):**")
     col_eq1, col_eq2, col_eq3 = st.columns(3)
-    
     with col_eq1:
-        st.markdown("Eq. 1 (Aspect Ratio)")
-        st.latex(r"V_{c1} = 0.53(1 + \frac{2}{\beta})\sqrt{f_c'} b_o d")
-        st.latex(f"V_{{c1}} = {punch_res['Vc1']:,.0f} \\text{{ kg}}")
-
+        st.markdown("Eq. 1 (Aspect)")
+        st.latex(f"V_{{c1}} = {punch_res['Vc1']:,.0f}")
     with col_eq2:
-        st.markdown(f"Eq. 2 (Perimeter - Alpha_s={punch_res['alpha_s']})") # Dynamic Alpha_s display
-        st.latex(r"V_{c2} = 0.27(\frac{\alpha_s d}{b_o} + 2)\sqrt{f_c'} b_o d")
-        st.latex(f"V_{{c2}} = {punch_res['Vc2']:,.0f} \\text{{ kg}}")
-        
+        st.markdown(f"Eq. 2 (Alpha)")
+        st.latex(f"V_{{c2}} = {punch_res['Vc2']:,.0f}") 
     with col_eq3:
         st.markdown("Eq. 3 (Basic)")
-        st.latex(r"V_{c3} = 1.06\sqrt{f_c'} b_o d")
-        st.latex(f"V_{{c3}} = {punch_res['Vc3']:,.0f} \\text{{ kg}}")
+        st.latex(f"V_{{c3}} = {punch_res['Vc3']:,.0f}")
         
-    st.markdown(f"**Governing Nominal Strength ($V_n$):** $\min(V_{{c1}}, V_{{c2}}, V_{{c3}}) = \\mathbf{{{punch_res['Vn']:,.0f}}}$ kg")
-    st.markdown(f"**Design Strength ($\phi V_c$):** $0.75 \\times {punch_res['Vn']:,.0f} = \\mathbf{{{punch_res['Vc_design']:,.0f}}}$ kg")
-    
-    # Conclusion Box
-    color = "green" if punch_res['status'] == "PASS" else "red"
-    st.markdown(f"""
-    <div style='background-color:#f0f2f6; padding:10px; border-radius:5px;'>
-    <b>Conclusion:</b> <br>
-    Ratio = $V_u / \phi V_c$ = {punch_res['Vu']:,.0f} / {punch_res['Vc_design']:,.0f} = <b style='color:{color}'>{punch_res['ratio']:.2f}</b> ({punch_res['status']})
-    </div>
-    """, unsafe_allow_html=True)
+    st.caption(f"*Governing Vc is min(Vc1, Vc2, Vc3)*")
 
 st.markdown("---")
 
@@ -189,15 +212,13 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings", "2️⃣ DDM Calculation (Interactive)", "3️⃣ EFM Stiffness"])
 
 with tab1:
-    # Use generic arguments (Tab Drawings logic placeholder)
-    # MODIFIED: Matched variable names to function signature in tab_drawings.py
     try:
+        # Update plotting if Drop Panel exists (Optional future improvement: visualize drop panel)
         tab_drawings.render(L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, d_eff=d_eff_slab, moment_vals=M_vals_x)
     except Exception as e:
-        st.info(f"Drawing module not fully initialized yet. Error: {e}")
+        st.info(f"Drawing module error: {e}")
 
 with tab2:
-    # Prepare Data Packs for DDM Tab
     data_x = {
         "L_span": Lx, "L_width": Ly, "c_para": cx, 
         "ln": ln_x, "Mo": Mo_x, "M_vals": M_vals_x
@@ -206,13 +227,10 @@ with tab2:
         "L_span": Ly, "L_width": Lx, "c_para": cy, 
         "ln": ln_y, "Mo": Mo_y, "M_vals": M_vals_y
     }
-    # Pass mat_props explicitly to handle inputs correctly
     tab_ddm.render_dual(data_x, data_y, mat_props, w_u)
 
 with tab3:
-    # EFM Placeholder
-    # MODIFIED: Matched variable names to function signature in tab_efm.py
     try:
         tab_efm.render(c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, h_slab=h_slab, fc=fc)
     except Exception as e:
-        st.info(f"EFM module waiting for inputs. Error: {e}")
+        st.info(f"EFM module error: {e}")
