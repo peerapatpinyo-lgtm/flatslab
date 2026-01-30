@@ -1,9 +1,9 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from viz_torsion import plot_torsion_member  # เรียกใช้ฟังก์ชันวาดรูปจากไฟล์ที่เราเพิ่งแก้
+from viz_torsion import plot_torsion_member  # เรียกใช้ฟังก์ชันวาดรูปจากไฟล์ viz_torsion.py
 
-def render_efm_tab():
+def render():
     st.header("Equivalent Frame Method (EFM) Analysis")
     st.markdown("---")
 
@@ -45,7 +45,6 @@ def render_efm_tab():
     # Inertia of Column
     Ic = (c2 * c1**3) / 12
     # Stiffness Kc (Assume Fixed-Fixed for simplicity factor = 4E)
-    # ACI usually considers infinite rigid arm, but here let's simplify to 4EI/L
     Kc = (4 * Ec * Ic) / Lc_cm
     # If Interior column, we have 2 columns (Above and Below), assume same size
     Sum_Kc = 2 * Kc 
@@ -58,8 +57,6 @@ def render_efm_tab():
 
     # 2.3 Torsional Member Stiffness (Kt) - The Critical Part
     # Torsional member is the strip of slab perpendicular to the frame.
-    # Cross section: width = c1, height = h_slab
-    # (Checking if beam exists? Assume flat plate -> just slab strip)
     x = min(c1, h_slab)
     y = max(c1, h_slab)
     
@@ -73,9 +70,6 @@ def render_efm_tab():
     if col_loc == "Interior":
         num_arms = 2 # Left and Right of column
     elif col_loc == "Edge":
-        num_arms = 2 # Assuming edge is along L1, so transverse still has torsion? 
-        # Actually for standard Edge Column analysis (Perpendicular to edge), Kt has 2 arms (torsion sides).
-        # But if analyzing Parallel to edge, it might differ. Let's assume standard 2 arms for torsion strip at edge.
         num_arms = 2 
     else: # Corner
         num_arms = 1
@@ -94,11 +88,9 @@ def render_efm_tab():
         Kec = 1 / inv_Kec
 
     # 2.5 Distribution Factors (DF)
-    # DF_slab = Ks / (Ks + Kec)
-    # DF_col = Kec / (Ks + Kec) (Distributed to equivalent column)
     Sum_K_joint = Ks + Kec
     DF_slab = Ks / Sum_K_joint
-    DF_col = Kec / Sum_K_joint # This goes to the equivalent column structure
+    DF_col = Kec / Sum_K_joint 
 
     # --- 3. Display Results (Layout จัดเต็ม) ---
     
@@ -161,4 +153,4 @@ def render_efm_tab():
 
 # Helper to run standalone for testing
 if __name__ == "__main__":
-    render_efm_tab()
+    render()
