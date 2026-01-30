@@ -105,7 +105,7 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     }
 
 # ==========================================
-# 2.1 NEW: DUAL PUNCHING CHECK (For Drop Panel) 
+# 2.1 NEW: DUAL PUNCHING CHECK (For Drop Panel)
 # ==========================================
 def check_punching_dual_case(w_u, Lx, Ly, fc, cx, cy, d_col, d_slab, drop_w, drop_l, col_type):
     """
