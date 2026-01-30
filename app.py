@@ -1,10 +1,9 @@
-# app.py (Refactored Version Preview)
+# app.py (Fixed Import)
 import streamlit as st
 import numpy as np
 
-# Import Modules
-# (รอคุณส่งไฟล์มา ผมจะเช็คว่าฟังก์ชันชื่ออะไรแน่)
-from calculations import check_punching_shear, calculate_rebar
+# Import Modules (Fixed Name Here)
+from calculations import check_punching_shear, design_rebar_detailed
 import tab_drawings
 import tab_ddm
 import tab_efm
@@ -50,55 +49,45 @@ with st.sidebar.expander("Loads", expanded=True):
 # ==========================
 # 2. PRE-CALCULATION (UNIT CONVERSION)
 # ==========================
-# Convert everything to Meters and kg
 h = h_slab_cm / 100.0
 cx = cx_cm / 100.0
 cy = cy_cm / 100.0
 cover = cover_cm / 100.0
 
-# Effective Depth (Average for Punching, Specific for Flexure)
-# Assume Rebar DB20 for initial calculation (0.02m)
+# Effective Depth (Average for Punching)
 db_est = 0.020 
-d_avg = h - cover - db_est  # Average d for punching shear
+d_avg = h - cover - db_est
 
 # Loads
-w_self = h * 2400  # kg/m^2 (Conc density 2400)
-wu = 1.4*w_self + 1.7*LL  # ACI Factors (Or 1.2D+1.6L based on code year)
-# Let's stick to your code: 1.2D + 1.6L
+w_self = h * 2400
 wu = 1.2*(w_self + SDL) + 1.6*LL
 
 # ==========================
 # 3. CORE LOGIC
 # ==========================
 
-# --- Punching Shear (Two-Way Action) ---
-# Critical Perimeter b0
-b1 = cx + d_avg # Width + d
-b2 = cy + d_avg # Depth + d
-bo = 2 * (b1 + b2) # Perimeter
+# --- Punching Shear ---
+b1 = cx + d_avg 
+b2 = cy + d_avg 
 Area_crit = b1 * b2
 
-# Shear Force at Column
 Vu = wu * (Lx * Ly - Area_crit) 
 
-# Call External Function (Need to check arguments in your file)
-# Sending values in kg and meters
+# เรียกฟังก์ชัน (สังเกตหน่วยที่ส่งไป: Vu=kg, cx=cm, cy=cm, d=cm)
 punching_res = check_punching_shear(Vu, fc, cx_cm, cy_cm, d_avg*100) 
-# Note: I kept units consistent with your function call likely expecting cm/kg
 
 # ==========================
 # 4. DASHBOARD
 # ==========================
 st.title("Pro Flat Slab Design System")
 
-# Top Metrics
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Factored Load (Wu)", f"{wu:,.0f} kg/m²")
 m2.metric("Total Load on Col", f"{Vu/1000:,.1f} tons")
 m3.metric("Effective d (avg)", f"{d_avg*100:.1f} cm")
 
 with m4:
-    if punching_res[2] == "PASS": # Status
+    if punching_res[2] == "PASS":
         st.markdown(f"<div class='success-box'>✅ Punching OK<br>Ratio: {punching_res[1]:.2f}</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='fail-box'>❌ Punching FAIL<br>Ratio: {punching_res[1]:.2f}</div>", unsafe_allow_html=True)
@@ -109,17 +98,18 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 1. Analysis (DDM)", "✏️ 2. Detailing & Drawings", "🧮 3. Advanced (EFM)"])
 
 with tab1:
-    # Prepare Data Dictionary to pass cleanly
     project_data = {
         "Lx": Lx, "Ly": Ly, "cx": cx, "cy": cy,
         "wu": wu, "fc": fc, "fy": fy, 
         "h": h, "d_avg": d_avg
     }
-    # You can render Dual Axis here directly
+    # เรียก Tab DDM
     tab_ddm.render_dual(project_data) 
 
 with tab2:
+    # เรียก Tab Drawings
     tab_drawings.render(Lx, Ly, cx_cm, cy_cm, h_slab_cm)
 
 with tab3:
+    # เรียก Tab EFM
     tab_efm.render(cx, cy, Lx, Ly, lc, h, fc)
