@@ -209,3 +209,51 @@ def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
         note = "Rho > Rho_max"
         
     return As_req, rho_design, note, status
+
+# [Add to calculations.py]
+
+# ==========================================
+# 4. ONE-WAY SHEAR CHECK (Beam Action)
+# ==========================================
+def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
+    """
+    Check One-way Shear for a 1-meter strip
+    Input: 
+      - w_u (kg/m2)
+      - L_span (m): Span length in direction of analysis
+      - c_support (cm): Support dimension (parallel to span)
+      - d_eff (cm): Effective depth
+      - fc (ksc)
+    """
+    # 1. Calculate Vu at critical section (d from support face)
+    # Distance from center to critical section
+    x_crit = (L_span / 2.0) - (c_support / 100.0 / 2.0) - (d_eff / 100.0)
+    
+    # Check if x_crit is valid (in case span is very short)
+    if x_crit < 0: x_crit = 0
+    
+    # Shear Force (consider 1 m strip width)
+    # Vu = w_u * x_crit * 1.0
+    Vu_oneway = w_u * x_crit 
+    
+    # 2. Capacity Phi Vn
+    # Vc = 0.53 * sqrt(fc) * b * d (ACI 318 Simplified)
+    # b = 100 cm (1 m strip)
+    phi = 0.75 # Shear phi
+    
+    Vc_stress = 0.53 * np.sqrt(fc) # ksc
+    Vc = Vc_stress * 100.0 * d_eff # kg per 1m strip
+    
+    phi_Vc = phi * Vc
+    
+    # 3. Result
+    ratio = Vu_oneway / phi_Vc if phi_Vc > 0 else 999
+    status = "PASS" if ratio <= 1.0 else "FAIL"
+    
+    return {
+        "Vu": Vu_oneway,
+        "phi_Vc": phi_Vc,
+        "ratio": ratio,
+        "status": status,
+        "x_crit": x_crit # Distance from center used for load
+    }
