@@ -114,96 +114,142 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     # =========================================================================
     # PART 2: MOMENT DISTRIBUTION (การกระจายโมเมนต์)
     # =========================================================================
+# =========================================================================
+    # PART 2: MOMENT DISTRIBUTION (PROFESSIONAL TABLE)
+    # =========================================================================
     st.markdown("---")
-    st.subheader("2. Moment Analysis (Hardy Cross Verification)")
-    st.info("ใช้หลักการ Moment Distribution ถ่ายเทโมเมนต์ตามค่า DF ที่คำนวณได้จริง")
+    st.subheader("2. Moment Analysis (Professional Hardy Cross Table)")
+    st.info("ตารางกระจายโมเมนต์รูปแบบมาตรฐาน (Standard Structural Analysis Format)")
 
-    # Calculate Fixed End Moment
-    # w_u (kg/m^2) * L2 (m) = kg/m on the strip
-    w_line = w_u * L2
-    FEM = w_line * (L1**2) / 12.0
+    # --- 2.1 Prepare Data ---
+    # คำนวณ FEM
+    FEM = w_u * L2 * (L1**2) / 12.0
     
-    st.write("**2.1 Fixed End Moment (FEM)** - สมมติจุดต่อยึดแน่น:")
-    st.latex(f"FEM = \\frac{{w_u L_2 L_1^2}}{{12}} = \\frac{{{w_u} \\cdot {L2} \\cdot {L1}^2}}{{12}} = \\mathbf{{{FEM:,.0f}}} \\text{{ kg-m}}")
+    # กรณี Interior: สมมติ Pattern Load (Span ซ้าย DL=50%, Span ขวา Full Load)
+    if col_type == 'interior':
+        FEM_L = (0.5 * w_u) * L2 * (L1**2) / 12.0 # DL only (Assume)
+        FEM_R = -1 * FEM  # Full Load (Sign convention: - for Clockwise on Right side)
+        # Note: Sign Convention ในตาราง Hardy Cross ปกติ
+        # Left Joint: Clockwise (+), Counter-Clockwise (-)
+        # เราจะใช้ Sign มาตรฐาน: โมเมนต์ดัดตามเข็มเป็นบวก
+    else:
+        # Edge: มีแค่ Slab ด้านขวา
+        FEM_L = 0
+        FEM_R = -1 * FEM
 
-    # --- ANALYSIS TABLE ---
-    st.write("**2.2 Moment Distribution Table (ตารางกระจายโมเมนต์)**")
+    # --- 2.2 Create Table Data ---
     
-    if col_type == 'edge':
-        # --- CASE 1: EDGE COLUMN ---
-        # Unbalanced Moment = FEM (เพราะอีกฝั่งไม่มีพื้น)
-        # ต้อง Release โมเมนต์นี้กลับเข้าไปในพื้นและเสา
+    if col_type == 'interior':
+        # Columns: Slab Left | Column | Slab Right
+        cols = ["Slab (Left)", "Column (Equiv)", "Slab (Right)"]
         
-        M_unbalanced = FEM
-        M_dist_slab = -1 * M_unbalanced * df_slab
-        M_dist_col  = -1 * M_unbalanced * df_col
+        # 1. Stiffness (K)
+        row_K = [Ks_val, Kec_val, Ks_val]
         
-        M_final_slab = FEM + M_dist_slab
-        M_final_col  = 0 + M_dist_col  # เริ่มจาก 0 เพราะเสาไม่มี FEM
+        # 2. DF
+        # DF = K / Sum K
+        sum_K_joint = sum(row_K)
+        row_DF = [k/sum_K_joint for k in row_K]
         
-        # Display DataFrame
-        data_md = {
-            "Step": ["1. Initial FEM", "2. Distribution Factor (DF)", "3. Distributed Moment (-FEM*DF)", "4. Final Moment (Sum)"],
-            "Slab End (Joint)": [f"{FEM:,.0f}", f"{df_slab:.4f}", f"{M_dist_slab:,.0f}", f"**{M_final_slab:,.0f}**"],
-            "Column (Joint)":   ["0",             f"{df_col:.4f}",  f"{M_dist_col:,.0f}",  f"**{M_final_col:,.0f}**"]
-        }
-        df_show = pd.DataFrame(data_md)
-        st.table(df_show)
+        # 3. FEM (Initial)
+        # Left Slab end (at joint) -> CCW -> (-) ... แต่เดี๋ยวก่อน Pattern Load ปกติ
+        # Span Left (DL): Load กดลง -> ปลายขวาของ Span ซ้าย (ที่จุดต่อ) จะหมุน ตามเข็ม (+)
+        # Span Right (Full): Load กดลง -> ปลายซ้ายของ Span ขวา (ที่จุดต่อ) จะหมุน ทวนเข็ม (-)
+        val_FEM_L = FEM_L   # (+)
+        val_FEM_Col = 0
+        val_FEM_R = FEM_R   # (-)
+        row_FEM = [val_FEM_L, val_FEM_Col, val_FEM_R]
         
-        # Design Values
-        M_neg_design = M_final_slab
-        # หา M+ (Statics)
-        ln = L1 - (c1_w/100.0)
-        Mo = w_u * L2 * (ln**2) / 8.0
-        # M_pos = Mo - (M_neg_avg) => Edge ใช้ M_neg/2 โดยประมาณ หรือใช้สูตร Superposition
-        # เพื่อความถูกต้องตาม Statics เราใช้ Mo เป็นตัวคุม
-        M_pos_design = Mo - (M_neg_design + 0)/2.0 
+        # 4. Unbalanced
+        # Net Moment on Joint = Sum(FEM)
+        M_unbal = sum(row_FEM)
         
-        # Verification Text
-        check_sum = M_final_slab + M_final_col
-        st.markdown(f"**🔎 Verification (ตรวจสอบสมดุล):**")
-        st.write(f"ผลรวมโมเมนต์ที่จุดต่อ = $M_{{slab}} + M_{{col}} = {M_final_slab:,.0f} + ({M_final_col:,.0f}) = {check_sum:,.0f}$ $\\approx 0$ (OK)")
+        # 5. Distribution (Dist = -1 * Unbal * DF)
+        # ต้องกระจายโมเมนต์ต้านกลับเข้าไป
+        row_Dist = [-1 * M_unbal * df for df in row_DF]
+        
+        # 6. Final Moment
+        row_Final = [f+d for f, d in zip(row_FEM, row_Dist)]
+        
+        # Design Moment
+        # เลือกค่า Absolute มากสุดของพื้นเพื่อไปออกแบบ
+        M_neg_design = max(abs(row_Final[0]), abs(row_Final[2]))
         
     else:
-        # --- CASE 2: INTERIOR COLUMN ---
-        # ต้องสมมติ Pattern Load เพื่อให้เกิด Unbalanced Moment ไม่งั้น DF จะไม่ได้ใช้
-        st.markdown("*(กรณี Interior: สมมติ Pattern Load ให้ Span ที่พิจารณารับ Full Load แต่อีกฝั่งรับ 50% Load เพื่อให้เห็นผลของ Stiffness)*")
+        # Edge: Column | Slab Right
+        cols = ["Column (Equiv)", "Slab (Right)"]
         
-        w_right = w_u
-        w_left = w_u * 0.5
+        # 1. Stiffness
+        row_K = [Kec_val, Ks_val]
+        sum_K_joint = sum(row_K)
         
-        FEM_right = FEM # ทิศทวนเข็ม (-)
-        FEM_left = (w_left * L2 * L1**2) / 12.0 # ทิศตามเข็ม (+)
+        # 2. DF
+        row_DF = [Kec_val/sum_K_joint, Ks_val/sum_K_joint]
         
-        # Sign convention: Clockwise +, Counter-Clockwise -
-        # Joint Equilibrium: M_unbalanced = Sum(FEMs)
-        # FEM_right is acting on joint -> usually defined as Clockwise on Joint
-        # Let's simplify: Unbalanced = Difference in FEM magnitude
+        # 3. FEM
+        # Edge Joint: Col = 0, Slab = CCW (-)
+        val_FEM_Col = 0
+        val_FEM_R = -1 * FEM
+        row_FEM = [val_FEM_Col, val_FEM_R]
         
-        Unbal = FEM_right - FEM_left
+        # 4. Unbalanced
+        M_unbal = sum(row_FEM)
         
-        # Distribute
-        M_dist_slab_right = -1 * Unbal * df_slab
-        M_dist_col = -1 * Unbal * df_col
+        # 5. Distribute
+        row_Dist = [-1 * M_unbal * df for df in row_DF]
         
-        M_final_right = FEM_right + M_dist_slab_right
+        # 6. Final
+        row_Final = [f+d for f, d in zip(row_FEM, row_Dist)]
         
-        data_md = {
-            "Parameter": ["FEM (Span นี้)", "FEM (Span ข้างๆ)", "Unbalanced Diff", "DF (Slab)", "Distributed", "Final Design M-"],
-            "Value": [f"{FEM_right:,.0f}", f"{FEM_left:,.0f}", f"{Unbal:,.0f}", f"{df_slab:.4f}", f"{M_dist_slab_right:,.0f}", f"**{M_final_right:,.0f}**"]
-        }
-        st.table(pd.DataFrame(data_md))
-        
-        M_neg_design = M_final_right
-        # Interior M+
-        ln = L1 - (c1_w/100.0)
-        Mo = w_u * L2 * (ln**2) / 8.0
-        M_pos_design = Mo - (M_neg_design * 0.9) # Approx deduction
-        M_pos_design = max(M_pos_design, 0.35*Mo) # ACI Min check
+        M_neg_design = abs(row_Final[1])
 
-    # สรุปค่าโมเมนต์ออกแบบ
-    st.success(f"✅ **Design Moments (Verified):** $M^-$ = {M_neg_design:,.0f} kg-m, $M^+$ = {M_pos_design:,.0f} kg-m")
+    # --- 2.3 Format & Display Table ---
+    
+    # สร้าง List of Dictionary เพื่อทำ DataFrame สวยๆ
+    table_data = []
+    
+    # Helper to format numbers
+    def fmt(x): return f"{x:,.0f}"
+    def fmt_dec(x): return f"{x:.4f}"
+    
+    table_data.append(["1. Stiffness (K)", *[fmt(x) for x in row_K]])
+    table_data.append(["2. Dist. Factor (DF)", *[fmt_dec(x) for x in row_DF]])
+    table_data.append(["3. FEM (Initial)", *[fmt(x) for x in row_FEM]])
+    
+    # เพิ่มแถว Unbalanced แบบโชว์ Text ตรงกลาง (Hack นิดหน่อยใน Pandas)
+    if col_type == 'interior':
+        table_data.append([">> Unbalanced M.", f"Sum = {M_unbal:,.0f}", "-->", "Distribute"])
+    else:
+        table_data.append([">> Unbalanced M.", "-->", f"Sum = {M_unbal:,.0f}"])
+        
+    table_data.append(["4. Distribute (Bal)", *[fmt(x) for x in row_Dist]])
+    table_data.append(["5. Final Moment", *[f"**{fmt(x)}**" for x in row_Final]])
+    
+    df_hardy = pd.DataFrame(table_data, columns=["Step"] + cols)
+    
+    # แสดงตาราง
+    st.markdown(f"**ตารางวิเคราะห์โมเมนต์ ({'Edge' if col_type=='edge' else 'Interior Pattern Load'})**")
+    st.table(df_hardy)
+    
+    # Check Equilibrium
+    sum_final = sum(row_Final)
+    if abs(sum_final) < 1.0:
+        status = "✅ OK (Equilibrium)"
+    else:
+        status = f"⚠️ Diff {sum_final:.1f}"
+        
+    st.caption(f"Check $\\Sigma M_{{joint}} = {sum_final:,.1f} \\rightarrow$ {status}")
 
+    # คำนวณ M+ ต่อ (เหมือนเดิม)
+    ln = L1 - (c1_w/100.0)
+    Mo = w_u * L2 * (ln**2) / 8.0
+    if col_type == 'edge':
+         M_pos_design = Mo - (M_neg_design + 0)/2.0
+    else:
+         M_pos_design = Mo - (M_neg_design * 0.9) # Approx logic
+         M_pos_design = max(M_pos_design, 0.35 * Mo)
+
+    st.success(f"📌 **Design Values:** $M^-$ = {M_neg_design:,.0f} kg-m, $M^+$ = {M_pos_design:,.0f} kg-m")   
     # =========================================================================
     # PART 3: REINFORCEMENT DESIGN (ออกแบบเหล็กเสริม)
     # =========================================================================
