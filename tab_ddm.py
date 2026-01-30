@@ -90,14 +90,10 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
     
-    # --- PART 1: ANALYSIS ---
+    # --- PART 1: ANALYSIS TEXT ---
     st.markdown(f"### 1️⃣ Analysis: {axis_id}-Direction Moment")
     
-    # แสดงกราฟ Moment
-    if HAS_PLOTS:
-        st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
-    
-    with st.expander("📊 ดูรายละเอียดค่าโมเมนต์ (Calculation Details)"):
+    with st.expander("📊 ดูรายละเอียดค่าโมเมนต์ (Calculation Details)", expanded=True):
         st.info(f"**Total Static Moment ($M_o$):** {Mo:,.0f} kg-m")
         st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
         
@@ -202,17 +198,26 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         use_container_width=True
     )
     
-    # --- PART 4: DETAILING (PLOTS) ---
+    # --- PART 4: ALL DRAWINGS (MOVED TO BOTTOM) ---
     st.markdown("---")
-    st.markdown("### 3️⃣ Detailing Drawings")
+    st.markdown("### 3️⃣ Drawings & Diagrams")
+    
     if HAS_PLOTS:
-        tab1, tab2 = st.tabs(["📐 Section A-A (Side)", "🏗️ Plan View (Top)"])
-        with tab1:
-            # Section View
+        # Create Tabs for different views
+        t1, t2, t3 = st.tabs(["📉 Moment Diagram", "📐 Section View", "🏗️ Plan View"])
+        
+        with t1:
+            st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
+            st.caption("Distribution of Moments in Column Strip and Middle Strip")
+            
+        with t2:
             st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
-        with tab2:
-            # Plan View
+            st.caption("Cross-section detailing showing reinforcement layers")
+            
+        with t3:
             st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
+            st.caption("Top view reinforcement layout")
+            
     else:
         st.warning("⚠️ ไม่พบโมดูล ddm_plots.py กรุณาตรวจสอบไฟล์")
 
@@ -222,7 +227,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
 # ========================================================
 def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ Interactive Slab Design (DDM)")
-    st.info("💡 **Instructions:** เลือกขนาดเหล็กและระยะเรียงให้ผ่านเกณฑ์ (Status = OK)")
+    st.info("💡 **Instructions:** ปรับขนาดเหล็กด้านบน เมื่อค่า Status เป็น OK สามารถดูแบบ Detail ได้ที่ด้านล่างสุด")
     
     tab_x, tab_y = st.tabs([
         f"➡️ X-Direction (Span {data_x['L_span']}m)", 
