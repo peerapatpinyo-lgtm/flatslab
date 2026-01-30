@@ -1,3 +1,4 @@
+#tab_ddm.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -102,19 +103,20 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         
         # 1. As Required
         if M_u < 100: 
-            return 0, 0, 0, 0, 45, True, "No Moment"
+            return 0, 0, 0.1, 0, 45, True, "No Moment"
 
         Rn = (M_u * 100) / (0.9 * b_cm * d_local**2)
         term = 1 - (2*Rn)/(0.85*fc)
         
+        # CRITICAL FIX: Handle Section Failure
         if term < 0: 
             rho = 999 
+            As_req_final = 999
         else:
             rho = (0.85*fc/fy) * (1 - np.sqrt(term))
-        
-        As_flex = rho * b_cm * d_local
-        As_min = 0.0018 * b_cm * h_cm
-        As_req_final = max(As_flex, As_min) if rho != 999 else 999
+            As_flex = rho * b_cm * d_local
+            As_min = 0.0018 * b_cm * h_cm
+            As_req_final = max(As_flex, As_min)
         
         # 2. As Provided
         Ab = 3.1416*(d_bar/10)**2/4
@@ -129,13 +131,14 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         
         # Status
         dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
-        pass_str = dc_ratio <= 1.0
-        pass_min = As_prov >= As_min
+        pass_str = dc_ratio <= 1.0 and rho != 999
+        pass_min = As_prov >= (0.0018 * b_cm * h_cm) # Direct check vs As_min
         pass_space = s_bar <= s_max
         is_pass = pass_str and pass_min and pass_space
         
         notes = []
-        if not pass_str: notes.append("Strength")
+        if rho == 999: notes.append("Section Thin")
+        elif not pass_str: notes.append("Strength")
         if not pass_min: notes.append("Min Steel")
         if not pass_space: notes.append("Spacing")
         note_str = ", ".join(notes) if notes else "-"
@@ -145,7 +148,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
     # --- UI Inputs ---
     st.markdown(f"### 🎛️ Reinforcement Selection")
     
-    # Define Colors if not using ddm_plots constants
+    # Define Colors
     CLR_CS = "#e3f2fd"
     CLR_MS = "#fff3e0"
     
@@ -157,11 +160,11 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         <b>COLUMN STRIP</b> ({w_cs:.2f} m)</div>""", unsafe_allow_html=True)
         st.write("")
         c1, c2 = st.columns([1, 1.5])
-        d_cs_top = c1.selectbox("Top DB", [12,16,20,25], key=f"dct{axis_id}")
-        s_cs_top = c2.number_input("Top @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"sct{axis_id}")
+        d_cs_top = c1.selectbox("Top DB", [12,16,20,25], index=1, key=f"dct{axis_id}")
+        s_cs_top = c2.number_input("Top @(cm)", 5.0, 50.0, 15.0, 2.5, key=f"sct{axis_id}")
         c1, c2 = st.columns([1, 1.5])
-        d_cs_bot = c1.selectbox("Bot DB", [12,16,20,25], key=f"dcb{axis_id}")
-        s_cs_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 25.0, 2.5, key=f"scb{axis_id}")
+        d_cs_bot = c1.selectbox("Bot DB", [12,16,20,25], index=0, key=f"dcb{axis_id}")
+        s_cs_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"scb{axis_id}")
 
     # === MS INPUTS ===
     with col_ms:
@@ -170,10 +173,10 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         st.write("")
         c1, c2 = st.columns([1, 1.5])
         d_ms_top = c1.selectbox("Top DB", [12,16,20,25], index=0, key=f"dmt{axis_id}")
-        s_ms_top = c2.number_input("Top @(cm)", 5.0, 50.0, 30.0, 2.5, key=f"smt{axis_id}")
+        s_ms_top = c2.number_input("Top @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"smt{axis_id}")
         c1, c2 = st.columns([1, 1.5])
-        d_ms_bot = c1.selectbox("Bot DB", [12,16,20,25], key=f"dmb{axis_id}")
-        s_ms_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 25.0, 2.5, key=f"smb{axis_id}")
+        d_ms_bot = c1.selectbox("Bot DB", [12,16,20,25], index=0, key=f"dmb{axis_id}")
+        s_ms_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"smb{axis_id}")
 
     # Process Results
     zones = [
@@ -195,15 +198,15 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         res_list.append({
             "Location": f"<b>{z['name']}</b>",
             "Mu (kg-m)": f"{z['M']:,.0f}",
-            "Req. As": f"<b>{As_req:.2f}</b>",
-            "Selection": f"DB{z['d']}@{z['s']:.0f}",
+            "Req. As": f"<b>{As_req:.2f}</b>" if As_req != 999 else "FAILED",
+            "Selection": f"DB{z['d']}@{z['s']:.1f}",
             "Prov. As": f"{As_prov:.2f}",
             "φMn": f"{PhiMn:,.0f}",
-            "D/C": f"<b style='color:{'green' if dc<=1 else 'red'}'>{dc:.2f}</b>",
+            "D/C": f"<b style='color:{'green' if (dc<=1 and is_pass) else 'red'}'>{dc:.2f}</b>",
             "Status": f"<b>{status_icon}</b>",
             "Note": f"<small style='color:red'>{note}</small>"
         })
-        rebar_map[z['name'].replace("-","_")] = f"DB{z['d']}@{z['s']:.0f}"
+        rebar_map[z['name'].replace("-","_")] = f"DB{z['d']}@{z['s']:.1f}"
 
     # Render Table
     st.write("---")
@@ -212,53 +215,43 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
     st.write(df_res.style.format(precision=2).to_html(escape=False, index=False), unsafe_allow_html=True)
     
     if not overall_safe:
-        st.error("⚠️ Warning: Design does not meet all ACI 318 requirements.")
+        st.error("⚠️ Warning: Design does not meet all ACI 318 requirements. Please adjust rebar or thickness.")
 
     # ----------------------------------------------------
     # 📝 PART C: DETAILED CALCULATION VERIFICATION
     # ----------------------------------------------------
-    with st.expander("🔎 View Sample Calculation (รายการคำนวณออกแบบอย่างละเอียด)", expanded=True):
+    with st.expander("🔎 View Sample Calculation (CS-Top)", expanded=False):
         st.markdown("#### 3. Verification: Column Strip - Top Reinforcement")
         
-        # Define Variables for Sample (CS-Top)
         Mu_sample = m_vals['M_cs_neg']
         b_sample_cm = w_cs * 100
         d_sample_cm = h_slab - cover - (d_cs_top/20.0) 
         
-        # Recalculate just for display
         Rn_val = (Mu_sample * 100) / (0.9 * b_sample_cm * d_sample_cm**2)
-        term = 1 - (2 * Rn_val) / (0.85 * fc)
-        rho_val = (0.85 * fc / fy) * (1 - np.sqrt(term)) if term >=0 else 0
+        term_val = 1 - (2 * Rn_val) / (0.85 * fc)
+        rho_val = (0.85 * fc / fy) * (1 - np.sqrt(term_val)) if term_val >=0 else 0
         As_req_val = rho_val * b_sample_cm * d_sample_cm
         As_min_val = 0.0018 * b_sample_cm * h_slab
         
         c_left, c_right = st.columns([1, 1.2])
-        
         with c_left:
             st.markdown("**Design Parameters:**")
             st.latex(f"M_u = {Mu_sample:,.0f} \\; \\text{{kg-m}}")
-            st.latex(f"b = {w_cs:.2f} \\text{{ m}} = {b_sample_cm:.0f} \\text{{ cm}}")
-            st.latex(f"d = {d_sample_cm:.2f} \\text{{ cm}}")
+            st.latex(f"b = {b_sample_cm:.0f} \\text{{ cm}}, d = {d_sample_cm:.2f} \\text{{ cm}}")
             
         with c_right:
             st.markdown("**Calculation Steps:**")
-            st.latex(r"R_n = \frac{M_u}{0.9 b d^2} = " + f"{Rn_val:.2f} \\text{{ ksc}}")
-            st.latex(f"\\rho_{{req}} = {rho_val:.5f}")
-            st.latex(f"A_{{s,req}} = {As_req_val:.2f} \\text{{ cm}}^2, \\; A_{{s,min}} = {As_min_val:.2f} \\text{{ cm}}^2")
+            st.latex(r"R_n = \frac{M_u}{\phi b d^2} = " + f"{Rn_val:.2f} \\text{{ ksc}}")
+            st.latex(f"A_{{s,req}} = {max(As_req_val, As_min_val):.2f} \\text{{ cm}}^2")
 
     # ----------------------------------------------------
-    # 🖼️ PART D: DRAWINGS (Safe Mode)
+    # 🖼️ PART D: DRAWINGS
     # ----------------------------------------------------
-    st.write("---")
-    st.markdown("### 📐 Professional Drawings")
-    
     if HAS_PLOTS:
+        st.write("---")
+        st.markdown("### 📐 Professional Drawings")
         try:
             st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para, m_vals))
-            c1, c2 = st.columns(2)
-            with c1: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
-            with c2: st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
+            # Additional plots can be added here
         except Exception as e:
             st.warning(f"Plotting Error: {e}")
-    else:
-        st.info("ℹ️ `ddm_plots.py` not found or drawing module disabled. (Focus on Calc)")
