@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import ddm_plots 
+# Try import plots, if not exists, skip gracefully
+try:
+    import ddm_plots 
+    HAS_PLOTS = True
+except ImportError:
+    HAS_PLOTS = False
 
 # ========================================================
 # 1. MAIN ENTRY POINT
@@ -11,14 +16,12 @@ def render_dual(data_x, data_y, mat_props, w_u):
     Main function called from app.py
     Unpacks material properties and renders tabs
     """
-    # Unpack Material Props
+    # Unpack Material Props for general usage
     h_slab = mat_props['h_slab']
     fc = mat_props['fc']
     fy = mat_props['fy']
     cover = mat_props['cover']
-    # Calculate approximate d_eff for general display (User specific d is calc later)
-    d_eff = h_slab - cover - (mat_props['d_bar']/20.0)
-
+    
     st.markdown("## 2. Interactive Direct Design Method")
     st.info("💡 **Design Mode:** Complete analysis (ACI 318 / EIT Standards).")
 
@@ -72,7 +75,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
 
         # 2. Distribution Table
         st.markdown("**Moment Distribution Coefficients:**")
-        # Prevent division by zero
         sum_neg = m_vals['M_cs_neg'] + m_vals['M_ms_neg']
         sum_pos = m_vals['M_cs_pos'] + m_vals['M_ms_pos']
         
@@ -91,15 +93,14 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
     # 🎛️ PART B: INTERACTIVE REBAR SELECTION
     # ----------------------------------------------------
     
-    # Calculation Logic (Internal Helper)
+    # Internal Logic for this Tab
     def calc_rebar_logic(M_u, b_width, d_bar, s_bar):
         b_cm = b_width * 100
         h_cm = h_slab
         # Exact d calculation based on selection
         d_local = h_cm - cover - (d_bar/20.0) 
         
-        # 1. As Required (Theoretical)
-        # Check if Moment is very small
+        # 1. As Required
         if M_u < 100: 
             return 0, 0, 0, 0, 45, True, "No Moment"
 
@@ -107,7 +108,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         term = 1 - (2*Rn)/(0.85*fc)
         
         if term < 0: 
-            rho = 999 # Fail (Section too small)
+            rho = 999 
         else:
             rho = (0.85*fc/fy) * (1 - np.sqrt(term))
         
@@ -133,7 +134,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         pass_space = s_bar <= s_max
         is_pass = pass_str and pass_min and pass_space
         
-        # Note
         notes = []
         if not pass_str: notes.append("Strength")
         if not pass_min: notes.append("Min Steel")
@@ -144,23 +144,28 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
 
     # --- UI Inputs ---
     st.markdown(f"### 🎛️ Reinforcement Selection")
+    
+    # Define Colors if not using ddm_plots constants
+    CLR_CS = "#e3f2fd"
+    CLR_MS = "#fff3e0"
+    
     col_cs, col_gap, col_ms = st.columns([1, 0.05, 1])
     
     # === CS INPUTS ===
     with col_cs:
-        st.markdown(f"""<div style="background-color:{ddm_plots.CLR_ZONE_CS}; padding:10px; border-radius:5px; border-left:5px solid {ddm_plots.CLR_BAR_TOP};">
+        st.markdown(f"""<div style="background-color:{CLR_CS}; padding:10px; border-radius:5px; border-left:5px solid #2196f3;">
         <b>COLUMN STRIP</b> ({w_cs:.2f} m)</div>""", unsafe_allow_html=True)
         st.write("")
         c1, c2 = st.columns([1, 1.5])
         d_cs_top = c1.selectbox("Top DB", [12,16,20,25], key=f"dct{axis_id}")
-        s_cs_top = c2.number_input("Top @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"sct{axis_id}") # Changed to float step
+        s_cs_top = c2.number_input("Top @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"sct{axis_id}")
         c1, c2 = st.columns([1, 1.5])
         d_cs_bot = c1.selectbox("Bot DB", [12,16,20,25], key=f"dcb{axis_id}")
         s_cs_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 25.0, 2.5, key=f"scb{axis_id}")
 
     # === MS INPUTS ===
     with col_ms:
-        st.markdown(f"""<div style="background-color:{ddm_plots.CLR_ZONE_MS}; padding:10px; border-radius:5px; border-left:5px solid {ddm_plots.CLR_BAR_BOT};">
+        st.markdown(f"""<div style="background-color:{CLR_MS}; padding:10px; border-radius:5px; border-left:5px solid #ff9800;">
         <b>MIDDLE STRIP</b> ({w_ms:.2f} m)</div>""", unsafe_allow_html=True)
         st.write("")
         c1, c2 = st.columns([1, 1.5])
@@ -210,83 +215,50 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u):
         st.error("⚠️ Warning: Design does not meet all ACI 318 requirements.")
 
     # ----------------------------------------------------
-    # 📝 PART C: DETAILED CALCULATION VERIFICATION (NEW!)
+    # 📝 PART C: DETAILED CALCULATION VERIFICATION
     # ----------------------------------------------------
     with st.expander("🔎 View Sample Calculation (รายการคำนวณออกแบบอย่างละเอียด)", expanded=True):
         st.markdown("#### 3. Verification: Column Strip - Top Reinforcement")
-        st.markdown("ตัวอย่างการคำนวณออกแบบเหล็กเสริมรับแรงดัด (Flexural Design) ตามวิธี Strength Design Method:")
         
         # Define Variables for Sample (CS-Top)
         Mu_sample = m_vals['M_cs_neg']
         b_sample_cm = w_cs * 100
-        # Use exact d from selection above
         d_sample_cm = h_slab - cover - (d_cs_top/20.0) 
-        phi = 0.90
         
-        # Step 1: Rn
-        Rn_val = (Mu_sample * 100) / (phi * b_sample_cm * d_sample_cm**2) # ksc
-        
-        # Step 2: Rho
+        # Recalculate just for display
+        Rn_val = (Mu_sample * 100) / (0.9 * b_sample_cm * d_sample_cm**2)
         term = 1 - (2 * Rn_val) / (0.85 * fc)
-        if term < 0: rho_val = 0 # Fail
-        else: rho_val = (0.85 * fc / fy) * (1 - np.sqrt(term))
-        
-        # Step 3: As
+        rho_val = (0.85 * fc / fy) * (1 - np.sqrt(term)) if term >=0 else 0
         As_req_val = rho_val * b_sample_cm * d_sample_cm
         As_min_val = 0.0018 * b_sample_cm * h_slab
-        As_design = max(As_req_val, As_min_val)
         
-        # Columns for Layout
         c_left, c_right = st.columns([1, 1.2])
         
         with c_left:
             st.markdown("**Design Parameters:**")
             st.latex(f"M_u = {Mu_sample:,.0f} \\; \\text{{kg-m}}")
             st.latex(f"b = {w_cs:.2f} \\text{{ m}} = {b_sample_cm:.0f} \\text{{ cm}}")
-            st.latex(f"d = h - cover - d_b/2 = {d_sample_cm:.2f} \\text{{ cm}}")
-            st.latex(f"f_c' = {fc} \\text{{ ksc}}, \\; f_y = {fy} \\text{{ ksc}}")
+            st.latex(f"d = {d_sample_cm:.2f} \\text{{ cm}}")
             
         with c_right:
             st.markdown("**Calculation Steps:**")
-            
-            # 1. Rn
-            st.markdown("1. Calculate Resistance Factor ($R_n$):")
-            st.latex(r"R_n = \frac{M_u}{0.9 b d^2} = \frac{" + f"{Mu_sample:,.0f} \\times 100}}{{0.9 \\times {b_sample_cm:.0f} \\times {d_sample_cm:.2f}^2}}")
-            st.latex(f"R_n = \\mathbf{{{Rn_val:.2f}}} \\; \\text{{ksc}}")
-            
-            # 2. Rho
-            st.markdown("2. Calculate Reinforcement Ratio ($\\rho$):")
-            st.latex(r"\rho = \frac{0.85f_c'}{f_y}\left(1 - \sqrt{1 - \frac{2R_n}{0.85f_c'}}\right)")
-            st.latex(f"\\rho = \\mathbf{{{rho_val:.5f}}}")
-            
-            # 3. As
-            st.markdown("3. Determine Required Area ($A_s$):")
-            st.latex(f"A_{{s,req}} = \\rho b d = {rho_val:.5f} \\times {b_sample_cm:.0f} \\times {d_sample_cm:.2f} = \\mathbf{{{As_req_val:.2f}}} \\text{{ cm}}^2")
-            
-            # 4. Check Min
-            st.markdown("4. Check Minimum Steel ($A_{s,min}$):")
-            st.latex(r"A_{s,min} = 0.0018 b h")
-            st.latex(f"A_{{s,min}} = 0.0018 \\times {b_sample_cm:.0f} \\times {h_slab} = \\mathbf{{{As_min_val:.2f}}} \\text{{ cm}}^2")
-            
-            # Conclusion
-            conclusion = "Controls" if As_req_val > As_min_val else "Controls (Min Steel)"
-            st.success(f"**Design $A_s$ = {As_design:.2f} cm² ({conclusion})**")
+            st.latex(r"R_n = \frac{M_u}{0.9 b d^2} = " + f"{Rn_val:.2f} \\text{{ ksc}}")
+            st.latex(f"\\rho_{{req}} = {rho_val:.5f}")
+            st.latex(f"A_{{s,req}} = {As_req_val:.2f} \\text{{ cm}}^2, \\; A_{{s,min}} = {As_min_val:.2f} \\text{{ cm}}^2")
 
     # ----------------------------------------------------
-    # 🖼️ PART D: DRAWINGS
+    # 🖼️ PART D: DRAWINGS (Safe Mode)
     # ----------------------------------------------------
     st.write("---")
     st.markdown("### 📐 Professional Drawings")
     
-    try:
-        st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para, m_vals))
-    except Exception as e: st.warning(f"Plot Library Pending...")
-    
-    c1, c2 = st.columns(2)
-    try:
-        with c1:
-            st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
-        with c2:
-            st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
-    except:
-        pass
+    if HAS_PLOTS:
+        try:
+            st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para, m_vals))
+            c1, c2 = st.columns(2)
+            with c1: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
+            with c2: st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
+        except Exception as e:
+            st.warning(f"Plotting Error: {e}")
+    else:
+        st.info("ℹ️ `ddm_plots.py` not found or drawing module disabled. (Focus on Calc)")
