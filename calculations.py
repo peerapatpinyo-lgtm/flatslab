@@ -1,219 +1,150 @@
-#calculations.py
+# calculations.py
 import numpy as np
+import math
 
 # ==========================================
-# 1. EFM STIFFNESS CALCULATION (Original)
-# ==========================================
-def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
-    """
-    Calculate EFM Stiffness Parameters
-    c1, c2: Column dimension (cm) -> c1 is parallel to moment
-    L1, L2: Span length (m) -> L1 is parallel to moment
-    lc: Storey height (m)
-    """
-    Ec = 15100 * np.sqrt(fc) # ksc
-    
-    # Inertia (Use Gross Section)
-    Is = (L2*100 * h_slab**3)/12
-    Ic = (c2 * c1**3)/12
-    
-    # Stiffness K (Simplified)
-    Ks = 4 * Ec * Is / (L1*100)
-    Kc = 4 * Ec * Ic / (lc*100)
-    
-    # Torsional Kt (Simplified ACI)
-    x = min(c1, h_slab)
-    y = max(c1, h_slab)
-    
-    # Torsional Constant C
-    term1 = (1 - 0.63*(x/y))
-    C = term1 * (x**3 * y)/3
-    
-    # Kt Calculation
-    denom = (L2*100 * (1 - c2/(L2*100))**3)
-    if denom <= 0: denom = 0.01 # Prevent div by zero
-    Kt = 2 * (9 * Ec * C) / denom if denom != 0 else 0
-    
-    # Equivalent Stiffness (Kec)
-    sum_Kc = 2 * Kc # Assuming columns above and below
-    
-    if Kt == 0 or sum_Kc == 0: 
-        Kec = 0
-    else: 
-        Kec = 1 / (1/sum_Kc + 1/Kt)
-        
-    return Ks, Kc, Kt, Kec
-
-# ==========================================
-# 2. PUNCHING SHEAR (Original Check Single)
+# 1. PUNCHING SHEAR (Single Critical Section)
 # ==========================================
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     """
-    ACI 318 Punching Shear Check (Returns Detailed Dictionary)
-    Input: Vu (kg), fc (ksc), c1, c2 (cm), d (cm)
+    Check punching shear for a specific critical section.
+    Vu: Factored Shear Force (kg) - Calculated outside based on area
+    fc: f'c (ksc)
+    c1, c2: Column dimensions (cm)
+    d: Effective depth (cm)
+    col_type: 'interior', 'edge', 'corner'
     """
+    
     # 1. Critical Perimeter (bo)
-    b0 = 2*(c1+d) + 2*(c2+d)
+    # Simplified rectangular perimeter at d/2 from face
+    b0 = 2 * (c1 + d) + 2 * (c2 + d)
     
-    # 2. Parameters
-    beta = max(c1, c2) / min(c1, c2) if min(c1, c2) > 0 else 1.0
+    # 2. Beta (Ratio of long side to short side of column)
+    beta = max(c1, c2) / min(c1, c2)
     
-    # Mapping alpha_s based on ACI 318 (40 for interior, 30 for edge, 20 for corner)
-    alpha_s = 40 if col_type == "interior" else (30 if col_type == "edge" else 20)
+    # 3. Alpha_s (Constant based on location)
+    if col_type == "interior": alpha_s = 40
+    elif col_type == "edge": alpha_s = 30
+    else: alpha_s = 20
     
-    phi = 0.75
+    # 4. Concrete Capacity (Vc) - ACI 318
+    # We need smallest of 3 equations
+    sqrt_fc = np.sqrt(fc)
     
-    # 3. ACI 318 Formulas (in ksc unit approx)
-    # Eq 1: Geometry Effect (Aspect Ratio)
-    Vc1_stress = 0.53 * (1 + 2/beta) * np.sqrt(fc)
-    Vc1 = Vc1_stress * b0 * d
+    # Eq (a)
+    Vc1 = 0.53 * (1 + 2/beta) * sqrt_fc * b0 * d
     
-    # Eq 2: Large Perimeter Effect (Alpha_s)
-    Vc2_stress = 0.27 * ((alpha_s * d / b0) + 2) * np.sqrt(fc)
-    Vc2 = Vc2_stress * b0 * d
+    # Eq (b)
+    Vc2 = 0.27 * ((alpha_s * d / b0) + 2) * sqrt_fc * b0 * d
     
-    # Eq 3: Basic Strength
-    Vc3_stress = 1.06 * np.sqrt(fc)
-    Vc3 = Vc3_stress * b0 * d
+    # Eq (c)
+    Vc3 = 1.06 * sqrt_fc * b0 * d
     
-    # Nominal Strength (Smallest controls)
+    # Nominal Strength
     Vn = min(Vc1, Vc2, Vc3)
+    
+    # Design Strength
+    phi = 0.75
     Vc_design = phi * Vn
     
-    if Vc_design <= 0: 
-        ratio = 999
-        status = "FAIL"
-    else:
-        ratio = Vu / Vc_design
-        status = "PASS" if ratio <= 1.0 else "FAIL"
+    # Check
+    ratio = Vu / Vc_design if Vc_design > 0 else 999
+    status = "PASS" if ratio <= 1.0 else "FAIL"
     
-    # Return Dictionary for Detailed Report (Keep all keys, added alpha_s for UI)
     return {
-        "status": status,
-        "ratio": ratio,
-        "Vu": Vu,
-        "Vc_design": Vc_design,
-        "Vn": Vn,
-        "Vc1": Vc1,
-        "Vc2": Vc2,
-        "Vc3": Vc3,
-        "b0": b0,
-        "phi": phi,
-        "d": d,
-        "beta": beta,
-        "alpha_s": alpha_s # Added this for explicit display in app.py
+        "Vu": Vu, "d": d, "b0": b0, "beta": beta, "alpha_s": alpha_s,
+        "Vc1": Vc1, "Vc2": Vc2, "Vc3": Vc3, "Vn": Vn,
+        "Vc_design": Vc_design, "ratio": ratio, "status": status
     }
 
 # ==========================================
-# 2.1 NEW: DUAL PUNCHING CHECK (For Drop Panel)
+# 2. PUNCHING SHEAR (Dual Case for Drop Panel)
 # ==========================================
-def check_punching_dual_case(w_u, Lx, Ly, fc, cx, cy, d_col, d_slab, drop_w, drop_l, col_type):
+def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type):
     """
-    Perform 2-step Punching Shear Check for Drop Panel System:
-    1. Critical Section at Column Face (using d_col = slab + drop)
-    2. Critical Section at Drop Panel Edge (using d_slab = slab only)
+    Checks 2 critical sections:
+    1. Inner Section: d = d_drop (Total thickness), Perimeter around Column
+    2. Outer Section: d = d_slab (Slab thickness), Perimeter around Drop Panel
+    """
     
-    Returns the Governing (Worst) Case Dictionary with nested details.
+    # --- Case 1: Inner Section (at d/2 from Column) ---
+    # Load: Wu * (Total Area - Area inside critical section 1)
+    # Approx Critical Area 1
+    c1_d = c1 + d_drop
+    c2_d = c2 + d_drop
+    Ac1 = (c1_d/100) * (c2_d/100)
+    Vu1 = w_u * (Lx*Ly - Ac1)
+    
+    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type)
+    
+    # --- Case 2: Outer Section (at d/2 from Drop Panel) ---
+    # Load: Wu * (Total Area - Area inside critical section 2)
+    # Critical section is around the Drop Panel
+    # Dimensions of support are now drop_w and drop_l
+    drop_c1_d = drop_w + d_slab
+    drop_c2_d = drop_l + d_slab
+    Ac2 = (drop_c1_d/100) * (drop_c2_d/100)
+    Vu2 = w_u * (Lx*Ly - Ac2)
+    
+    # Note: For outer check, the "column" dimension is the Drop Panel dimension
+    res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type)
+    
+    # --- Combine Results ---
+    max_ratio = max(res1['ratio'], res2['ratio'])
+    status = "PASS" if max_ratio <= 1.0 else "FAIL"
+    
+    return {
+        "is_dual": True,
+        "status": status,
+        "ratio": max_ratio,
+        "check_1": res1,
+        "check_2": res2
+    }
+
+# ==========================================
+# 3. EFM STIFFNESS CALCULATIONS
+# ==========================================
+def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
     """
-    # --- Check 1: At Column Face (Thick Section) ---
-    c1_d = cx + d_col
-    c2_d = cy + d_col
-    area_crit_1 = (c1_d/100) * (c2_d/100)
-    Vu_1 = w_u * (Lx*Ly - area_crit_1)
-
-    res_1 = check_punching_shear(Vu_1, fc, cx, cy, d_col, col_type)
-    res_1['location'] = "Face of Column (Inner)"
-    res_1['b0_desc'] = f"{res_1['b0']:.2f} cm (d={d_col:.2f})"
-
-    # --- Check 2: At Drop Panel Edge (Thin Section) ---
-    # Treat the Drop Panel as a "Large Column"
-    c1_d_2 = drop_w + d_slab
-    c2_d_2 = drop_l + d_slab
-    area_crit_2 = (c1_d_2/100) * (c2_d_2/100)
-    Vu_2 = w_u * (Lx*Ly - area_crit_2)
-
-    res_2 = check_punching_shear(Vu_2, fc, drop_w, drop_l, d_slab, col_type)
-    res_2['location'] = "Face of Drop Panel (Outer)"
-    res_2['b0_desc'] = f"{res_2['b0']:.2f} cm (d={d_slab:.2f})"
-
-    # --- Compare & Return Governing Case ---
-    if res_1['ratio'] >= res_2['ratio']:
-        governing = res_1
-        note = "Critical at Column Face"
+    Calculate K_slab, K_col, K_ec (Torsional member) for EFM
+    Units: cm, kg
+    """
+    E_c = 15100 * np.sqrt(fc) # ksc
+    
+    # 1. Column Stiffness (Kc) - Simplified (Infinite Inertia not considered for simplicity)
+    # Ic = b*h^3 / 12
+    Ic = c2 * (c1**3) / 12
+    # Kc = 4EI / L (Fixed-Fixed assumption for intermediate floor)
+    lc_cm = lc * 100
+    Kc = 4 * E_c * Ic / lc_cm
+    # Total Kc (Above + Below)
+    Sum_Kc = 2 * Kc
+    
+    # 2. Slab Stiffness (Ks)
+    # Is = L2 * h^3 / 12
+    Is = (L2*100) * (h_slab**3) / 12
+    L1_cm = L1 * 100
+    Ks = 4 * E_c * Is / L1_cm
+    
+    # 3. Torsional Stiffness (Kt) -> Equivalent Column (Kec)
+    # This is complex. Using a simplified approximation for visual purpose.
+    # C = constant for torsional member
+    x = h_slab
+    y = c1 # approx width of torsion arm
+    C = (1 - 0.63 * x / y) * (x**3 * y) / 3
+    Kt = 9 * E_c * C / (L2*100 * (1 - c2/(L2*100))**3) # Very Rough Approx
+    
+    # Equivalent Stiffness Kec
+    # 1/Kec = 1/Sum_Kc + 1/Kt
+    if Kt > 0:
+        Kec = 1 / (1/Sum_Kc + 1/Kt)
     else:
-        governing = res_2
-        note = "Critical at Drop Panel Edge"
-
-    # Attach detailed checks to the return object for UI inspection
-    governing['check_1'] = res_1
-    governing['check_2'] = res_2
-    governing['note'] = note
-    governing['is_dual'] = True
-    
-    return governing
-
-# ==========================================
-# 3. REBAR DESIGN (Original)
-# ==========================================
-def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
-    """
-    Calculate Rebar with Min/Max Checks (Used by tab_ddm.py internal logic)
-    Returns: As_req, rho, note, status
-    """
-    # Min steel for slab (Shrinkage/Temperature rebar base on gross area)
-    rho_min = 0.0018
-    # Use approx h = d + 3.0 for min steel check area base
-    h_est = d_cm + 3.0 
-    As_min = rho_min * b_cm * h_est
-    
-    if Mu_kgm < 50: 
-        return As_min, rho_min, "Min Steel", "OK"
-    
-    Mu = Mu_kgm * 100 # kg-cm
-    phi = 0.90
-    
-    # Rn
-    Rn = Mu / (phi * b_cm * d_cm**2)
-    
-    # Rho limits (ACI 318)
-    # Determine beta1 for different concrete strengths
-    if fc <= 280:
-        beta1 = 0.85
-    else:
-        beta1 = max(0.65, 0.85 - 0.05 * (fc - 280) / 70)
+        Kec = Sum_Kc # rigid connection
         
-    rho_b = 0.85 * beta1 * (fc/fy) * (6120/(6120+fy))
-    rho_max = 0.75 * rho_b 
-    
-    try:
-        term = 1 - (2*Rn)/(0.85*fc)
-        if term < 0: 
-            return 999, rho_max, "Section Too Small", "FAIL"
-        rho_req = (0.85*fc/fy) * (1 - np.sqrt(term))
-    except:
-        return 999, rho_max, "Calc Error", "FAIL"
-    
-    # Compare with Min
-    if rho_req < rho_min:
-        rho_design = rho_min
-        note = "Controls (Min Steel)"
-    else:
-        rho_design = rho_req
-        note = "Controls (Flexure)"
-
-    As_req = rho_design * b_cm * d_cm
-    
-    status = "OK"
-    if rho_req > rho_max: 
-        status = "FAIL"
-        note = "Rho > Rho_max"
-        
-    return As_req, rho_design, note, status
-
-# [Add to calculations.py]
+    return Ks, Sum_Kc, Kt, Kec
 
 # ==========================================
-# 4. ONE-WAY SHEAR CHECK (Beam Action)
+# 4. ONE-WAY SHEAR CHECK (Beam Action) - [NEW]
 # ==========================================
 def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
     """
@@ -227,13 +158,14 @@ def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
     """
     # 1. Calculate Vu at critical section (d from support face)
     # Distance from center to critical section
+    # x_crit = (L/2) - (c/2) - d
     x_crit = (L_span / 2.0) - (c_support / 100.0 / 2.0) - (d_eff / 100.0)
     
     # Check if x_crit is valid (in case span is very short)
     if x_crit < 0: x_crit = 0
     
     # Shear Force (consider 1 m strip width)
-    # Vu = w_u * x_crit * 1.0
+    # Vu = w_u * x_crit * 1.0 (width)
     Vu_oneway = w_u * x_crit 
     
     # 2. Capacity Phi Vn
