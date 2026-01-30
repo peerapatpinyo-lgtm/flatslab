@@ -1,138 +1,164 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import viz_torsion  # <--- เรียกใช้ไฟล์วาดรูปที่เราเพิ่งสร้าง
+from viz_torsion import plot_torsion_member  # เรียกใช้ฟังก์ชันวาดรูปจากไฟล์ที่เราเพิ่งแก้
 
-def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
-    """
-    Main EFM Calculation & Visualization
-    """
-    st.header("3. Equivalent Frame Method (Visual Analysis)")
-    st.info("💡 การวิเคราะห์โครงสร้างเสมือนและตรวจสอบแรงบิด (Torsion)")
+def render_efm_tab():
+    st.header("Equivalent Frame Method (EFM) Analysis")
     st.markdown("---")
 
-    # --- 0. Data Prep ---
-    Ec = 15100 * np.sqrt(fc)
-    E_ksm = Ec * 10000
-    L1_m, L2_m, lc_m = L1, L2, lc
-    c1_cm, c2_cm, h_cm = c1_w, c2_w, h_slab
+    # --- 1. Inputs Section (รับค่า) ---
+    st.subheader("1. Design Parameters (กำหนดค่าออกแบบ)")
     
-    # Moment of Inertia
-    Ic = (c2_cm/100) * ((c1_cm/100)**3) / 12.0
-    Is = L2_m * ((h_cm/100)**3) / 12.0
+    col_in1, col_in2, col_in3 = st.columns(3)
+    
+    with col_in1:
+        st.markdown("**Geometry (มิติ)**")
+        L1 = st.number_input("Span Length L1 (ทิศทางวิเคราะห์) [m]", value=6.0, step=0.5)
+        L2 = st.number_input("Transverse Span L2 (ความกว้างแถบ) [m]", value=6.0, step=0.5)
+        h_slab = st.number_input("Slab Thickness (h) [cm]", value=20.0, step=1.0)
+        
+    with col_in2:
+        st.markdown("**Column Dimensions (ขนาดเสา)**")
+        c1 = st.number_input("Column c1 (Dimension // L1) [cm]", value=40.0, step=5.0)
+        c2 = st.number_input("Column c2 (Dimension // L2) [cm]", value=40.0, step=5.0)
+        col_h = st.number_input("Column Height (Lc) [m]", value=3.0, step=0.1)
 
-    # --- Determine Torsion Arms based on Column Type ---
-    # Logic: Corner = 1 Arm, Interior/Edge = 2 Arms
-    if col_type.lower() == 'corner':
+    with col_in3:
+        st.markdown("**Material (วัสดุ)**")
+        fc = st.number_input("f'c (Concrete Strength) [ksc]", value=240.0)
+        # Calculate E_c (Estimate)
+        Ec = 15100 * np.sqrt(fc) # ksc unit approximation
+        st.write(f"**Modulus Elasticity (Ec):** {Ec:,.0f} ksc")
+        col_loc = st.selectbox("Column Location (ตำแหน่งเสา)", ["Interior", "Edge", "Corner"])
+
+    st.markdown("---")
+
+    # --- 2. Calculation Core (คำนวณละเอียด) ---
+    
+    # Unit Conversion
+    L1_cm = L1 * 100
+    L2_cm = L2 * 100
+    Lc_cm = col_h * 100
+    
+    # 2.1 Column Stiffness (Kc)
+    # Inertia of Column
+    Ic = (c2 * c1**3) / 12
+    # Stiffness Kc (Assume Fixed-Fixed for simplicity factor = 4E)
+    # ACI usually considers infinite rigid arm, but here let's simplify to 4EI/L
+    Kc = (4 * Ec * Ic) / Lc_cm
+    # If Interior column, we have 2 columns (Above and Below), assume same size
+    Sum_Kc = 2 * Kc 
+
+    # 2.2 Slab Stiffness (Ks)
+    # Inertia of Slab (Full width L2)
+    Is = (L2_cm * h_slab**3) / 12
+    # Stiffness Ks (4EI/L)
+    Ks = (4 * Ec * Is) / L1_cm
+
+    # 2.3 Torsional Member Stiffness (Kt) - The Critical Part
+    # Torsional member is the strip of slab perpendicular to the frame.
+    # Cross section: width = c1, height = h_slab
+    # (Checking if beam exists? Assume flat plate -> just slab strip)
+    x = min(c1, h_slab)
+    y = max(c1, h_slab)
+    
+    # Torsional Constant C
+    # Formula: C = sum( (1 - 0.63(x/y)) * (x^3 * y) / 3 )
+    C_val = (1 - 0.63 * (x/y)) * (x**3 * y) / 3
+    
+    # Kt Formula (ACI 318)
+    # Kt = sum ( 9 * Ec * C / (L2 * (1 - c2/L2)**3) )
+    # Check arm count
+    if col_loc == "Interior":
+        num_arms = 2 # Left and Right of column
+    elif col_loc == "Edge":
+        num_arms = 2 # Assuming edge is along L1, so transverse still has torsion? 
+        # Actually for standard Edge Column analysis (Perpendicular to edge), Kt has 2 arms (torsion sides).
+        # But if analyzing Parallel to edge, it might differ. Let's assume standard 2 arms for torsion strip at edge.
+        num_arms = 2 
+    else: # Corner
         num_arms = 1
-        arm_desc = "1 Side (Corner Condition)"
+
+    term_geom = L2_cm * (1 - (c2/L2_cm))**3
+    if term_geom == 0: term_geom = 1 # prevent div/0
+    Kt_one_arm = (9 * Ec * C_val) / term_geom
+    Kt = num_arms * Kt_one_arm
+
+    # 2.4 Equivalent Column Stiffness (Kec)
+    # Formula: 1/Kec = 1/Sum_Kc + 1/Kt
+    if Kt == 0:
+        Kec = 0
     else:
-        num_arms = 2
-        arm_desc = "2 Sides (Interior/Edge Condition)"
+        inv_Kec = (1 / Sum_Kc) + (1 / Kt)
+        Kec = 1 / inv_Kec
 
-    with st.expander("📋 Design Parameters", expanded=False):
-        st.write(f"- Load: {w_u:,.0f} kg/m²")
-        st.write(f"- Span: {L1_m} m x {L2_m} m")
-        st.write(f"- Member: Col {c1_cm}x{c2_cm} cm, Slab {h_cm} cm")
-        st.write(f"- **Torsion Condition:** {col_type.capitalize()} -> {arm_desc}")
+    # 2.5 Distribution Factors (DF)
+    # DF_slab = Ks / (Ks + Kec)
+    # DF_col = Kec / (Ks + Kec) (Distributed to equivalent column)
+    Sum_K_joint = Ks + Kec
+    DF_slab = Ks / Sum_K_joint
+    DF_col = Kec / Sum_K_joint # This goes to the equivalent column structure
 
-    # =========================================================================
-    # STEP 1: VISUALIZATION & STIFFNESS
-    # =========================================================================
-    st.subheader("Step 1: Torsional Stiffness Analysis")
-
-    # 1. แสดงรูปภาพจากไฟล์ viz_torsion
-    col_viz, col_calc = st.columns([1.5, 1])
+    # --- 3. Display Results (Layout จัดเต็ม) ---
     
-    with col_viz:
-        st.markdown("**Visualization:**")
-        # เรียกใช้ฟังก์ชันวาดรูปจากไฟล์แยก
-        fig = viz_torsion.plot_torsion_member(col_type.lower(), c1_cm, c2_cm, h_cm, L1_m, L2_m)
-        st.pyplot(fig, use_container_width=True)
+    col_res_text, col_res_viz = st.columns([1, 1.2])
 
-    with col_calc:
-        st.markdown("**Calculation ($K_t$):**")
+    with col_res_text:
+        st.subheader("2. Detailed Calculations")
         
-        # Calculate C
-        x, y = h_cm, c1_cm
-        C_val = (1 - 0.63 * x / y) * (x**3 * y) / 3.0
-        
-        # Calculate Kt (one arm)
-        Kt_one = 9 * E_ksm * (C_val/1e8) / (L2_m * ((1 - (c2_cm/100)/L2_m)**3))
-        
-        # Calculate Total Kt
-        Kt_total = Kt_one * num_arms
-        
-        st.latex(r"C = \left(1-0.63\frac{x}{y}\right)\frac{x^3y}{3}")
-        st.write(f"- $C = {C_val:,.0f} \\text{{ cm}}^4$")
-        st.write(f"- $K_{{t,arm}} = {Kt_one:,.0f}$")
-        st.markdown("---")
-        st.write(f"**Total Arms:** {num_arms}")
-        st.latex(f"K_t = {num_arms} \\times {Kt_one:,.0f}")
-        st.latex(f"K_t = \\mathbf{{{Kt_total:,.2e}}}")
+        # Step 1: Column
+        with st.expander("Step 1: Column Stiffness ($K_c$)", expanded=True):
+            st.latex(r"I_c = \frac{c_2 \cdot c_1^3}{12}")
+            st.write(f"- $I_c$: {Ic:,.0f} cm⁴")
+            st.write(f"- $\sum K_c$ (Above + Below): **{Sum_Kc:,.0f}** ksc·cm")
 
-    # =========================================================================
-    # STEP 2: SUMMARY K & DF
-    # =========================================================================
-    st.markdown("---")
-    st.subheader("Step 2: Distribution Factors (DF)")
-    
-    Kc = 4 * E_ksm * Ic / lc_m
-    Sum_Kc = 2 * Kc
-    Ks = 4 * E_ksm * Is / L1_m
-    
-    # Equivalent Column Stiffness (Kec)
-    if Kt_total > 0:
-        Kec = 1 / (1/Sum_Kc + 1/Kt_total)
-    else:
-        Kec = 0 # Should not happen in normal design
-    
-    # DF Calculation
-    if col_type == 'edge': 
-        sum_k = Ks + Kec
-    else: 
-        sum_k = 2*Ks + Kec # Interior
-        
-    df_slab = Ks/sum_k
-    
-    col_k1, col_k2, col_k3 = st.columns(3)
-    col_k1.metric("Sum Kc", f"{Sum_Kc:,.2e}")
-    col_k2.metric("Kec (Equiv)", f"{Kec:,.2e}")
-    col_k3.metric("DF Slab", f"{df_slab:.3f}")
+        # Step 2: Slab
+        with st.expander("Step 2: Slab-Beam Stiffness ($K_s$)", expanded=True):
+            st.latex(r"I_s = \frac{L_2 \cdot h^3}{12}")
+            st.write(f"- $I_s$: {Is:,.0f} cm⁴")
+            st.write(f"- $K_s$: **{Ks:,.0f}** ksc·cm")
 
-    # =========================================================================
-    # STEP 3: MOMENTS
-    # =========================================================================
-    st.markdown("---")
-    st.subheader("Step 3: Design Moments")
-    
-    w_line = w_u * L2_m
-    FEM_val = w_line * (L1_m**2) / 12.0
-    
-    # Simplified Moment Distribution for one joint
-    if col_type == 'interior':
-        Unbal = FEM_val - (0.5 * w_line * L1_m**2 / 12.0) # Assume adjacent span 50% load diff
-        Dist = -1 * Unbal * df_slab
-        M_cl_neg = FEM_val + Dist
-    else:
-        Unbal = FEM_val
-        Dist = -1 * Unbal * df_slab
-        M_cl_neg = FEM_val + Dist
-        
-    # Face of support correction
-    c1_m = c1_cm / 100.0
-    Vu_sup = w_line * L1_m / 2.0
-    M_red = (Vu_sup * c1_m/2) - (w_line * (c1_m/2)**2 / 2.0)
-    M_face = M_cl_neg - M_red
-    
-    M_simple = w_line * (L1_m**2) / 8.0
-    M_pos = M_simple - (M_face if col_type=='interior' else (M_face+0)/2)
+        # Step 3: Torsional Member (ไฮไลท์ส่วนที่เคยหายไป)
+        with st.expander("Step 3: Torsional Member ($K_t$)", expanded=True):
+            st.markdown(f"Cross-section for Torsion: **{x:.0f} x {y:.0f} cm**")
+            st.latex(r"C = \left(1 - 0.63 \frac{x}{y}\right) \frac{x^3 y}{3}")
+            st.write(f"- Torsional Constant ($C$): **{C_val:,.0f} cm⁴**")
+            st.latex(r"K_t = \sum \frac{9 E_c C}{L_2 (1 - c_2/L_2)^3}")
+            st.write(f"- $K_t$ (Total): **{Kt:,.0f}** ksc·cm")
 
-    # Show Result Table
-    res_data = {
-        "Type": ["Negative Moment (M-)", "Positive Moment (M+)"],
-        "Value at CL": [f"{M_cl_neg:,.0f}", "-"],
-        "Value at Face": [f"**{M_face:,.0f}**", f"**{M_pos:,.0f}**"]
-    }
-    st.table(pd.DataFrame(res_data))
-    st.caption("*หน่วย: kg-m")
+        # Step 4: Equivalent Column
+        with st.expander("Step 4: Equivalent Stiffness ($K_{ec}$)", expanded=True):
+            st.latex(r"\frac{1}{K_{ec}} = \frac{1}{\sum K_c} + \frac{1}{K_t}")
+            st.metric("Kec (Equivalent Column)", f"{Kec:,.0f}", "ksc·cm")
+
+    with col_res_viz:
+        st.subheader("3. Visualization & Results")
+        
+        # Call the Improved Visualization
+        col_type_key = col_loc.lower()
+        fig = plot_torsion_member(col_type_key, c1, c2, h_slab, L1, L2)
+        st.pyplot(fig)
+        
+        st.markdown("### Final Distribution Factors (DF)")
+        
+        # Create a nice summary table
+        df_results = pd.DataFrame({
+            "Component": ["Slab ($K_s$)", "Equivalent Column ($K_{ec}$)"],
+            "Stiffness (ksc·cm)": [f"{Ks:,.0f}", f"{Kec:,.0f}"],
+            "DF (Distribution Factor)": [f"{DF_slab:.3f}", f"{DF_col:.3f}"],
+            "Ratio (%)": [f"{DF_slab*100:.1f}%", f"{DF_col*100:.1f}%"]
+        })
+        
+        st.table(df_results)
+        
+        st.info("""
+        **Interpretation:**
+        * **High $K_{ec}$**: The connection is stiff (Moment transfers to column).
+        * **Low $K_{ec}$**: The connection is flexible (More moment stays in slab).
+        * $K_t$ significantly reduces the effective stiffness of the column.
+        """)
+
+# Helper to run standalone for testing
+if __name__ == "__main__":
+    render_efm_tab()
