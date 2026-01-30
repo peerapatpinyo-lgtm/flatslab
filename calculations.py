@@ -1,5 +1,51 @@
 import numpy as np
 
+# ==========================================
+# 1. EFM STIFFNESS CALCULATION (ที่หายไป)
+# ==========================================
+def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
+    """
+    Calculate EFM Stiffness Parameters
+    c1, c2: Column dimension (cm) -> c1 is parallel to moment
+    L1, L2: Span length (m) -> L1 is parallel to moment
+    lc: Storey height (m)
+    """
+    Ec = 15100 * np.sqrt(fc) # ksc
+    
+    # Inertia (Use Gross Section)
+    Is = (L2*100 * h_slab**3)/12
+    Ic = (c2 * c1**3)/12
+    
+    # Stiffness K (Simplified)
+    Ks = 4 * Ec * Is / (L1*100)
+    Kc = 4 * Ec * Ic / (lc*100)
+    
+    # Torsional Kt (Simplified ACI)
+    x = min(c1, h_slab)
+    y = max(c1, h_slab)
+    
+    # Torsional Constant C
+    term1 = (1 - 0.63*(x/y))
+    C = term1 * (x**3 * y)/3
+    
+    # Kt Calculation
+    denom = (L2*100 * (1 - c2/(L2*100))**3)
+    if denom <= 0: denom = 0.01 # Prevent div by zero
+    Kt = 2 * (9 * Ec * C) / denom if denom != 0 else 0
+    
+    # Equivalent Stiffness (Kec)
+    sum_Kc = 2 * Kc # Assuming columns above and below
+    
+    if Kt == 0 or sum_Kc == 0: 
+        Kec = 0
+    else: 
+        Kec = 1 / (1/sum_Kc + 1/Kt)
+        
+    return Ks, Kc, Kt, Kec
+
+# ==========================================
+# 2. PUNCHING SHEAR (แบบละเอียด)
+# ==========================================
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     """
     ACI 318 Punching Shear Check (Returns Detailed Dictionary)
@@ -54,6 +100,9 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
         "alpha_s": alpha_s
     }
 
+# ==========================================
+# 3. REBAR DESIGN (สำหรับ DDM)
+# ==========================================
 def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
     """
     Calculate Rebar with Min/Max Checks (Used by tab_ddm.py internal logic)
@@ -61,7 +110,9 @@ def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
     """
     # Min steel for slab
     rho_min = 0.0018
-    As_min = rho_min * b_cm * (d_cm + 3.0) # approx h based on d
+    # Use approx h = d + 3.0 for min steel check area base
+    h_est = d_cm + 3.0 
+    As_min = rho_min * b_cm * h_est
     
     if Mu_kgm < 50: 
         return As_min, rho_min, "Min Steel", "OK"
