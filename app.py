@@ -1,114 +1,125 @@
+# app.py (Refactored Version Preview)
 import streamlit as st
 import numpy as np
 
 # Import Modules
-from calculations import check_punching_shear
+# (รอคุณส่งไฟล์มา ผมจะเช็คว่าฟังก์ชันชื่ออะไรแน่)
+from calculations import check_punching_shear, calculate_rebar
 import tab_drawings
 import tab_ddm
 import tab_efm
 
 st.set_page_config(page_title="Pro Flat Slab Design", layout="wide", page_icon="🏗️")
+
+# CSS Styles
 st.markdown("""
 <style>
-    .success-box { background-color: #d1e7dd; padding: 15px; border-radius: 5px; border-left: 5px solid #198754; color: #0f5132; }
-    .fail-box { background-color: #f8d7da; padding: 15px; border-radius: 5px; border-left: 5px solid #dc3545; color: #842029; }
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] { font-weight: bold; }
+    .metric-card { background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; }
+    .success-box { background-color: #d1e7dd; padding: 10px; border-radius: 5px; color: #0f5132; border-left: 5px solid #198754; }
+    .fail-box { background-color: #f8d7da; padding: 10px; border-radius: 5px; color: #842029; border-left: 5px solid #dc3545; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================
-# INPUTS: GLOBAL GEOMETRY
+# 1. INPUTS
 # ==========================
-st.sidebar.title("🏗️ Project Params")
+st.sidebar.header("🏗️ Project Parameters")
 
-with st.sidebar.expander("1. Material & Section", expanded=True):
-    fc = st.number_input("f'c (ksc)", 240.0, step=10.0)
-    fy = st.number_input("fy (ksc)", 4000.0, step=100.0)
-    h_slab = st.number_input("Slab Thickness (cm)", 20.0, step=1.0)
-    cover = st.number_input("Cover (cm)", 2.5)
-    d_bar = st.selectbox("Rebar DB (mm)", [12, 16, 20, 25], index=1)
-
-with st.sidebar.expander("2. Geometry (Plan View)", expanded=True):
-    st.info("ระบุขนาดจริงตามแกน X และ Y")
-    Lx = st.number_input("Lx: Span along X (m)", 8.0)
-    Ly = st.number_input("Ly: Span along Y (m)", 6.0)
-    lc = st.number_input("Storey Height (m)", 3.0)
+with st.sidebar.expander("Material Properties", expanded=True):
+    fc = st.number_input("f'c (ksc)", value=240.0, step=10.0)
+    fy = st.number_input("fy (ksc)", value=4000.0, step=100.0)
     
-    st.write("--- Column Size ---")
-    cx = st.number_input("cx: Dimension // X (cm)", 40.0)
-    cy = st.number_input("cy: Dimension // Y (cm)", 60.0)
+with st.sidebar.expander("Geometry (Slab & Column)", expanded=True):
+    h_slab_cm = st.number_input("Slab Thickness (cm)", value=20.0)
+    cover_cm = st.number_input("Concrete Cover (cm)", value=2.5)
+    
+    col1, col2 = st.columns(2)
+    Lx = col1.number_input("Span Lx (m)", value=8.0)
+    Ly = col2.number_input("Span Ly (m)", value=6.0)
+    
+    col3, col4 = st.columns(2)
+    cx_cm = col3.number_input("Col X (cm)", value=40.0)
+    cy_cm = col4.number_input("Col Y (cm)", value=60.0)
+    
+    lc = st.number_input("Column Height (m)", value=3.0)
 
-with st.sidebar.expander("3. Loads", expanded=True):
-    SDL = st.number_input("SDL (kg/m²)", 150.0)
-    LL = st.number_input("Live Load (kg/m²)", 300.0)
-
-# ==========================
-# CALCULATION LOGIC (DUAL AXIS)
-# ==========================
-# Constants
-d_eff = h_slab - cover - (d_bar/20.0)
-w_self = (h_slab/100)*2400
-w_u = 1.2*(w_self + SDL) + 1.6*LL
-
-# --- Direction X Calculation ---
-# Design Span = Lx, Width = Ly, Col Parallel = cx
-ln_x = Lx - cx/100
-Mo_x = (w_u * Ly * ln_x**2) / 8
-M_vals_x = {
-    "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25,
-    "M_cs_pos": 0.35 * Mo_x * 0.60, "M_ms_pos": 0.35 * Mo_x * 0.40
-}
-
-# --- Direction Y Calculation ---
-# Design Span = Ly, Width = Lx, Col Parallel = cy
-ln_y = Ly - cy/100
-Mo_y = (w_u * Lx * ln_y**2) / 8
-M_vals_y = {
-    "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25,
-    "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40
-}
-
-# Punching Shear Check
-c1_d = cx + d_eff
-c2_d = cy + d_eff
-area_crit = (c1_d/100) * (c2_d/100)
-Vu_punch = w_u * (Lx*Ly - area_crit)
-Vc_punch, ratio_punch, status_punch, _ = check_punching_shear(Vu_punch, fc, cx, cy, d_eff)
+with st.sidebar.expander("Loads", expanded=True):
+    SDL = st.number_input("Superimposed DL (kg/m²)", value=150.0)
+    LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
 # ==========================
-# DASHBOARD & TABS
+# 2. PRE-CALCULATION (UNIT CONVERSION)
 # ==========================
-st.title("Pro Flat Slab Design System (Dual-Axis)")
+# Convert everything to Meters and kg
+h = h_slab_cm / 100.0
+cx = cx_cm / 100.0
+cy = cy_cm / 100.0
+cover = cover_cm / 100.0
 
-# Dashboard (Punching Shear is mostly independent of direction)
-col_d1, col_d2, col_d3 = st.columns(3)
-with col_d1:
-    if status_punch == "PASS":
-        st.markdown(f"<div class='success-box'>✅ <b>Punching: SAFE</b><br>Ratio: {ratio_punch:.2f}</div>", unsafe_allow_html=True)
+# Effective Depth (Average for Punching, Specific for Flexure)
+# Assume Rebar DB20 for initial calculation (0.02m)
+db_est = 0.020 
+d_avg = h - cover - db_est  # Average d for punching shear
+
+# Loads
+w_self = h * 2400  # kg/m^2 (Conc density 2400)
+wu = 1.4*w_self + 1.7*LL  # ACI Factors (Or 1.2D+1.6L based on code year)
+# Let's stick to your code: 1.2D + 1.6L
+wu = 1.2*(w_self + SDL) + 1.6*LL
+
+# ==========================
+# 3. CORE LOGIC
+# ==========================
+
+# --- Punching Shear (Two-Way Action) ---
+# Critical Perimeter b0
+b1 = cx + d_avg # Width + d
+b2 = cy + d_avg # Depth + d
+bo = 2 * (b1 + b2) # Perimeter
+Area_crit = b1 * b2
+
+# Shear Force at Column
+Vu = wu * (Lx * Ly - Area_crit) 
+
+# Call External Function (Need to check arguments in your file)
+# Sending values in kg and meters
+punching_res = check_punching_shear(Vu, fc, cx_cm, cy_cm, d_avg*100) 
+# Note: I kept units consistent with your function call likely expecting cm/kg
+
+# ==========================
+# 4. DASHBOARD
+# ==========================
+st.title("Pro Flat Slab Design System")
+
+# Top Metrics
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Factored Load (Wu)", f"{wu:,.0f} kg/m²")
+m2.metric("Total Load on Col", f"{Vu/1000:,.1f} tons")
+m3.metric("Effective d (avg)", f"{d_avg*100:.1f} cm")
+
+with m4:
+    if punching_res[2] == "PASS": # Status
+        st.markdown(f"<div class='success-box'>✅ Punching OK<br>Ratio: {punching_res[1]:.2f}</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='fail-box'>❌ <b>Punching: FAIL</b><br>Ratio: {ratio_punch:.2f}</div>", unsafe_allow_html=True)
-with col_d2:
-    h_min = max(Lx, Ly)*100 / 33.0
-    status_h = "OK" if h_slab >= h_min else "CHECK"
-    st.info(f"Min Thick (ACI): {h_min:.1f} cm")
-with col_d3:
-    st.metric("Factored Load (Wu)", f"{w_u:,.0f} kg/m²")
+        st.markdown(f"<div class='fail-box'>❌ Punching FAIL<br>Ratio: {punching_res[1]:.2f}</div>", unsafe_allow_html=True)
 
-st.markdown("---")
+st.divider()
 
-tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings", "2️⃣ DDM Calculation (X & Y)", "3️⃣ EFM Stiffness"])
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📊 1. Analysis (DDM)", "✏️ 2. Detailing & Drawings", "🧮 3. Advanced (EFM)"])
 
 with tab1:
-    # Use X geometry for drawing (Generic)
-    tab_drawings.render(Lx, Ly, cx, cy, h_slab, lc, cover, d_eff, M_vals_x)
+    # Prepare Data Dictionary to pass cleanly
+    project_data = {
+        "Lx": Lx, "Ly": Ly, "cx": cx, "cy": cy,
+        "wu": wu, "fc": fc, "fy": fy, 
+        "h": h, "d_avg": d_avg
+    }
+    # You can render Dual Axis here directly
+    tab_ddm.render_dual(project_data) 
 
 with tab2:
-    # Send BOTH X and Y data to Tab 2
-    data_x = {"L_span": Lx, "L_width": Ly, "c_para": cx, "ln": ln_x, "Mo": Mo_x, "M_vals": M_vals_x, "dir": "X-Direction"}
-    data_y = {"L_span": Ly, "L_width": Lx, "c_para": cy, "ln": ln_y, "Mo": Mo_y, "M_vals": M_vals_y, "dir": "Y-Direction"}
-    
-    tab_ddm.render_dual(data_x, data_y, h_slab, d_eff, fc, fy, d_bar, w_u)
+    tab_drawings.render(Lx, Ly, cx_cm, cy_cm, h_slab_cm)
 
 with tab3:
-    tab_efm.render(cx, cy, Lx, Ly, lc, h_slab, fc)
+    tab_efm.render(cx, cy, Lx, Ly, lc, h, fc)
