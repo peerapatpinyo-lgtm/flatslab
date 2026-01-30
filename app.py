@@ -1,10 +1,11 @@
-#app.py
+# app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
 
 # Import Modules
-from calculations import check_punching_shear, check_punching_dual_case
+# [UPDATED] Added check_oneway_shear to imports
+from calculations import check_punching_shear, check_punching_dual_case, check_oneway_shear
 import tab_ddm  # The interactive one
 import tab_drawings # Placeholder
 import tab_efm      # Placeholder
@@ -66,6 +67,13 @@ with st.sidebar.expander("2. Geometry & Drop Panel", expanded=True):
         drop_w = c_d1.number_input("Drop Width X (cm)", 250.0, help="Dimension parallel to Lx")
         drop_l = c_d2.number_input("Drop Length Y (cm)", 200.0, help="Dimension parallel to Ly")
 
+        # [UPDATED] Option to use Drop Panel as Support Face for ln calculation
+        st.markdown("---")
+        use_drop_as_support = st.checkbox("Use Drop Panel as Support Face?", 
+                                          help="ถ้าติ๊ก จะวัดระยะ Clear Span (ln) จากขอบ Drop Panel (Aggressive). ถ้าไม่ติ๊ก จะวัดจากขอบเสา (Conservative).")
+    else:
+        use_drop_as_support = False
+
 # --- Group 3: Loads ---
 with st.sidebar.expander("3. Loads", expanded=True):
     SDL = st.number_input("SDL (kg/m²)", 150.0)
@@ -91,22 +99,40 @@ d_eff_total = (h_slab + h_drop) - cover - (d_bar/20.0)
 # 3. ANALYSIS LOGIC
 # ==========================
 
+# --- [UPDATED] Determine Effective Support Dimension for Span Calculation ---
+# ถ้าเลือกใช้ Drop Panel เป็น Support ให้ใช้ขนาด Drop, ถ้าไม่ ให้ใช้ขนาดเสา
+eff_cx = drop_w if (has_drop and use_drop_as_support) else cx
+eff_cy = drop_l if (has_drop and use_drop_as_support) else cy
+
 # --- Moment Calculation (DDM) ---
-ln_x = Lx - cx/100
+# ใช้ eff_cx / eff_cy ในการคิด ln
+ln_x = Lx - eff_cx/100
 Mo_x = (w_u * Ly * ln_x**2) / 8
 M_vals_x = {
     "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25,
     "M_cs_pos": 0.35 * Mo_x * 0.60, "M_ms_pos": 0.35 * Mo_x * 0.40
 }
 
-ln_y = Ly - cy/100
+ln_y = Ly - eff_cy/100
 Mo_y = (w_u * Lx * ln_y**2) / 8
 M_vals_y = {
     "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25,
     "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40
 }
 
-# --- Punching Shear Check (SMART SWITCH) ---
+# --- [NEW] One-Way Shear Check (Beam Action) ---
+# เช็ค 2 แกน และเลือกค่าที่วิกฤตสุด (Beam Shear usually checked at d from support)
+v_oneway_x = check_oneway_shear(w_u, Lx, Ly, cx, d_eff_slab, fc)
+v_oneway_y = check_oneway_shear(w_u, Ly, Lx, cy, d_eff_slab, fc)
+
+if v_oneway_x['ratio'] > v_oneway_y['ratio']:
+    v_oneway_res = v_oneway_x
+    v_oneway_dir = "X-Dir"
+else:
+    v_oneway_res = v_oneway_y
+    v_oneway_dir = "Y-Dir"
+
+# --- Punching Shear Check ---
 if has_drop:
     punch_res = check_punching_dual_case(
         w_u, Lx, Ly, fc, cx, cy, 
@@ -126,19 +152,27 @@ else:
 # ==========================
 st.title("Pro Flat Slab Design System (Dual-Axis)")
 
-# --- Top Dashboard ---
-col_d1, col_d2, col_d3 = st.columns(3)
+# --- Top Dashboard [UPDATED Layout] ---
+col_d1, col_d2, col_d3, col_d4 = st.columns(4) # เพิ่มเป็น 4 คอลัมน์
+
 with col_d1:
     if punch_res['status'] == "PASS":
         st.markdown(f"<div class='success-box'>✅ <b>Punching: SAFE</b><br>Ratio: {punch_res['ratio']:.2f}</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='fail-box'>❌ <b>Punching: FAIL</b><br>Ratio: {punch_res['ratio']:.2f}</div>", unsafe_allow_html=True)
 
+# [NEW] One-Way Shear Box
 with col_d2:
-    h_min = max(Lx, Ly)*100 / 33.0
-    st.info(f"Min Thick (ACI L/33): {h_min:.1f} cm (Current: {h_slab:.0f} cm)")
+    if v_oneway_res['status'] == "PASS":
+        st.markdown(f"<div class='success-box'>✅ <b>1-Way Shear: SAFE</b><br>Ratio: {v_oneway_res['ratio']:.2f}<br><small>({v_oneway_dir})</small></div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='fail-box'>❌ <b>1-Way Shear: FAIL</b><br>Ratio: {v_oneway_res['ratio']:.2f}<br><small>({v_oneway_dir})</small></div>", unsafe_allow_html=True)
 
 with col_d3:
+    h_min = max(Lx, Ly)*100 / 33.0
+    st.info(f"Min Thick (ACI L/33): {h_min:.1f} cm\n(Actual: {h_slab:.0f} cm)")
+
+with col_d4:
     st.metric("Factored Load (Wu)", f"{w_u:,.0f} kg/m²")
 
 # ==========================
@@ -276,6 +310,7 @@ tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings", "2️⃣ DDM Calculation (Intera
 
 with tab1:
     try:
+        # Pass moment values for visualization
         tab_drawings.render(L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, d_eff=d_eff_slab, moment_vals=M_vals_x)
     except Exception as e:
         st.info(f"Drawing module error: {e}")
