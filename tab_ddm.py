@@ -1,241 +1,219 @@
+# tab_ddm.py
 import streamlit as st
 import pandas as pd
 import numpy as np
+from calculations import design_rebar_detailed
 
-# ลองนำเข้า ddm_plots ถ้าไม่มีให้ข้ามอย่างปลอดภัย
-try:
-    import ddm_plots 
-    HAS_PLOTS = True
-except ImportError:
-    HAS_PLOTS = False
+def render_rebar_selector(label, default_spacing, key_suffix):
+    """Helper to create consistent rebar selectors"""
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        spacing = st.slider(f"Spacing @ {label} (cm)", 10.0, 30.0, default_spacing, 2.5, key=f"sp_{key_suffix}")
+    with c2:
+        # Just visualization of the selection
+        st.write(f"👉 Use DB-@ {spacing:.1f} cm")
+    return spacing
 
-# ========================================================
-# 1. MAIN ENTRY POINT
-# ========================================================
-def render_dual(data_x, data_y, mat_props, w_u):
+def render_calculation_step(title, Mu, b, d, fc, fy, spacing, d_bar):
     """
-    ฟังก์ชันหลักที่ถูกเรียกจาก app.py
-    รับค่าคุณสมบัติวัสดุและสร้าง Tabs สำหรับคำนวณ 2 ทิศทาง
+    Renders a highly detailed, step-by-step calculation block for one strip.
     """
-    h_slab = mat_props['h_slab']
-    fc = mat_props['fc']
-    fy = mat_props['fy']
-    cover = mat_props['cover']
+    # 1. Calculate Required Steel
+    As_req, rho_req, note, status_calc = design_rebar_detailed(Mu, b, d, fc, fy)
     
-    st.markdown("## 2. Interactive Direct Design Method")
-    st.info("💡 **Design Mode:** Complete analysis (ACI 318 / EIT Standards).")
-
-    # สร้าง Tab แยกทิศทาง X และ Y
-    tab_x, tab_y = st.tabs([
-        f"↔️ Design X-Dir ({data_x['L_span']}m)", 
-        f"↕️ Design Y-Dir ({data_y['L_span']}m)"
-    ])
+    # 2. Calculate Provided Steel
+    As_provided = (np.pi * (d_bar/10)**2 / 4) * (100 / spacing) * (b/100) # Total As in width b
     
-    with tab_x:
-        # แกน X มักเป็นเหล็กชั้นนอก (Layer 1) ค่า d จะมากกว่า
-        render_interactive_direction(data_x, h_slab, cover, fc, fy, "X", w_u, is_main_dir=True)
-    with tab_y:
-        # แกน Y มักเป็นเหล็กชั้นใน (Layer 2) ค่า d จะต้องลบออกอีก 1 db
-        render_interactive_direction(data_y, h_slab, cover, fc, fy, "Y", w_u, is_main_dir=False)
+    # 3. Design Check
+    dc_status = "OK" if As_provided >= As_req else "FAIL"
+    dc_color = "green" if dc_status == "OK" else "red"
+    
+    # --- RENDER DISPLAY ---
+    st.markdown(f"**{title}**")
+    
+    # A. Load Info
+    st.markdown(f"""
+    - Moment ($M_u$): **{Mu:,.0f} kg-m**
+    - Strip Width ($b$): {b:.0f} cm
+    - Effective Depth ($d$): {d:.2f} cm
+    """)
+    
+    # B. Detailed Math (Expandable)
+    with st.expander(f"📝 ดูรายการคำนวณละเอียด ({title})"):
+        st.markdown("##### 1. Flexural Design Parameters")
+        st.latex(r"R_n = \frac{M_u}{\phi b d^2}")
+        
+        # Calculate Rn for display
+        phi = 0.90
+        Rn = (Mu * 100) / (phi * b * d**2)
+        st.latex(f"R_n = \\frac{{{Mu*100:,.0f}}}{{0.9 \\times {b:.0f} \\times {d:.2f}^2}} = {Rn:.2f} \\text{{ ksc}}")
+        
+        st.markdown("##### 2. Reinforcement Ratio ($\\rho$)")
+        st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
+        
+        if status_calc == "FAIL":
+            st.error(f"Calculation Error: {note}")
+        else:
+            st.write(f"Calculated $\\rho_{{req}}$ = {rho_req:.5f}")
+            st.write(f"*(Note: Controls by {note})*")
+            
+            st.markdown("##### 3. Required Steel Area ($A_s$)")
+            st.latex(r"A_{s,req} = \rho b d")
+            st.latex(f"A_{{s,req}} = {rho_req:.5f} \\times {b:.0f} \\times {d:.2f} = \\mathbf{{{As_req:.2f}}} \\text{{ cm}}^2")
 
-# ========================================================
-# 2. CALCULATION & UI
-# ========================================================
-def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_main_dir):
-    # ดึงข้อมูลจาก Dictionary
+    # C. Conclusion & User Selection Check
+    st.markdown(f"""
+    <div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid {dc_color};'>
+        <div style='display: flex; justify-content: space-between;'>
+            <span>Required $A_s$: <b>{As_req:.2f}</b> cm²</span>
+            <span>Provided $A_s$ (DB{d_bar}@{spacing}): <b>{As_provided:.2f}</b> cm²</span>
+        </div>
+        <div style='margin-top: 5px; font-weight: bold; color: {dc_color};'>
+            Status: {dc_status} (Ratio: {As_provided/As_req if As_req > 0 else 99:.2f})
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    return {
+        "Location": title,
+        "Mu (kg-m)": Mu,
+        "As Req (cm2)": As_req,
+        "As Prov (cm2)": As_provided,
+        "Status": dc_status
+    }
+
+def render_direction_tab(direction_name, data, mat, w_u):
+    """
+    Renders the complete design page for one direction (X or Y)
+    """
+    # Unpack Data
     L_span = data['L_span']
     L_width = data['L_width']
-    c_para = data['c_para']
+    ln = data['ln']
     Mo = data['Mo']
-    m_vals = data['M_vals']
+    M_vals = data['M_vals']
     
-    # คำนวณความกว้าง Strip (ตาม ACI 318)
-    w_cs = min(L_span, L_width) / 2.0
-    w_ms = L_width - w_cs
+    fc, fy = mat['fc'], mat['fy']
+    h_slab, cover = mat['h_slab'], mat['cover']
+    d_bar = mat['d_bar']
     
-    # ระยะ Clear Span
-    Ln = L_span - (c_para / 100.0)
+    d_eff = h_slab - cover - (d_bar/20)/2 # One layer assumption
+    
+    st.header(f"📐 Design Direction: {direction_name}-Axis")
+    
+    # ==========================================
+    # STEP 1: MOMENT CALCULATION
+    # ==========================================
+    st.markdown("### Step 1: Total Static Moment ($M_o$)")
+    col_m1, col_m2 = st.columns([1, 1.5])
+    with col_m1:
+        st.info(f"""
+        **Input Parameters:**
+        - $L_2$ (Width) = {L_width:.2f} m
+        - $l_n$ (Clear Span) = {ln:.2f} m
+        - $w_u$ (Load) = {w_u:,.0f} kg/m²
+        """)
+    with col_m2:
+        st.latex(r"M_o = \frac{w_u L_2 l_n^2}{8}")
+        st.latex(f"M_o = \\frac{{{w_u:,.0f} \\times {L_width} \\times {ln:.2f}^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\text{{ kg-m}}")
 
-    # ----------------------------------------------------
-    # PART A: GEOMETRY & MOMENT DISTRIBUTION
-    # ----------------------------------------------------
-    st.markdown(f"### 📐 Design Parameters: {axis_id}-Direction")
-    
-    with st.expander("Show Geometry & Moment Distribution Factors", expanded=False):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Span ($L_1$)", f"{L_span:.2f} m")
-            st.metric("Width ($L_2$)", f"{L_width:.2f} m")
-        with c2:
-            st.metric("Column ($c_1$)", f"{c_para/100:.2f} m")
-            st.metric("Clear Span ($l_n$)", f"{Ln:.2f} m")
-        with c3:
-            st.metric("Factored Load ($w_u$)", f"{w_u:,.0f} kg/m²")
-        
-        st.markdown("**Total Static Moment ($M_o$):**")
-        st.latex(f"M_o = \\frac{{{w_u:,.0f} \\times {L_width:.2f} \\times {Ln:.2f}^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
+    st.markdown("---")
 
-        st.markdown("**Moment Distribution Coefficients:**")
-        sum_neg = m_vals['M_cs_neg'] + m_vals['M_ms_neg']
-        sum_pos = m_vals['M_cs_pos'] + m_vals['M_ms_pos']
-        
-        f_cs_neg = m_vals['M_cs_neg'] / sum_neg if sum_neg > 0 else 0
-        f_cs_pos = m_vals['M_cs_pos'] / sum_pos if sum_pos > 0 else 0
-        
-        dist_data = [
-            ["Negative (-)", f"CS ({f_cs_neg*100:.0f}%)", f"{m_vals['M_cs_neg']:,.0f}"],
-            ["Negative (-)", f"MS ({100-f_cs_neg*100:.0f}%)", f"{m_vals['M_ms_neg']:,.0f}"],
-            ["Positive (+)", f"CS ({f_cs_pos*100:.0f}%)", f"{m_vals['M_cs_pos']:,.0f}"],
-            ["Positive (+)", f"MS ({100-f_cs_pos*100:.0f}%)", f"{m_vals['M_ms_pos']:,.0f}"],
-        ]
-        st.table(pd.DataFrame(dist_data, columns=["Zone", "% Dist.", "Moment (kg-m)"]))
-
-    # ----------------------------------------------------
-    # PART B: INTERACTIVE REBAR SELECTION logic
-    # ----------------------------------------------------
-    def calc_rebar_logic(M_u, b_width, d_bar, s_bar):
-        b_cm = b_width * 100
-        h_cm = h_slab
-        
-        # d calculation: ถ้าไม่ใช่ Main Dir ต้องลบความหนาเหล็กชั้นแรกออก (ประมาณ 1.2 cm)
-        d_reduction = 0 if is_main_dir else (d_bar/10.0) 
-        d_local = h_cm - cover - (d_bar/20.0) - d_reduction
-        
-        if M_u < 100: 
-            return 0, 0, 0, 0, 45, True, "No Moment"
-
-        Rn = (M_u * 100) / (0.9 * b_cm * d_local**2)
-        term = 1 - (2*Rn)/(0.85*fc)
-        
-        if term < 0: 
-            rho = 999 
-        else:
-            rho = (0.85*fc/fy) * (1 - np.sqrt(term))
-        
-        As_flex = rho * b_cm * d_local
-        As_min = 0.0018 * b_cm * h_cm
-        As_req_final = max(As_flex, As_min) if rho != 999 else 999
-        
-        # As Provided
-        Ab = 3.1416 * (d_bar/10)**2 / 4
-        As_prov = (b_cm / s_bar) * Ab
-        
-        # Strength Check (Phi Mn)
-        a = (As_prov * fy) / (0.85 * fc * b_cm)
-        PhiMn = 0.9 * As_prov * fy * (d_local - a/2) / 100
-        
-        # Spacing Check (ACI: 2h or 45cm)
-        s_max = min(2 * h_cm, 45)
-        
-        # Status Checks
-        dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
-        pass_str = dc_ratio <= 1.0
-        pass_min = As_prov >= As_min
-        pass_space = s_bar <= s_max
-        is_pass = pass_str and pass_min and pass_space
-        
-        notes = []
-        if not pass_str: notes.append("Strength")
-        if not pass_min: notes.append("Min Steel")
-        if not pass_space: notes.append("Spacing")
-        note_str = ", ".join(notes) if notes else "-"
-        
-        return As_req_final, As_prov, PhiMn, dc_ratio, s_max, is_pass, note_str
-
-    # --- UI Inputs ---
-    st.markdown("### 🎛️ Reinforcement Selection")
+    # ==========================================
+    # STEP 2: STRIP WIDTHS & INTERACTIVE DESIGN
+    # ==========================================
+    st.markdown("### Step 2: Strip Design & Reinforcement")
     
-    CLR_CS = "#e3f2fd"
-    CLR_MS = "#fff3e0"
+    # Calculate Strip Widths
+    # Column Strip width is min(L1, L2)/2 per side (assuming interior for simplicity or full width logic)
+    # Simplified: CS Width = min(L_span, L_width)/2 (Total CS width)
+    # Actually standard is: 2 * (0.25 * min(L1, L2)) = 0.5 * min
+    w_cs = 0.5 * min(L_span, L_width) * 100 # cm
+    w_ms = (L_width * 100) - w_cs           # cm
     
-    col_cs, col_gap, col_ms = st.columns([1, 0.05, 1])
+    st.caption(f"💡 Column Strip Width = {w_cs:.0f} cm | Middle Strip Width = {w_ms:.0f} cm")
+
+    # Layout: 2 Columns (CS vs MS)
+    col_cs, col_ms = st.columns(2)
     
+    # --- A. COLUMN STRIP (CS) ---
     with col_cs:
-        st.markdown(f'<div style="background-color:{CLR_CS}; padding:10px; border-radius:5px; border-left:5px solid #2196f3;"><b>COLUMN STRIP</b> ({w_cs:.2f} m)</div>', unsafe_allow_html=True)
-        st.write("")
-        c1, c2 = st.columns([1, 1.5])
-        d_cs_top = c1.selectbox("Top DB", [12, 16, 20, 25], key=f"dct{axis_id}")
-        s_cs_top = c2.number_input("Top @(cm)", 5.0, 50.0, 20.0, 2.5, key=f"sct{axis_id}")
-        c1, c2 = st.columns([1, 1.5])
-        d_cs_bot = c1.selectbox("Bot DB", [12, 16, 20, 25], key=f"dcb{axis_id}")
-        s_cs_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 25.0, 2.5, key=f"scb{axis_id}")
+        st.subheader("🅰️ Column Strip (CS)")
+        st.markdown(f"width $b$ = {w_cs:.0f} cm")
+        
+        # Selector
+        st.markdown("**Select Rebar:**")
+        s_cs_top = render_rebar_selector("Top (Neg)", 15.0, f"{direction_name}_cs_top")
+        s_cs_bot = render_rebar_selector("Bot (Pos)", 20.0, f"{direction_name}_cs_bot")
+        
+        st.markdown("#### Detailed Checks")
+        # Calc Top
+        res_cs_neg = render_calculation_step(
+            "CS-Top (Negative)", M_vals['M_cs_neg'], w_cs, d_eff, fc, fy, s_cs_top, d_bar
+        )
+        st.write("") # Spacer
+        # Calc Bot
+        res_cs_pos = render_calculation_step(
+            "CS-Bottom (Positive)", M_vals['M_cs_pos'], w_cs, d_eff, fc, fy, s_cs_bot, d_bar
+        )
 
+    # --- B. MIDDLE STRIP (MS) ---
     with col_ms:
-        st.markdown(f'<div style="background-color:{CLR_MS}; padding:10px; border-radius:5px; border-left:5px solid #ff9800;"><b>MIDDLE STRIP</b> ({w_ms:.2f} m)</div>', unsafe_allow_html=True)
-        st.write("")
-        c1, c2 = st.columns([1, 1.5])
-        d_ms_top = c1.selectbox("Top DB", [12, 16, 20, 25], index=0, key=f"dmt{axis_id}")
-        s_ms_top = c2.number_input("Top @(cm)", 5.0, 50.0, 30.0, 2.5, key=f"smt{axis_id}")
-        c1, c2 = st.columns([1, 1.5])
-        d_ms_bot = c1.selectbox("Bot DB", [12, 16, 20, 25], key=f"dmb{axis_id}")
-        s_ms_bot = c2.number_input("Bot @(cm)", 5.0, 50.0, 25.0, 2.5, key=f"smb{axis_id}")
+        st.subheader("🅱️ Middle Strip (MS)")
+        st.markdown(f"width $b$ = {w_ms:.0f} cm")
+        
+        # Selector
+        st.markdown("**Select Rebar:**")
+        s_ms_top = render_rebar_selector("Top (Neg)", 20.0, f"{direction_name}_ms_top")
+        s_ms_bot = render_rebar_selector("Bot (Pos)", 20.0, f"{direction_name}_ms_bot")
+        
+        st.markdown("#### Detailed Checks")
+        # Calc Top
+        res_ms_neg = render_calculation_step(
+            "MS-Top (Negative)", M_vals['M_ms_neg'], w_ms, d_eff, fc, fy, s_ms_top, d_bar
+        )
+        st.write("") # Spacer
+        # Calc Bot
+        res_ms_pos = render_calculation_step(
+            "MS-Bottom (Positive)", M_vals['M_ms_pos'], w_ms, d_eff, fc, fy, s_ms_bot, d_bar
+        )
 
-    # ประมวลผลผลลัพธ์
-    zones = [
-        {"name": "CS-Top", "M": m_vals['M_cs_neg'], "b": w_cs, "d": d_cs_top, "s": s_cs_top},
-        {"name": "CS-Bot", "M": m_vals['M_cs_pos'], "b": w_cs, "d": d_cs_bot, "s": s_cs_bot},
-        {"name": "MS-Top", "M": m_vals['M_ms_neg'], "b": w_ms, "d": d_ms_top, "s": s_ms_top},
-        {"name": "MS-Bot", "M": m_vals['M_ms_pos'], "b": w_ms, "d": d_ms_bot, "s": s_ms_bot},
+    # ==========================================
+    # STEP 3: SUMMARY TABLE (SCHEDULE)
+    # ==========================================
+    st.markdown("---")
+    st.markdown("### 📋 Design Summary (Rebar Schedule)")
+    
+    summary_data = [
+        ["Column Strip", "Top (Support)", f"{M_vals['M_cs_neg']:,.0f}", f"DB{d_bar} @ {s_cs_top:.0f}", res_cs_neg['Status']],
+        ["Column Strip", "Bottom (Mid)", f"{M_vals['M_cs_pos']:,.0f}", f"DB{d_bar} @ {s_cs_bot:.0f}", res_cs_pos['Status']],
+        ["Middle Strip", "Top (Support)", f"{M_vals['M_ms_neg']:,.0f}", f"DB{d_bar} @ {s_ms_top:.0f}", res_ms_neg['Status']],
+        ["Middle Strip", "Bottom (Mid)", f"{M_vals['M_ms_pos']:,.0f}", f"DB{d_bar} @ {s_ms_bot:.0f}", res_ms_pos['Status']],
     ]
-
-    res_list = []
-    rebar_map = {}
-    overall_safe = True
-
-    for z in zones:
-        As_req, As_prov, PhiMn, dc, s_max, is_pass, note = calc_rebar_logic(z['M'], z['b'], z['d'], z['s'])
-        if not is_pass: overall_safe = False
-        
-        status_icon = "✅ Pass" if is_pass else "❌ Fail"
-        res_list.append({
-            "Location": f"<b>{z['name']}</b>",
-            "Mu (kg-m)": f"{z['M']:,.0f}",
-            "Req. As": f"<b>{As_req:.2f}</b>",
-            "Selection": f"DB{z['d']}@{z['s']:.0f}",
-            "Prov. As": f"{As_prov:.2f}",
-            "φMn": f"{PhiMn:,.0f}",
-            "D/C": f"<b style='color:{'green' if dc<=1 else 'red'}'>{dc:.2f}</b>",
-            "Status": f"<b>{status_icon}</b>",
-            "Note": f"<small style='color:red'>{note}</small>"
-        })
-        rebar_map[z['name'].replace("-","_")] = f"DB{z['d']}@{z['s']:.0f}"
-
-    # แสดงตารางสรุป
-    st.write("---")
-    st.markdown("### 📊 Engineering Summary Table")
-    df_res = pd.DataFrame(res_list)
-    st.write(df_res.style.format(precision=2).to_html(escape=False, index=False), unsafe_allow_html=True)
     
-    if not overall_safe:
-        st.error("⚠️ Warning: Design does not meet all ACI 318 requirements.")
-
-    # ----------------------------------------------------
-    # PART C: SAMPLE CALCULATION
-    # ----------------------------------------------------
-    with st.expander("🔎 View Sample Calculation (CS-Top)", expanded=True):
-        Mu_s = m_vals['M_cs_neg']
-        b_s_cm = w_cs * 100
-        d_red = 0 if is_main_dir else (d_cs_top/10.0)
-        d_s_cm = h_slab - cover - (d_cs_top/20.0) - d_red
-        
-        Rn_s = (Mu_s * 100) / (0.9 * b_s_cm * d_s_cm**2)
-        st.markdown(f"**Verification for {axis_id}-Direction:**")
-        st.latex(f"d = h - cover - d_{{bar}}/2 - d_{{layer\_offset}} = {d_s_cm:.2f} \\text{{ cm}}")
-        st.latex(r"R_n = \frac{M_u}{0.9 b d^2} = " + f"{Rn_s:.2f} \\text{{ ksc}}")
-
-    # ----------------------------------------------------
-    # PART D: DRAWINGS
-    # ----------------------------------------------------
-    st.write("---")
-    st.markdown("### 📐 Professional Drawings")
+    df = pd.DataFrame(summary_data, columns=["Strip", "Location", "Mu (kg-m)", "Selected Rebar", "Status"])
     
-    if HAS_PLOTS:
-        try:
-            st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para, m_vals))
-            c1, c2 = st.columns(2)
-            with c1: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
-            with c2: st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
-        except Exception as e:
-            st.warning(f"Plotting Error: {e}")
-    else:
-        st.info("ℹ️ Drawing module disabled.")
+    # Custom highlighting for DataFrame
+    def highlight_status(val):
+        color = '#d1e7dd' if val == 'OK' else '#f8d7da'
+        return f'background-color: {color}'
+
+    st.dataframe(df.style.applymap(highlight_status, subset=['Status']), use_container_width=True)
+
+
+def render_dual(data_x, data_y, mat_props, w_u):
+    """
+    Main entry point for the DDM Tab. 
+    Handles switching between X and Y directions.
+    """
+    
+    st.write("### 🏗️ Direct Design Method (Interactive Rebar Design)")
+    st.info("💡 Adjust the **Spacing (Slider)** to find the optimal reinforcement. The system checks strength ($M_n$) and Minimum Steel ($A_{s,min}$) automatically.")
+    
+    tab_x, tab_y = st.tabs(["➡️ X-Direction Analysis", "⬆️ Y-Direction Analysis"])
+    
+    with tab_x:
+        render_direction_tab("X", data_x, mat_props, w_u)
+        
+    with tab_y:
+        render_direction_tab("Y", data_y, mat_props, w_u)
