@@ -327,13 +327,15 @@ with tab2:
     tab_ddm.render_dual(data_x, data_y, mat_props, w_u)
 
 
+
 with tab3:
     try:
-        # [UPDATED] ส่งตัวแปร mat_props และ w_u เข้าไปด้วย เพื่อคำนวณเหล็ก
+        # [UPDATED] ส่ง col_type ไปด้วย เพื่อให้ EFM คำนวณโมเมนต์ถูก case
         tab_efm.render(
             c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, 
             h_slab=h_slab, fc=fc, 
-            mat_props=mat_props, w_u=w_u
+            mat_props=mat_props, w_u=w_u, 
+            col_type=col_type # <--- เพิ่มตัวนี้
         )
     except Exception as e:
         st.error(f"EFM module error: {e}")
