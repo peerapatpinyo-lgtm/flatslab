@@ -1,94 +1,100 @@
 import streamlit as st
-import pandas as pd
+import numpy as np
 from calculations import design_rebar_detailed
 
 def render_dual(data_x, data_y, mat_props, wu):
     """
     Render DDM Calculation for both X and Y directions
     """
-    st.header("2. Direct Design Method (DDM)")
+    st.header("2. Direct Design Method (DDM) & Reinforcement")
+    st.caption("ตรวจสอบเหล็กเสริมตามโมเมนต์ที่คำนวณได้ (User Selects Rebar)")
     
     # Create Tabs for X and Y inside the section
     t1, t2 = st.tabs([f"↔️ {data_x['axis']}", f"↕️ {data_y['axis']}"])
     
     with t1:
-        render_direction_panel(data_x, mat_props, wu)
+        render_interactive_panel(data_x, mat_props, "X")
         
     with t2:
-        render_direction_panel(data_y, mat_props, wu)
+        render_interactive_panel(data_y, mat_props, "Y")
 
-def render_direction_panel(data, mat, wu):
+def render_interactive_panel(data, mat, direction_label):
     """
-    Internal function to render one direction
+    Interactive function: User selects spacing, Code checks capacity
     """
-    # Unpack
+    # Unpack Data
     L_span = data['L_span']
     L_width = data['L_width']
     M_vals = data['M_vals']
+    
     fc = mat['fc']
     fy = mat['fy']
     h_slab = mat['h_slab']
     cover = mat['cover']
-    d_bar = mat['d_bar']
+    # Default bar size from global input, but can be overridden per strip
+    d_bar_global = mat['d_bar'] 
     
-    # Calculate d for flexure (ignoring drop panel for main span)
-    d_flex = h_slab - cover - (d_bar/20.0) 
+    d_flex = h_slab - cover - (d_bar_global/20.0)
     
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("📋 Design Params")
-        st.write(f"**Span ($L_1$):** {L_span:.2f} m")
-        st.write(f"**Width ($L_2$):** {L_width:.2f} m")
-        st.write(f"**Total Moment ($M_o$):** {data['Mo']:,.2f} kg-m")
-        st.info(f"Using d = {d_flex:.2f} cm (for Moment)")
+    # --- Summary Header ---
+    c1, c2, c3 = st.columns(3)
+    c1.info(f"Span: {L_span:.2f} m")
+    c2.info(f"Width: {L_width:.2f} m")
+    c3.info(f"Mo: {data['Mo']:,.2f} kg-m")
 
-    with col2:
-        st.subheader("🏗️ Reinforcement Design")
-        
-        # Prepare Data for Table
-        results = []
-        
-        # Define the strips to check
-        checks = [
-            ("Column Strip (-)", M_vals['M_cs_neg'], L_width/2.0),
-            ("Column Strip (+)", M_vals['M_cs_pos'], L_width/2.0),
-            ("Middle Strip (-)", M_vals['M_ms_neg'], L_width/2.0),
-            ("Middle Strip (+)", M_vals['M_ms_pos'], L_width/2.0),
-        ]
-        
-        for name, Mu, width_strip in checks:
-            # Width of strip in cm (Column strip is roughly L2/2)
-            b_strip = width_strip * 100 
-            
-            # Call Cycle 1 Logic
-            As_req, rho, note, status = design_rebar_detailed(Mu, b_strip, d_flex, fc, fy)
-            
-            # Append to list
-            results.append({
-                "Location": name,
-                "Mu (kg-m)": f"{Mu:,.0f}",
-                "As Req (cm²)": f"{As_req:.2f}",
-                "Status": status,
-                "Note": note
-            })
-            
-        # Display as DataFrame
-        df = pd.DataFrame(results)
-        
-        # Custom Highlight Function
-        def highlight_status(val):
-            color = '#d1e7dd' if val == 'OK' else '#f8d7da' # Green / Red
-            return f'background-color: {color}'
+    st.markdown("---")
 
-        st.dataframe(
-            df.style.applymap(highlight_status, subset=['Status']),
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # Guide for User
-        st.markdown(f"""
-        > **คำแนะนำ:** > * **As Req:** คือปริมาณเหล็กเสริมที่ต้องการในหน้าตัด (cm²)  
-        > * เลือกเหล็กเสริมให้มากกว่าค่านี้ (เช่น {d_bar}mm)  
-        """)
+    # --- Define Strips to Design ---
+    # Structure: (Label, Moment_Value, Strip_Width_m, Key_Suffix)
+    strips = [
+        ("Column Strip (Neg - Top)", M_vals['M_cs_neg'], L_width/2.0, "cs_neg"),
+        ("Column Strip (Pos - Bot)", M_vals['M_cs_pos'], L_width/2.0, "cs_pos"),
+        ("Middle Strip (Neg - Top)", M_vals['M_ms_neg'], L_width/2.0, "ms_neg"),
+        ("Middle Strip (Pos - Bot)", M_vals['M_ms_pos'], L_width/2.0, "ms_pos"),
+    ]
+
+    # --- Loop Generate Rows ---
+    for label, Mu, width_m, key in strips:
+        with st.container():
+            # Layout: 4 Columns (Info | Input Rebar | Check Result | Status)
+            col_info, col_input, col_result, col_status = st.columns([1.2, 1.5, 1.2, 0.8])
+            
+            # 1. Info Column
+            with col_info:
+                st.markdown(f"**{label}**")
+                st.caption(f"Mu: {Mu:,.0f} kg-m")
+                
+                # Calculate Required Area (Engineering Logic)
+                As_req, rho, note, status_calc = design_rebar_detailed(Mu, width_m*100, d_flex, fc, fy)
+                st.markdown(f"Req: **{As_req:.2f}** cm²")
+
+            # 2. Input Column (User Interaction restored!)
+            with col_input:
+                # User chooses Bar Diameter & Spacing
+                c_sub1, c_sub2 = st.columns(2)
+                with c_sub1:
+                    sel_db = st.selectbox("DB", [10,12,16,20,25], index=1, key=f"db_{direction_label}_{key}")
+                with c_sub2:
+                    sel_space = st.number_input("@Spacing (cm)", min_value=5.0, max_value=40.0, value=20.0, step=2.5, key=f"sp_{direction_label}_{key}")
+
+            # 3. Calculation Check Column
+            with col_result:
+                # Calculate Area Provided
+                # Area of 1 bar = pi * d^2 / 4
+                area_one_bar = 3.1416 * (sel_db/10.0)**2 / 4
+                num_bars = (width_m * 100) / sel_space
+                As_provided = num_bars * area_one_bar
+                
+                st.markdown(f"Prov: **{As_provided:.2f}** cm²")
+                st.caption(f"(Use DB{sel_db}@{sel_space:.0f})")
+
+            # 4. Status Column (Visual Feedback)
+            with col_status:
+                # Compare Provided vs Required
+                is_safe = As_provided >= As_req
+                if is_safe:
+                    st.success("✅ PASS")
+                else:
+                    st.error("❌ FAIL")
+            
+            st.divider()
