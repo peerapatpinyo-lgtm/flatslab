@@ -23,6 +23,8 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     phi = 0.90 
 
     # Effective Depth
+    # Main Axis (Outer Layer): d = h - cover - db/2
+    # Minor Axis (Inner Layer): d = h - cover - db_main - db/2 (approx offset 1.6cm)
     d_offset = 0.0 if is_main_dir else 1.6 
     d_eff = h_cm - cover - (d_bar/20.0) - d_offset
     
@@ -92,7 +94,6 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
     with step1:
         st.markdown("**1.1 Design Moment ($M_u$) Calculation**")
         st.write("หาค่าโมเมนต์ดัดออกแบบจากสัมประสิทธิ์ (Coefficient Method):")
-        # แสดงที่มาของ Mu จาก Mo
         st.latex(f"M_u = (\\text{{Coeff}}) \\times M_o")
         st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
         
@@ -170,7 +171,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         col_diagram, col_calc = st.columns([1, 1.5])
         
         with col_diagram:
-             # Contextual Diagram Tag
+             # Contextual Diagram
             st.info(f"**Definitions for {axis_id}-Axis:**")
             st.markdown(f"""
             - **Span Length ({span_sym}):** {span_val:.2f} m
@@ -178,7 +179,8 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
             """)
             st.write(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
-            
+            # Fixed: Use proper st.image instead of raw text placeholder
+            st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Slab_effective_width.svg/300px-Slab_effective_width.svg.png", caption="Span Definitions (ACI)", use_container_width=True)
 
         with col_calc:
             st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
@@ -288,12 +290,19 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     # --- DRAWINGS ---
     if HAS_PLOTS:
         st.markdown("---")
-        t1, t2 = st.tabs(["📉 Moment Diagram", "🏗️ Rebar Detailing"])
+        # Fixed: Restored 3rd tab for Plan View
+        t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
+        
         with t1:
             st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
+        
         with t2:
             rebar_map = {r['Label'].replace(" ","_").replace("-","_"): f"DB{r['db']}@{r['s']:.0f}" for r in results}
             st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
+            
+        with t3:
+            
+            st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
 # ========================================================
 # MAIN ENTRY
@@ -307,9 +316,7 @@ def render_dual(data_x, data_y, mat_props, w_u):
     ])
     
     with tab_x:
-        # X Direction: Span=Lx, Width=Ly
         render_interactive_direction(data_x, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "X", w_u, True)
         
     with tab_y:
-        # Y Direction: Span=Ly, Width=Lx
         render_interactive_direction(data_y, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "Y", w_u, False)
