@@ -16,7 +16,6 @@ except ImportError:
 def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_dir):
     """
     Perform rigorous reinforced concrete slab design checks (ACI 318 / EIT).
-    Returns a dictionary with all intermediate values.
     """
     # Unit Conversions
     b_cm = b_width * 100.0
@@ -94,78 +93,72 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     Mo = data['Mo']
     m_vals = data['M_vals']
     
-    # Define Labels based on Axis (Use Lx, Ly instead of L1, L2)
-    if axis_id == "X":
-        span_label = "L_x"
-        width_label = "L_y"
-    else:
-        span_label = "L_y"
-        width_label = "L_x"
-
-    w_cs = min(L_span, L_width) / 2.0
-    w_ms = L_width - w_cs
+    # --- ปรับแก้ LABEL ให้เป็นมาตรฐานวิศวกรรม (l1, l2) ---
+    # l1 = Span Length (ทิศที่กำลังพิจารณา)
+    # l2 = Transverse Width (ความกว้างแถบ)
+    l1_val = L_span
+    l2_val = L_width
+    
+    w_cs = min(l1_val, l2_val) / 2.0
+    w_ms = l2_val - w_cs
     
     # --- PART 1: ANALYSIS & MOMENT DISTRIBUTION ---
     st.markdown(f"### 1️⃣ Analysis: {axis_id}-Direction Moment")
     
-    with st.expander("📝 ดูรายการคำนวณ $M_o$ และการกระจายโมเมนต์ $M_u$ (Detailed Calculation)", expanded=True):
+    with st.expander("📝 ดูรายการคำนวณ $M_o$ และสัมประสิทธิ์ (Details)", expanded=True):
         
-        # 1. Mo Calculation
-        ln_val = L_span - (c_para / 100.0)
+        # 1. Mo Calculation (ใช้ notation l1, l2)
+        ln_val = l1_val - (c_para / 100.0)
         st.markdown(f"**Step 1: คำนวณโมเมนต์สถิตรวม ($M_o$)**")
         
         c1, c2 = st.columns([1, 1.5])
         with c1:
-            st.info(f"💡 **Note:** ใช้ค่า {width_label} เป็นความกว้างแถบสำหรับทิศทาง {axis_id}")
-            
+            st.info(f"""
+            **Notation (ACI 318):**
+            * $l_1$ = Span Length = {l1_val:.2f} m
+            * $l_2$ = Transverse Width = {l2_val:.2f} m
+            * $l_n$ = Clear Span = {ln_val:.2f} m
+            """)
+            st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Slab_effective_width.svg/300px-Slab_effective_width.svg.png", caption="Definition of l1 and l2", use_column_width=True)
             
         with c2:
-            st.latex(f"l_n = {span_label} - \\text{{Column}} = {L_span:.2f} - {c_para/100:.2f} = \\mathbf{{{ln_val:.2f}}} \\; m")
-            st.latex(f"M_o = \\frac{{w_u {width_label} l_n^2}}{{8}} = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
+            st.markdown("จากสูตร Direct Design Method:")
+            st.latex(r"M_o = \frac{w_u l_2 l_n^2}{8}")
+            st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {l2_val:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
             st.latex(f"M_o = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
 
         st.divider()
         
         # 2. Moment Distribution (Mu)
-        st.markdown(f"**Step 2: การกระจายโมเมนต์เข้าสู่แถบ ($M_u$)**")
-        st.caption(f"กระจายค่า $M_o$ ไปยัง Column Strip และ Middle Strip (แสดงเป็น % ของ $M_o$)")
+        st.markdown(f"**Step 2: การกระจายโมเมนต์ ($M_u$)**")
+        st.markdown("""
+        > **Reference:** สัมประสิทธิ์การกระจายโมเมนต์อ้างอิงจาก **ACI 318** / **มาตรฐาน วสท.** > (หมวด Direct Design Method สำหรับแผ่นพื้นไร้คาน)
+        """)
         
-        # Calculate percentages for display
+        # Helper to calculate %
         def get_pct(val, total):
             return (val / total * 100) if total > 0 else 0
 
+        # Create explicit table showing Source -> Distribution
         dist_data = [
             {
-                "Position": "Top (Support)", 
-                "Strip": "🟥 Column Strip", 
-                "% of Mo": f"{get_pct(m_vals['M_cs_neg'], Mo):.1f}%", 
-                "Calculation": f"{get_pct(m_vals['M_cs_neg'], Mo)/100:.3f} × {Mo:,.0f}",
-                "Mu (kg-m)": f"{m_vals['M_cs_neg']:,.0f}"
+                "Position": "Top Support (-)", 
+                "Zone": "Total Negative", 
+                "% of Mo (Ref: ACI)": f"{get_pct(m_vals['M_cs_neg'] + m_vals['M_ms_neg'], Mo):.0f}%",
+                "Column Strip Share": f"{get_pct(m_vals['M_cs_neg'], Mo):.1f}%", 
+                "Middle Strip Share": f"{get_pct(m_vals['M_ms_neg'], Mo):.1f}%",
             },
             {
-                "Position": "Top (Support)", 
-                "Strip": "🟦 Middle Strip", 
-                "% of Mo": f"{get_pct(m_vals['M_ms_neg'], Mo):.1f}%", 
-                "Calculation": f"{get_pct(m_vals['M_ms_neg'], Mo)/100:.3f} × {Mo:,.0f}",
-                "Mu (kg-m)": f"{m_vals['M_ms_neg']:,.0f}"
-            },
-            {
-                "Position": "Bot (Midspan)", 
-                "Strip": "🟥 Column Strip", 
-                "% of Mo": f"{get_pct(m_vals['M_cs_pos'], Mo):.1f}%", 
-                "Calculation": f"{get_pct(m_vals['M_cs_pos'], Mo)/100:.3f} × {Mo:,.0f}",
-                "Mu (kg-m)": f"{m_vals['M_cs_pos']:,.0f}"
-            },
-            {
-                "Position": "Bot (Midspan)", 
-                "Strip": "🟦 Middle Strip", 
-                "% of Mo": f"{get_pct(m_vals['M_ms_pos'], Mo):.1f}%", 
-                "Calculation": f"{get_pct(m_vals['M_ms_pos'], Mo)/100:.3f} × {Mo:,.0f}",
-                "Mu (kg-m)": f"{m_vals['M_ms_pos']:,.0f}"
+                "Position": "Midspan (+)", 
+                "Zone": "Total Positive", 
+                "% of Mo (Ref: ACI)": f"{get_pct(m_vals['M_cs_pos'] + m_vals['M_ms_pos'], Mo):.0f}%",
+                "Column Strip Share": f"{get_pct(m_vals['M_cs_pos'], Mo):.1f}%", 
+                "Middle Strip Share": f"{get_pct(m_vals['M_ms_pos'], Mo):.1f}%",
             },
         ]
         
-        st.dataframe(pd.DataFrame(dist_data), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(dist_data))
+        st.caption("*หมายเหตุ: สัดส่วนระหว่าง CS/MS ขึ้นอยู่กับค่า $\\alpha_1 l_2 / l_1$ และ $\\beta_t$ ตามตารางในมาตรฐาน")
         
     # --- PART 2: DESIGN INPUTS ---
     st.markdown("---")
@@ -290,32 +283,32 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         rebar_map = {d['Zone'].replace("-","_"): d['Use'] for d in detailed_data}
         
         with t1:
-            
             st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
+            st.caption("Distribution of Moments in Column Strip and Middle Strip")
         with t2:
-            
             st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
+            st.caption(f"Section A-A ({axis_id}-Direction)")
         with t3:
-            
             st.pyplot(ddm_plots.plot_rebar_plan_view(L_span, L_width, c_para, rebar_map, axis_id))
+            st.caption(f"Plan View Reinforcement ({axis_id}-Direction)")
 
 # ========================================================
 # 3. MAIN ENTRY POINT
 # ========================================================
 def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ Interactive Slab Design (DDM)")
-    st.info("💡 **Instructions:** Adjust reinforcement to satisfy requirements (Status = PASS).")
+    st.info("💡 **Instructions:** Adjust reinforcement below. Calculations based on ACI 318 Direct Design Method.")
     
-    # Use Lx, Ly labeling in Tabs for clarity
+    # Use simple directional labels for Tabs
     tab_x, tab_y = st.tabs([
-        f"➡️ X-Direction (Lx={data_x['L_span']}m)", 
-        f"⬆️ Y-Direction (Ly={data_y['L_span']}m)"
+        f"➡️ X-Direction (Span {data_x['L_span']}m)", 
+        f"⬆️ Y-Direction (Span {data_y['L_span']}m)"
     ])
     
     with tab_x:
-        # For X-Direction: Span is Lx, Width is Ly
+        # X-Direction: Span=Lx, Width=Ly
         render_interactive_direction(data_x, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "X", w_u, is_main_dir=True)
         
     with tab_y:
-        # For Y-Direction: Span is Ly, Width is Lx
+        # Y-Direction: Span=Ly, Width=Lx
         render_interactive_direction(data_y, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "Y", w_u, is_main_dir=False)
