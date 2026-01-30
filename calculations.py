@@ -2,7 +2,7 @@
 import numpy as np
 
 # ==========================================
-# 1. EFM STIFFNESS CALCULATION (ที่หายไป)
+# 1. EFM STIFFNESS CALCULATION (Original)
 # ==========================================
 def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
     """
@@ -45,7 +45,7 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
     return Ks, Kc, Kt, Kec
 
 # ==========================================
-# 2. PUNCHING SHEAR (แบบละเอียด)
+# 2. PUNCHING SHEAR (Original Check Single)
 # ==========================================
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     """
@@ -105,7 +105,55 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     }
 
 # ==========================================
-# 3. REBAR DESIGN (สำหรับ DDM)
+# 2.1 NEW: DUAL PUNCHING CHECK (For Drop Panel) 
+# ==========================================
+def check_punching_dual_case(w_u, Lx, Ly, fc, cx, cy, d_col, d_slab, drop_w, drop_l, col_type):
+    """
+    Perform 2-step Punching Shear Check for Drop Panel System:
+    1. Critical Section at Column Face (using d_col = slab + drop)
+    2. Critical Section at Drop Panel Edge (using d_slab = slab only)
+    
+    Returns the Governing (Worst) Case Dictionary with nested details.
+    """
+    # --- Check 1: At Column Face (Thick Section) ---
+    c1_d = cx + d_col
+    c2_d = cy + d_col
+    area_crit_1 = (c1_d/100) * (c2_d/100)
+    Vu_1 = w_u * (Lx*Ly - area_crit_1)
+
+    res_1 = check_punching_shear(Vu_1, fc, cx, cy, d_col, col_type)
+    res_1['location'] = "Face of Column (Inner)"
+    res_1['b0_desc'] = f"{res_1['b0']:.2f} cm (d={d_col:.2f})"
+
+    # --- Check 2: At Drop Panel Edge (Thin Section) ---
+    # Treat the Drop Panel as a "Large Column"
+    c1_d_2 = drop_w + d_slab
+    c2_d_2 = drop_l + d_slab
+    area_crit_2 = (c1_d_2/100) * (c2_d_2/100)
+    Vu_2 = w_u * (Lx*Ly - area_crit_2)
+
+    res_2 = check_punching_shear(Vu_2, fc, drop_w, drop_l, d_slab, col_type)
+    res_2['location'] = "Face of Drop Panel (Outer)"
+    res_2['b0_desc'] = f"{res_2['b0']:.2f} cm (d={d_slab:.2f})"
+
+    # --- Compare & Return Governing Case ---
+    if res_1['ratio'] >= res_2['ratio']:
+        governing = res_1
+        note = "Critical at Column Face"
+    else:
+        governing = res_2
+        note = "Critical at Drop Panel Edge"
+
+    # Attach detailed checks to the return object for UI inspection
+    governing['check_1'] = res_1
+    governing['check_2'] = res_2
+    governing['note'] = note
+    governing['is_dual'] = True
+    
+    return governing
+
+# ==========================================
+# 3. REBAR DESIGN (Original)
 # ==========================================
 def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
     """
