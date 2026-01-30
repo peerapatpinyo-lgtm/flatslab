@@ -1,3 +1,4 @@
+#app.py
 import streamlit as st
 import numpy as np
 
@@ -43,6 +44,9 @@ with st.sidebar.expander("2. Geometry & Drop Panel", expanded=True):
         cy = st.number_input("Col Y (cm)", 40.0)
     
     lc = st.number_input("Storey Height (m)", 3.0)
+    
+    # ADDED: Column Location for Punching Shear calculation
+    col_type = st.selectbox("Column Location", ["interior", "edge", "corner"], help="Select column position for Alpha_s parameter")
     
     # Drop Panel Inputs
     st.markdown("---")
@@ -101,8 +105,8 @@ c2_d = cy + d_eff_punch
 area_crit = (c1_d/100) * (c2_d/100)
 Vu_punch = w_u * (Lx*Ly - area_crit) # Total Load - Area inside critical perimeter
 
-# Call Updated Function
-punch_res = check_punching_shear(Vu_punch, fc, cx, cy, d_eff_punch)
+# Call Updated Function (MODIFIED: added col_type parameter)
+punch_res = check_punching_shear(Vu_punch, fc, cx, cy, d_eff_punch, col_type=col_type)
 
 # ==========================
 # 4. DASHBOARD & DISPLAY
@@ -134,6 +138,7 @@ with st.expander("🔎 View Punching Shear Calculation Details (รายกา�
     with c1:
         st.markdown("**1. Design Parameters**")
         st.write(f"- Column Size: {cx:.0f} x {cy:.0f} cm")
+        st.write(f"- Column Position: **{col_type.capitalize()}**") # Added detail
         st.write(f"- Drop Panel: {'Yes' if has_drop else 'No'} (+{h_drop} cm)")
         st.write(f"- Effective Depth ($d$): **{d_eff_punch:.2f} cm**")
         st.write(f"- Critical Perimeter ($b_o$): **{punch_res['b0']:.2f} cm**")
@@ -155,7 +160,7 @@ with st.expander("🔎 View Punching Shear Calculation Details (รายกา�
         st.latex(f"V_{{c1}} = {punch_res['Vc1']:,.0f} \\text{{ kg}}")
 
     with col_eq2:
-        st.markdown("Eq. 2 (Large Perimeter)")
+        st.markdown(f"Eq. 2 (Perimeter - Alpha_s={punch_res['alpha_s']})") # Dynamic Alpha_s display
         st.latex(r"V_{c2} = 0.27(\frac{\alpha_s d}{b_o} + 2)\sqrt{f_c'} b_o d")
         st.latex(f"V_{{c2}} = {punch_res['Vc2']:,.0f} \\text{{ kg}}")
         
@@ -185,10 +190,11 @@ tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings", "2️⃣ DDM Calculation (Intera
 
 with tab1:
     # Use generic arguments (Tab Drawings logic placeholder)
+    # MODIFIED: Matched variable names to function signature in tab_drawings.py
     try:
-        tab_drawings.render(Lx, Ly, cx, cy, h_slab, lc, cover, d_eff_slab, M_vals_x)
-    except:
-        st.info("Drawing module not fully initialized yet.")
+        tab_drawings.render(L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, d_eff=d_eff_slab, moment_vals=M_vals_x)
+    except Exception as e:
+        st.info(f"Drawing module not fully initialized yet. Error: {e}")
 
 with tab2:
     # Prepare Data Packs for DDM Tab
@@ -205,7 +211,8 @@ with tab2:
 
 with tab3:
     # EFM Placeholder
+    # MODIFIED: Matched variable names to function signature in tab_efm.py
     try:
-        tab_efm.render(cx, cy, Lx, Ly, lc, h_slab, fc)
-    except:
-        st.info("EFM module waiting for inputs.")
+        tab_efm.render(c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, h_slab=h_slab, fc=fc)
+    except Exception as e:
+        st.info(f"EFM module waiting for inputs. Error: {e}")
