@@ -18,85 +18,114 @@ plt.rcParams.update({
 
 # --- Visualization Functions (Fixed Fonts & Improved Layout) ---
 
-def plot_torsional_concept_detailed(c1_cm, c2_cm, h_cm):
+def plot_torsional_concept_detailed_wider(c1_cm, c2_cm, h_cm, L1_m, L2_m):
     """
-    แสดงภาพ Concept Torsional Member แบบ Plan + Section
-    (ใช้ภาษาอังกฤษในกราฟเพื่อแก้ปัญหาสระลอย/ภาษาต่างด้าว)
+    แสดงภาพ Concept Torsional Member แบบ Plan + Section ในมุมมองที่กว้างขึ้น
+    เพื่อให้เห็นสภาพแวดล้อมรอบข้าง
     """
-    fig = plt.figure(figsize=(9, 4))
-    gs = GridSpec(1, 2, width_ratios=[1, 1])
+    fig = plt.figure(figsize=(10, 5))
+    gs = GridSpec(1, 2, width_ratios=[1.2, 1])
 
-    # --- Subplot 1: Plan View ---
+    L1_cm = L1_m * 100
+    L2_cm = L2_m * 100
+
+    # --- Subplot 1: Plan View (Wider) ---
     ax1 = fig.add_subplot(gs[0])
-    
-    # Scale setup
-    limit = max(c1_cm, c2_cm) * 2
-    ax1.set_xlim(-limit, limit)
-    ax1.set_ylim(-limit, limit)
+
+    # Show a significant portion of the slab, not just the column area
+    plot_width = min(L1_cm, c1_cm * 5)
+    plot_height = min(L2_cm, c2_cm * 5)
+
+    ax1.set_xlim(-plot_width / 2, plot_width / 2)
+    ax1.set_ylim(-plot_height / 2, plot_height / 2)
     ax1.set_aspect('equal')
-    
-    # 1. Draw Column (Center)
-    col_rect = patches.Rectangle((-c1_cm/2, -c2_cm/2), c1_cm, c2_cm, 
+
+    # 1. Draw Slab Background (Context)
+    ax1.add_patch(patches.Rectangle((-plot_width / 2, -plot_height / 2), plot_width, plot_height,
+                                     facecolor='#f0f2f5', edgecolor='#bdc3c7', lw=1, zorder=0))
+
+    # 2. Draw Column (Center)
+    col_rect = patches.Rectangle((-c1_cm / 2, -c2_cm / 2), c1_cm, c2_cm,
                                  facecolor='#95a5a6', edgecolor='k', lw=1.5, label='Column', zorder=5)
     ax1.add_patch(col_rect)
-    
-    # 2. Draw Torsional Members (Side strips)
-    # Effective width y approx c1
+
+    # 3. Draw Torsional Members (Side strips)
     y_eff = c1_cm
     # Left Strip
-    t_strip_left = patches.Rectangle((-c1_cm/2 - y_eff, -c2_cm/2), y_eff, c2_cm, 
+    t_strip_left = patches.Rectangle((-c1_cm / 2 - y_eff, -c2_cm / 2), y_eff, c2_cm,
                                      facecolor='#e74c3c', alpha=0.3, hatch='///', edgecolor='#c0392b')
     # Right Strip
-    t_strip_right = patches.Rectangle((c1_cm/2, -c2_cm/2), y_eff, c2_cm, 
-                                      facecolor='#e74c3c', alpha=0.3, hatch='///', edgecolor='#c0392b', label='Torsional Member')
+    t_strip_right = patches.Rectangle((c1_cm / 2, -c2_cm / 2), y_eff, c2_cm,
+                                      facecolor='#e74c3c', alpha=0.3, hatch='///', edgecolor='#c0392b',
+                                      label='Torsional Member')
     ax1.add_patch(t_strip_left)
     ax1.add_patch(t_strip_right)
-    
-    # 3. Slab Background (Visual Context)
-    ax1.add_patch(patches.Rectangle((-limit, -c2_cm/2), 2*limit, c2_cm, facecolor='#ecf0f1', zorder=0))
 
     # Dimensions
     # c1 dimension
-    ax1.annotate("", xy=(-c1_cm/2, c2_cm/2 + 10), xytext=(c1_cm/2, c2_cm/2 + 10), arrowprops=dict(arrowstyle='<->', lw=1))
-    ax1.text(0, c2_cm/2 + 15, f"c1 = {c1_cm} cm", ha='center', va='bottom', fontsize=9, fontweight='bold')
+    ax1.annotate("", xy=(-c1_cm / 2, c2_cm / 2 + plot_height * 0.05),
+                 xytext=(c1_cm / 2, c2_cm / 2 + plot_height * 0.05), arrowprops=dict(arrowstyle='<->', lw=1))
+    ax1.text(0, c2_cm / 2 + plot_height * 0.08, f"c1 = {c1_cm} cm", ha='center', va='bottom', fontsize=9,
+             fontweight='bold')
+
+    # y dimension (effective width)
+    ax1.annotate("", xy=(c1_cm / 2, -c2_cm / 2 - plot_height * 0.05),
+                 xytext=(c1_cm / 2 + y_eff, -c2_cm / 2 - plot_height * 0.05),
+                 arrowprops=dict(arrowstyle='<->', lw=1, color='#c0392b'))
+    ax1.text(c1_cm / 2 + y_eff / 2, -c2_cm / 2 - plot_height * 0.1, f"y (width) ~ c1", ha='center', va='top',
+             fontsize=9, color='#c0392b')
     
-    # y dimension
-    ax1.annotate("", xy=(c1_cm/2, -c2_cm/2 - 10), xytext=(c1_cm/2 + y_eff, -c2_cm/2 - 10), arrowprops=dict(arrowstyle='<->', lw=1, color='#c0392b'))
-    ax1.text(c1_cm/2 + y_eff/2, -c2_cm/2 - 25, f"y (width) ~ c1", ha='center', va='top', fontsize=9, color='#c0392b')
+    # L1, L2 directions
+    ax1.annotate("", xy=(-plot_width/2 * 0.8, -plot_height/2 * 0.9), xytext=(plot_width/2 * 0.8, -plot_height/2 * 0.9), arrowprops=dict(arrowstyle='<-', lw=1, color='gray'))
+    ax1.text(0, -plot_height/2 * 0.95, f"L1 Direction (Span)", ha='center', va='top', fontsize=8, color='gray')
+    
+    ax1.annotate("", xy=(-plot_width/2 * 0.9, -plot_height/2 * 0.8), xytext=(-plot_width/2 * 0.9, plot_height/2 * 0.8), arrowprops=dict(arrowstyle='<-', lw=1, color='gray'))
+    ax1.text(-plot_width/2 * 0.95, 0, f"L2 Direction (Width)", ha='right', va='center', rotation=90, fontsize=8, color='gray')
 
     ax1.axis('off')
-    ax1.set_title("1. Plan View (Top Down)", fontsize=12, fontweight='bold')
+    ax1.set_title("1. Plan View (Wider Context)", fontsize=12, fontweight='bold')
     ax1.legend(loc='upper right', fontsize=8, framealpha=0.9)
 
-    # --- Subplot 2: Section View ---
+    # --- Subplot 2: Section View (Wider) ---
     ax2 = fig.add_subplot(gs[1])
-    
+
     x_dim = h_cm
     y_dim = c1_cm
-    
-    # Center the drawing
-    ax2.set_xlim(-10, y_dim + 30)
-    ax2.set_ylim(-10, x_dim + 20)
+
+    # Show more slab on both sides
+    section_width = y_dim * 3
+    ax2.set_xlim(-section_width / 2, section_width / 2)
+    ax2.set_ylim(-x_dim * 0.5, x_dim * 1.5)
     ax2.set_aspect('equal')
-    
-    # Draw Cross Section
-    section_rect = patches.Rectangle((0, 0), y_dim, x_dim, 
+
+    # Draw Slab Background
+    ax2.add_patch(patches.Rectangle((-section_width / 2, 0), section_width, x_dim,
+                                     facecolor='#f0f2f5', edgecolor='#bdc3c7', lw=1, zorder=0))
+
+    # Draw Torsional Section Highlight
+    section_rect = patches.Rectangle((-y_dim / 2, 0), y_dim, x_dim,
                                      facecolor='#e74c3c', alpha=0.5, edgecolor='k', lw=1.5, hatch='///')
     ax2.add_patch(section_rect)
     
+    # Center Line
+    ax2.axvline(0, color='k', linestyle='-.', lw=1, alpha=0.5)
+
     # Dimension x (thickness)
-    ax2.annotate("", xy=(y_dim + 5, 0), xytext=(y_dim + 5, x_dim), arrowprops=dict(arrowstyle='<->', lw=1))
-    ax2.text(y_dim + 8, x_dim/2, f"x = h ({h_cm} cm)", va='center', fontsize=9)
-    
+    ax2.annotate("", xy=(y_dim / 2 + x_dim * 0.2, 0), xytext=(y_dim / 2 + x_dim * 0.2, x_dim),
+                 arrowprops=dict(arrowstyle='<->', lw=1))
+    ax2.text(y_dim / 2 + x_dim * 0.4, x_dim / 2, f"x = h ({h_cm} cm)", va='center', fontsize=9)
+
     # Dimension y (width)
-    ax2.annotate("", xy=(0, -5), xytext=(y_dim, -5), arrowprops=dict(arrowstyle='<->', lw=1))
-    ax2.text(y_dim/2, -8, f"y = c1 ({c1_cm} cm)", ha='center', va='top', fontsize=9)
-    
-    ax2.text(y_dim/2, x_dim/2, "Torsional Section\n(Cross-Section A-A)", ha='center', va='center', fontsize=9, color='white', fontweight='bold')
-    
+    ax2.annotate("", xy=(-y_dim / 2, -x_dim * 0.2), xytext=(y_dim / 2, -x_dim * 0.2),
+                 arrowprops=dict(arrowstyle='<->', lw=1))
+    ax2.text(0, -x_dim * 0.4, f"y = c1 ({c1_cm} cm)", ha='center', va='top', fontsize=9)
+
+    ax2.text(0, x_dim / 2, "Torsional Section\n(A-A)", ha='center', va='center', fontsize=9,
+             color='white', fontweight='bold')
+
     ax2.axis('off')
-    ax2.set_title("2. Section View (Cross-Section)", fontsize=12, fontweight='bold')
-    
+    ax2.set_title("2. Section View (A-A)", fontsize=12, fontweight='bold')
+
     plt.tight_layout()
     return fig
 
@@ -299,7 +328,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type):
     st.caption("พื้นที่หน้าตัดรับแรงบิด (Torsional Member) คือแถบพื้นข้างหัวเสา")
     
     # Show New Detailed Plot (English Labels to fix fonts)
-    st.pyplot(plot_torsional_concept_detailed(c1_cm, c2_cm, h_cm), use_container_width=True)
+    st.pyplot(plot_torsional_concept_detailed_wider(c1_cm, c2_cm, h_cm, L1_m, L2_m), use_container_width=True)
     
     col_t1, col_t2 = st.columns(2)
     with col_t1:
