@@ -23,12 +23,9 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     phi = 0.90 
 
     # Effective Depth
-    # Main Axis (Outer Layer): d = h - cover - db/2
-    # Minor Axis (Inner Layer): d = h - cover - db_main - db/2 (approx offset 1.6cm)
     d_offset = 0.0 if is_main_dir else 1.6 
     d_eff = h_cm - cover - (d_bar/20.0) - d_offset
     
-    # Handle negligible moment
     if M_u < 10:
         return {
             "d": d_eff, "Rn": 0, "rho_req": 0, "As_min": 0, "As_flex": 0, 
@@ -36,7 +33,6 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
             "Status": True, "Note": "M -> 0", "s_max": 45
         }
 
-    # Strength Design
     Rn = Mu_kgcm / (phi * b_cm * d_eff**2)
     term_val = 1 - (2 * Rn) / (0.85 * fc)
     
@@ -49,11 +45,9 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     As_min = 0.0018 * b_cm * h_cm
     As_req_final = max(As_flex, As_min) if rho_req != 999 else 999
     
-    # Provided
     Ab_area = np.pi * (d_bar/10.0)**2 / 4.0
     As_prov = (b_cm / s_bar) * Ab_area
     
-    # Capacity Check
     if rho_req == 999:
         PhiMn = 0; a_depth = 0; dc_ratio = 999
     else:
@@ -81,9 +75,6 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
 # 2. DETAILED CALCULATION RENDERER
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
-    """
-    แสดงรายการคำนวณแบบละเอียดยิบ (Substitution Step-by-Step)
-    """
     Mu, b, h, cover, fc, fy, db, s = inputs
     
     st.markdown(f"#### 📐 รายการคำนวณออกแบบ: {zone_name}")
@@ -96,17 +87,12 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.write("หาค่าโมเมนต์ดัดออกแบบจากสัมประสิทธิ์ (Coefficient Method):")
         st.latex(f"M_u = (\\text{{Coeff}}) \\times M_o")
         st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
-        
-        st.markdown("**1.2 Effective Depth ($d$)**")
         st.latex(r"d = h - C_{over} - \frac{d_b}{2}")
         st.latex(f"d = {h} - {cover} - \\frac{{{db/10}}}{{2}} = \\mathbf{{{res['d']:.2f}}} \\; \\text{{cm}}")
 
     with step2:
         st.markdown("**2.1 Required Reinforcement ($A_{s,req}$)**")
-        # As min
         st.latex(f"A_{{s,min}} = 0.0018 \\cdot ({b*100:.0f}) \\cdot {h} = {res['As_min']:.2f} \\; \\text{{cm}}^2")
-        
-        # As flexure
         st.markdown("จากสมการกำลัง (Strength Design):")
         st.latex(f"R_n = \\frac{{M_u}}{{\\phi b d^2}} = \\frac{{{Mu*100:,.0f}}}{{0.9 \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
         
@@ -126,7 +112,6 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         
         st.markdown("**3.2 Moment Capacity Check ($\\phi M_n$)**")
         st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
-        
         st.latex(f"\\phi M_n = \\frac{{0.9 \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
         st.latex(f"\\phi M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
         
@@ -148,17 +133,11 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     # 🔹 DYNAMIC LABELING LOGIC (Lx/Ly Only)
     # -----------------------------------------------
     if axis_id == "X":
-        # Tab X: Span is Lx, Strip Width is Ly
-        span_sym = "L_x"
-        width_sym = "L_y"
-        span_val = L_span
-        width_val = L_width
+        span_sym, width_sym = "L_x", "L_y"
+        span_val, width_val = L_span, L_width
     else:
-        # Tab Y: Span is Ly, Strip Width is Lx
-        span_sym = "L_y"
-        width_sym = "L_x"
-        span_val = L_span
-        width_val = L_width
+        span_sym, width_sym = "L_y", "L_x"
+        span_val, width_val = L_span, L_width
 
     ln_val = span_val - (c_para/100.0)
     w_cs = min(span_val, width_val) / 2.0
@@ -171,31 +150,23 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         col_diagram, col_calc = st.columns([1, 1.5])
         
         with col_diagram:
-             # Contextual Diagram
             st.info(f"**Definitions for {axis_id}-Axis:**")
             st.markdown(f"""
             - **Span Length ({span_sym}):** {span_val:.2f} m
             - **Strip Width ({width_sym}):** {width_val:.2f} m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
             """)
-            st.write(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
-            # Fixed: Use proper st.image instead of raw text placeholder
             st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Slab_effective_width.svg/300px-Slab_effective_width.svg.png", caption="Span Definitions (ACI)", use_container_width=True)
 
         with col_calc:
             st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
-            st.latex(r"M_o = \frac{w_u \cdot (\text{Width}) \cdot (\text{Clear Span})^2}{8}")
-            # Dynamic LaTeX formula based on Axis
             st.latex(f"M_o = \\frac{{w_u {width_sym} ({span_sym} - c)^2}}{{8}}")
             st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {width_val:.2f} \\cdot ({ln_val:.2f})^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
         
         st.divider()
-        st.markdown(f"#### Step 2: Distribution to $M_u$")
         
         # Helper for % calculation
         def get_pct(val): return (val / Mo * 100) if Mo > 0 else 0
-        
-        # Distribution Table
         dist_data = [
             {"Pos": "Top (-)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_neg']):.1f}%", "Mu": m_vals['M_cs_neg']},
             {"Pos": "Top (-)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_neg']):.1f}%", "Mu": m_vals['M_ms_neg']},
@@ -214,13 +185,11 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     with col_cs:
         st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
             <b>🟥 COLUMN STRIP</b> (Width {w_cs:.2f} m)</div>""", unsafe_allow_html=True)
-        
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_cs_neg']:,.0f}):**")
         c1, c2 = st.columns(2)
         d_cst = c1.selectbox("DB", [10,12,16,20,25], 2, key=f"d_cst_{axis_id}", label_visibility="collapsed")
         s_cst = c2.selectbox("@", [10,15,20,25,30], 2, key=f"s_cst_{axis_id}", label_visibility="collapsed")
-        
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_cs_pos']:,.0f}):**")
         c1, c2 = st.columns(2)
@@ -231,38 +200,35 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     with col_ms:
         st.markdown(f"""<div style="background-color:#e3f2fd; padding:8px; border-radius:5px; border-left:4px solid #2196f3;">
             <b>🟦 MIDDLE STRIP</b> (Width {w_ms:.2f} m)</div>""", unsafe_allow_html=True)
-        
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_ms_neg']:,.0f}):**")
         c1, c2 = st.columns(2)
         d_mst = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_mst_{axis_id}", label_visibility="collapsed")
         s_mst = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_mst_{axis_id}", label_visibility="collapsed")
-        
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_ms_pos']:,.0f}):**")
         c1, c2 = st.columns(2)
         d_msb = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_msb_{axis_id}", label_visibility="collapsed")
         s_msb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_msb_{axis_id}", label_visibility="collapsed")
 
-    # --- CALCULATION ---
-    # Store raw inputs to pass to detailed calc
+    # --- CALCULATION WITH KEY MAPPING ---
+    # ⚠️ KEY FIX: Added 'Key' field to map to plot engine correctly (cs_top, cs_bot, etc.)
     calc_configs = [
-        {"Label": "Col Strip - Top (-)", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
-        {"Label": "Col Strip - Bot (+)", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
-        {"Label": "Mid Strip - Top (-)", "Mu": m_vals['M_ms_neg'], "b": w_ms, "db": d_mst, "s": s_mst},
-        {"Label": "Mid Strip - Bot (+)", "Mu": m_vals['M_ms_pos'], "b": w_ms, "db": d_msb, "s": s_msb},
+        {"Label": "Col Strip - Top (-)", "Key": "cs_top", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
+        {"Label": "Col Strip - Bot (+)", "Key": "cs_bot", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
+        {"Label": "Mid Strip - Top (-)", "Key": "ms_top", "Mu": m_vals['M_ms_neg'], "b": w_ms, "db": d_mst, "s": s_mst},
+        {"Label": "Mid Strip - Bot (+)", "Key": "ms_bot", "Mu": m_vals['M_ms_pos'], "b": w_ms, "db": d_msb, "s": s_msb},
     ]
 
     results = []
     for cfg in calc_configs:
         res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir)
-        res.update(cfg) # Merge config into result
+        res.update(cfg) # Merge config (contains Key) into result
         results.append(res)
 
     # --- PART 3: SUMMARY ---
     st.write("")
     st.markdown("### 3️⃣ Verification Table")
-    
     df_show = pd.DataFrame(results)
     st.dataframe(
         df_show[["Label", "Mu", "d", "As_req", "As_prov", "PhiMn", "DC", "Note"]].style.format({
@@ -275,33 +241,29 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     # --- PART 4: DETAILED CALCULATION SHEET ---
     st.markdown("---")
     st.markdown("### 4️⃣ Detailed Calculation Sheet")
-    
     sel_label = st.selectbox(f"Select Zone to View Details ({axis_id}):", [r['Label'] for r in results])
     target = next(r for r in results if r['Label'] == sel_label)
-    
-    # Inputs for detailed renderer
     raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'])
     
     with st.container(border=True):
-        # Calculate % for display inside the calc sheet
         pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
         show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
 
-    # --- DRAWINGS ---
+    # --- PART 5: DRAWINGS (FIXED MAPPING) ---
     if HAS_PLOTS:
         st.markdown("---")
-        # Fixed: Restored 3rd tab for Plan View
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
+        
+        # ⚠️ FIX: Create rebar_map using the specific 'Key' (cs_top, etc.) instead of random label strings
+        rebar_map = {r['Key']: f"DB{r['db']}@{r['s']:.0f}" for r in results}
         
         with t1:
             st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
         
         with t2:
-            rebar_map = {r['Label'].replace(" ","_").replace("-","_"): f"DB{r['db']}@{r['s']:.0f}" for r in results}
             st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
             
         with t3:
-            
             st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
 # ========================================================
@@ -317,6 +279,5 @@ def render_dual(data_x, data_y, mat_props, w_u):
     
     with tab_x:
         render_interactive_direction(data_x, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "X", w_u, True)
-        
     with tab_y:
         render_interactive_direction(data_y, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "Y", w_u, False)
