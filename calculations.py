@@ -1,3 +1,4 @@
+#calculations.py
 import numpy as np
 
 # ==========================================
@@ -56,15 +57,18 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
     
     # 2. Parameters
     beta = max(c1, c2) / min(c1, c2) if min(c1, c2) > 0 else 1.0
+    
+    # Mapping alpha_s based on ACI 318 (40 for interior, 30 for edge, 20 for corner)
     alpha_s = 40 if col_type == "interior" else (30 if col_type == "edge" else 20)
+    
     phi = 0.75
     
     # 3. ACI 318 Formulas (in ksc unit approx)
-    # Eq 1: Geometry Effect
+    # Eq 1: Geometry Effect (Aspect Ratio)
     Vc1_stress = 0.53 * (1 + 2/beta) * np.sqrt(fc)
     Vc1 = Vc1_stress * b0 * d
     
-    # Eq 2: Large Perimeter Effect
+    # Eq 2: Large Perimeter Effect (Alpha_s)
     Vc2_stress = 0.27 * ((alpha_s * d / b0) + 2) * np.sqrt(fc)
     Vc2 = Vc2_stress * b0 * d
     
@@ -83,7 +87,7 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
         ratio = Vu / Vc_design
         status = "PASS" if ratio <= 1.0 else "FAIL"
     
-    # Return Dictionary for Detailed Report
+    # Return Dictionary for Detailed Report (Keep all keys, added alpha_s for UI)
     return {
         "status": status,
         "ratio": ratio,
@@ -97,7 +101,7 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior"):
         "phi": phi,
         "d": d,
         "beta": beta,
-        "alpha_s": alpha_s
+        "alpha_s": alpha_s # Added this for explicit display in app.py
     }
 
 # ==========================================
@@ -108,7 +112,7 @@ def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
     Calculate Rebar with Min/Max Checks (Used by tab_ddm.py internal logic)
     Returns: As_req, rho, note, status
     """
-    # Min steel for slab
+    # Min steel for slab (Shrinkage/Temperature rebar base on gross area)
     rho_min = 0.0018
     # Use approx h = d + 3.0 for min steel check area base
     h_est = d_cm + 3.0 
@@ -123,8 +127,13 @@ def design_rebar_detailed(Mu_kgm, b_cm, d_cm, fc, fy):
     # Rn
     Rn = Mu / (phi * b_cm * d_cm**2)
     
-    # Rho limits
-    beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05*(fc-280)/70)
+    # Rho limits (ACI 318)
+    # Determine beta1 for different concrete strengths
+    if fc <= 280:
+        beta1 = 0.85
+    else:
+        beta1 = max(0.65, 0.85 - 0.05 * (fc - 280) / 70)
+        
     rho_b = 0.85 * beta1 * (fc/fy) * (6120/(6120+fy))
     rho_max = 0.75 * rho_b 
     
