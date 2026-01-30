@@ -14,15 +14,12 @@ except ImportError:
 # 1. CORE CALCULATION ENGINE
 # ========================================================
 def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_dir):
-    """
-    Core Logic: คำนวณเหล็กเสริมตาม ACI 318
-    """
     b_cm = b_width * 100.0
     h_cm = float(h_slab)
     Mu_kgcm = M_u * 100.0
     phi = 0.90 
 
-    # Effective Depth
+    # Effective Depth (Outer vs Inner Layer)
     d_offset = 0.0 if is_main_dir else 1.6 
     d_eff = h_cm - cover - (d_bar/20.0) - d_offset
     
@@ -130,7 +127,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     m_vals = data['M_vals']
     
     # -----------------------------------------------
-    # 🔹 DYNAMIC LABELING LOGIC (Lx/Ly Only)
+    # 🔹 DYNAMIC LABELING LOGIC
     # -----------------------------------------------
     if axis_id == "X":
         span_sym, width_sym = "L_x", "L_y"
@@ -165,7 +162,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         
         st.divider()
         
-        # Helper for % calculation
         def get_pct(val): return (val / Mo * 100) if Mo > 0 else 0
         dist_data = [
             {"Pos": "Top (-)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_neg']):.1f}%", "Mu": m_vals['M_cs_neg']},
@@ -211,8 +207,8 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         d_msb = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_msb_{axis_id}", label_visibility="collapsed")
         s_msb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_msb_{axis_id}", label_visibility="collapsed")
 
-    # --- CALCULATION WITH KEY MAPPING ---
-    # ⚠️ KEY FIX: Added 'Key' field to map to plot engine correctly (cs_top, cs_bot, etc.)
+    # --- CALCULATION ---
+    # Assign 'Key' to identify zone
     calc_configs = [
         {"Label": "Col Strip - Top (-)", "Key": "cs_top", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
         {"Label": "Col Strip - Bot (+)", "Key": "cs_bot", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
@@ -223,7 +219,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     results = []
     for cfg in calc_configs:
         res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir)
-        res.update(cfg) # Merge config (contains Key) into result
+        res.update(cfg)
         results.append(res)
 
     # --- PART 3: SUMMARY ---
@@ -249,20 +245,29 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
         show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
 
-    # --- PART 5: DRAWINGS (FIXED MAPPING) ---
+    # --- PART 5: DRAWINGS (SUPER MAPPING FIX) ---
     if HAS_PLOTS:
         st.markdown("---")
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        # ⚠️ FIX: Create rebar_map using the specific 'Key' (cs_top, etc.) instead of random label strings
-        rebar_map = {r['Key']: f"DB{r['db']}@{r['s']:.0f}" for r in results}
-        
+        # ⚠️ UNIVERSAL FIX: สร้าง Map แบบครอบจักรวาล ดักทุกชื่อที่ ddm_plots อาจจะใช้
+        rebar_map = {}
+        for r in results:
+            text = f"DB{r['db']}@{r['s']:.0f}"
+            
+            # 1. Map Keys ตรงตัว
+            rebar_map[r['Key']] = text
+            
+            # 2. Map Keys แบบ Moment Definition (c_neg, c_pos)
+            if r['Key'] == 'cs_top': rebar_map['c_neg'] = text; rebar_map['cst'] = text
+            if r['Key'] == 'cs_bot': rebar_map['c_pos'] = text; rebar_map['csb'] = text
+            if r['Key'] == 'ms_top': rebar_map['m_neg'] = text; rebar_map['mst'] = text
+            if r['Key'] == 'ms_bot': rebar_map['m_pos'] = text; rebar_map['msb'] = text
+
         with t1:
             st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
-        
         with t2:
             st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
-            
         with t3:
             st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
