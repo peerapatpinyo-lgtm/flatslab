@@ -1,13 +1,36 @@
 # tab_calc.py
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 # ==========================================
-# 1. HELPER: CSS STYLING
+# 1. HELPER: CSS & CARD STYLING
 # ==========================================
 def inject_custom_css():
     st.markdown("""
     <style>
+        /* Global Font */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+        
+        /* Metric Card Styles (Same as Dashboard) */
+        .metric-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .metric-label { font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .metric-value { font-size: 1.5rem; font-weight: 700; color: #0f172a; margin: 5px 0; }
+        .metric-status { font-size: 0.8rem; font-weight: 600; padding: 2px 8px; border-radius: 12px; display: inline-block;}
+        .status-pass { background-color: #dcfce7; color: #166534; }
+        .status-fail { background-color: #fee2e2; color: #991b1b; }
+        .status-info { background-color: #f1f5f9; color: #334155; }
+        .metric-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 5px; }
+
+        /* Section Headers */
         .calc-header {
             background-color: #f8f9fa;
             border-left: 5px solid #0288d1;
@@ -15,165 +38,140 @@ def inject_custom_css():
             font-weight: 700;
             font-size: 1.1rem;
             color: #0277bd;
-            margin-top: 20px;
-            margin-bottom: 10px;
+            margin-top: 25px;
+            margin-bottom: 15px;
             border-radius: 0 4px 4px 0;
-        }
-        .formula-box {
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        .result-pass {
-            color: #2e7d32;
-            font-weight: bold;
-            background-color: #e8f5e9;
-            padding: 2px 8px;
-            border-radius: 4px;
-        }
-        .result-fail {
-            color: #c62828;
-            font-weight: bold;
-            background-color: #ffebee;
-            padding: 2px 8px;
-            border-radius: 4px;
-        }
-        .sub-text {
-            font-size: 0.85rem;
-            color: #616161;
         }
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. HELPER: RENDER PUNCHING CHECK
-# ==========================================
-def render_punching_details(res, label, title):
-    """Render details for a single punching shear check."""
+def metric_card(label, value, status, subtext=""):
+    color_class = "status-pass" if status == "PASS" else ("status-fail" if status == "FAIL" else "status-info")
+    icon = "✅" if status == "PASS" else ("❌" if status == "FAIL" else "ℹ️")
     
-    st.markdown(f'<div class="calc-header">{title}</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+        <div class="metric-status {color_class}">{icon} {status}</div>
+        <div class="metric-sub">{subtext}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# 2. HELPER: RENDER PUNCHING DETAILS
+# ==========================================
+def render_punching_details(res, label):
     st.markdown(f"**Condition:** {label}")
     
-    # 1. Critical Section Geometry
+    # Geometry
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Effective Depth (d)", f"{res['d']:.2f} cm")
-    with c2:
-        st.metric("Perimeter (b0)", f"{res['b0']:.2f} cm")
-    with c3:
-        # Check if beta exists (some calculation functions might not return it if simplified)
-        beta_val = res.get('beta', 0)
-        st.metric("Ratio Long/Short (β)", f"{beta_val:.2f}")
+    c1.metric("Effective Depth (d)", f"{res['d']:.2f} cm")
+    c2.metric("Perimeter (b0)", f"{res['b0']:.2f} cm")
+    beta_val = res.get('beta', 0)
+    c3.metric("Ratio (β)", f"{beta_val:.2f}")
 
-    # 2. ACI Formulas
-    st.markdown("**ACI 318 Shear Capacity Formulas ($V_c$):**")
-    with st.container():
+    # Formulas
+    with st.expander("Show ACI Formulas"):
         st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
         st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
         st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
     
-    # 3. Calculated Capacities
-    df_cap = pd.DataFrame({
-        "Equation": ["Vc1 (Aspect Ratio)", "Vc2 (Perimeter)", "Vc3 (Basic)"],
-        "Capacity (kg)": [res['Vc1'], res['Vc2'], res['Vc3']]
-    })
-    # Find minimum
+    # Table
     vc_governing = min(res['Vc1'], res['Vc2'], res['Vc3'])
     phi_vn = 0.85 * vc_governing
     
-    # Highlight the governing row
+    df_cap = pd.DataFrame({
+        "Mode": ["Aspect Ratio (Vc1)", "Perimeter (Vc2)", "Basic (Vc3)"],
+        "Capacity (kg)": [res['Vc1'], res['Vc2'], res['Vc3']]
+    })
     st.dataframe(df_cap.style.format({"Capacity (kg)": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
-    # 4. Final Check
-    st.markdown("---")
-    col_final1, col_final2 = st.columns([2, 1])
-    
-    with col_final1:
-        st.write(f"Governing $V_c$: **{vc_governing:,.0f}** kg")
-        st.write(f"Design Strength $\phi V_n$ ($\phi=0.85$): **{phi_vn:,.0f}** kg")
-        st.write(f"Factored Load $V_u$: **{res['Vu']:,.0f}** kg")
-    
-    with col_final2:
+    # Conclusion
+    col_res1, col_res2 = st.columns([2, 1])
+    with col_res1:
+        st.write(f"• Governing Vc: **{vc_governing:,.0f}** kg")
+        st.write(f"• Design Strength ($\phi V_n$): **{phi_vn:,.0f}** kg")
+        st.write(f"• Factored Load ($V_u$): **{res['Vu']:,.0f}** kg")
+    with col_res2:
         ratio = res['Vu'] / phi_vn if phi_vn > 0 else 999
-        status = "PASS" if ratio <= 1.0 else "FAIL"
-        color_cls = "result-pass" if status == "PASS" else "result-fail"
-        
-        st.markdown(f"""
-        <div style="text-align: center; border: 2px solid #ddd; padding: 10px; border-radius: 8px;">
-            <div style="font-size: 0.9rem; color: #757575;">Demand/Capacity</div>
-            <div style="font-size: 1.8rem; font-weight: bold;">{ratio:.2f}</div>
-            <span class="{color_cls}">{status}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        status = "PASS" if ratio <= 1 else "FAIL"
+        st.caption(f"Ratio: {ratio:.2f} ({status})")
+        st.progress(min(ratio, 1.0))
 
 # ==========================================
 # 3. MAIN RENDER FUNCTION
 # ==========================================
-def render(punch_res, v_oneway_res, mat_props, loads):
+def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly): # Added Lx, Ly inputs
     inject_custom_css()
     
-    st.markdown("### 📑 Structural Calculation Report")
-    st.caption(f"Date: {pd.Timestamp.now().strftime('%d %B %Y')}")
+    st.markdown("### 📑 Detailed Calculation Report")
+    st.caption(f"Generated on: {pd.Timestamp.now().strftime('%d %B %Y')}")
     
-    # --- SECTION 1: DESIGN PARAMETERS ---
-    with st.expander("1. Design Parameters", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Concrete (fc')", f"{mat_props['fc']:.0f} ksc")
-        c2.metric("Rebar (fy)", f"{mat_props['fy']:.0f} ksc")
-        c3.metric("Slab Thickness", f"{mat_props['h_slab']:.0f} cm")
-        c4.metric("Factored Load (Wu)", f"{loads['w_u']:,.0f} kg/m²")
-
-    # --- SECTION 2: ONE-WAY SHEAR ---
-    st.markdown('<div class="calc-header">2. One-Way Shear Check (Beam Action)</div>', unsafe_allow_html=True)
+    # -----------------------------------------------
+    # SECTION 1: EXECUTIVE SUMMARY (THE CARDS)
+    # -----------------------------------------------
+    st.markdown("#### 1. Executive Summary")
+    c1, c2, c3, c4 = st.columns(4)
     
-    c_one1, c_one2 = st.columns([3, 2])
-    with c_one1:
-        st.write("Checked at distance **d** from support face.")
-        st.latex(r"\phi V_c = 0.85 \times 0.53 \sqrt{f'_c} b_w d")
+    # Card 1: Punching
+    with c1:
+        status_punch = punch_res['status']
+        metric_card("Punching Shear", f"{punch_res['ratio']:.2f}", status_punch, "Capacity Ratio")
         
-        # Display One-Way details
-        vu_one = v_oneway_res.get('Vu', 0)
-        vc_one = v_oneway_res.get('Vc', 0) # This is usually phi*Vc in calculations.py or needs checking
-        phi_vc_one = vc_one # Assuming calculation returns design strength, if returns nominal, multiply by 0.85
-        
-        st.write(f"• Factored Shear ($V_u$): **{vu_one:,.0f}** kg")
-        st.write(f"• Design Capacity ($\phi V_c$): **{phi_vc_one:,.0f}** kg")
+    # Card 2: One-Way
+    with c2:
+        status_one = v_oneway_res['status']
+        # Determine direction text
+        dir_text = "Check Both Axes"
+        # If specific direction data is available in v_oneway_res, use it (depends on implementation)
+        metric_card("One-Way Shear", f"{v_oneway_res['ratio']:.2f}", status_one, "Beam Action Check")
 
-    with c_one2:
-        ratio_one = v_oneway_res['ratio']
-        status_one = "PASS" if ratio_one <= 1.0 else "FAIL"
-        color_one = "result-pass" if status_one == "PASS" else "result-fail"
-        
-        st.markdown(f"""
-        <div style="text-align: center; background: #f1f8e9; padding: 15px; border-radius: 8px;">
-            <b>Ratio: {ratio_one:.2f}</b><br>
-            <span class="{color_one}">{status_one}</span>
-        </div>
-        """, unsafe_allow_html=True)
+    # Card 3: Deflection
+    with c3:
+        h_slab = mat_props['h_slab']
+        h_min = max(Lx, Ly)*100 / 33.0
+        status_def = "PASS" if h_slab >= h_min else "CHECK"
+        metric_card("Deflection", f"L/33", status_def, f"Min: {h_min:.1f} cm")
 
-    # --- SECTION 3: TWO-WAY (PUNCHING) SHEAR ---
+    # Card 4: Load
+    with c4:
+        metric_card("Factored Load", f"{loads['w_u']:,.0f}", "INFO", "kg/m² (ULS)")
+
     st.markdown("---")
+
+    # -----------------------------------------------
+    # SECTION 2: ONE-WAY SHEAR DETAILS
+    # -----------------------------------------------
+    st.markdown('<div class="calc-header">2. One-Way Shear Analysis</div>', unsafe_allow_html=True)
     
-    # Check if Dual Case (Drop Panel) or Single Case
+    col_one1, col_one2 = st.columns([1, 1])
+    with col_one1:
+        st.markdown("**Concept:** Check beam shear at distance 'd' from support.")
+        st.latex(r"\phi V_c = 0.85 \times 0.53 \sqrt{f'_c} b_w d")
+        st.info("Critical case is taken from the axis with higher stress ratio.")
+    
+    with col_one2:
+        vu = v_oneway_res.get('Vu', 0)
+        vc = v_oneway_res.get('Vc', 0) # Assuming this is Nominal Vc
+        phi_vc = vc # If your calculation already returns Design Strength, keep it. Otherwise * 0.85
+        
+        st.write(f"**Results:**")
+        st.write(f"• Factored Shear ($V_u$): **{vu:,.0f}** kg")
+        st.write(f"• Design Capacity ($\phi V_c$): **{phi_vc:,.0f}** kg")
+        
+        ratio = v_oneway_res['ratio']
+        st.metric("Stress Ratio", f"{ratio:.2f}", delta="Safe" if ratio <=1 else "Unsafe", delta_color="inverse")
+
+    # -----------------------------------------------
+    # SECTION 3: PUNCHING SHEAR DETAILS
+    # -----------------------------------------------
+    st.markdown('<div class="calc-header">3. Two-Way (Punching) Shear Analysis</div>', unsafe_allow_html=True)
+    
     if punch_res.get('is_dual', False):
-        st.info("ℹ️ **Drop Panel Detected:** Performing two critical section checks.")
-        
-        tab_inner, tab_outer = st.tabs(["check 1: Column Face", "check 2: Drop Panel Face"])
-        
-        with tab_inner:
-            render_punching_details(punch_res['check_1'], 
-                                    "Critical Section at d/2 from Column Face", 
-                                    "3.1 Inside Drop Panel (Punching at Column)")
-            
-        with tab_outer:
-            render_punching_details(punch_res['check_2'], 
-                                    "Critical Section at d/2 from Drop Panel Edge", 
-                                    "3.2 Outside Drop Panel (Punching at Drop Edge)")
-            
+        st.success("✅ **Dual Check Required:** Drop Panel detected.")
+        t1, t2 = st.tabs(["Check 1: Column Face", "Check 2: Drop Panel Edge"])
+        with t1: render_punching_details(punch_res['check_1'], "Inner Section (d/2 from Column)")
+        with t2: render_punching_details(punch_res['check_2'], "Outer Section (d/2 from Drop Panel)")
     else:
-        render_punching_details(punch_res, 
-                                "Critical Section at d/2 from Column Face", 
-                                "3. Punching Shear Analysis")
+        render_punching_details(punch_res, "Critical Section (d/2 from Column)")
