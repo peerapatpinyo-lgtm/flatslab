@@ -33,7 +33,7 @@ def draw_dim(ax, p1, p2, text, offset=0, color='#003366', is_vert=False):
 # ==========================================
 def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
            drop_data=None, moment_vals=None, 
-           mat_props=None, loads=None): # <--- รับค่า Material และ Load เพิ่ม
+           mat_props=None, loads=None): # <--- รับค่า Material และ Load เพิ่มตรงนี้
     
     st.header("📐 Geometry & Design Criteria")
     
@@ -46,6 +46,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     h_drop = drop_data.get('depth', 0)
 
     # 2. Prepare Material & Load Data (Default values protection)
+    #    ดึงค่าจาก dict ที่ส่งมาจาก app.py
     if mat_props is None: mat_props = {}
     if loads is None: loads = {}
     
@@ -59,12 +60,11 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     # SECTION 1: PLAN VIEW + GENERAL NOTES
     # ==========================================
     
-    # แบ่งคอลัมน์: ซ้าย(รูปแปลน) 70% , ขวา(ข้อมูล) 30%
     col_draw, col_info = st.columns([2.5, 1])
 
     with col_draw:
         st.subheader("1. Floor Plan View")
-        fig, ax = plt.subplots(figsize=(6, 4.5)) # ปรับขนาดให้พอดี
+        fig, ax = plt.subplots(figsize=(6, 4.5))
         
         # Slab Outline
         ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc='#f8f9fa', ec='black', lw=1.5))
@@ -86,10 +86,9 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         st.pyplot(fig)
 
     with col_info:
-        # แสดงผลแบบ Engineering Legend Box
+        # แสดงผลข้อมูลที่เชื่อมโยงมาแล้ว (General Notes)
         st.markdown("### 📋 General Notes")
         
-        # HTML Table styling for clean engineering look
         st.markdown(f"""
         <style>
             .eng-table {{ width: 100%; border-collapse: collapse; font-family: monospace; font-size: 0.9rem; }}
@@ -123,7 +122,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     st.markdown("---")
 
     # ==========================================
-    # SECTION 2: DETAILS (COLUMN & SECTION)
+    # SECTION 2: DETAILS
     # ==========================================
     c_zoom, c_sect = st.columns([1, 2])
     
