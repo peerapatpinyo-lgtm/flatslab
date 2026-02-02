@@ -314,7 +314,29 @@ with tab1:
         tab_drawings.render(L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, d_eff=d_eff_slab, moment_vals=M_vals_x)
     except Exception as e:
         st.info(f"Drawing module error: {e}")
-
+# ... (โค้ดส่วน tab1 เดิม) ...
+with tab1:
+    try:
+        # [UPDATED] สร้าง Dict สำหรับข้อมูล Drop Panel
+        drop_data = {
+            "has_drop": has_drop,
+            "width": drop_w,   # cm
+            "length": drop_l,  # cm
+            "depth": h_drop    # cm
+        }
+        
+        # [UPDATED] ส่ง drop_data เข้าไปเพิ่ม
+        tab_drawings.render(
+            L1=Lx, L2=Ly, 
+            c1_w=cx, c2_w=cy, 
+            h_slab=h_slab, 
+            lc=lc, 
+            cover=cover, 
+            d_eff=d_eff_slab, 
+            drop_data=drop_data # <--- เพิ่มบรรทัดนี้
+        )
+    except Exception as e:
+        st.error(f"Drawing module error: {e}")
 with tab2:
     data_x = {
         "L_span": Lx, "L_width": Ly, "c_para": cx, 
