@@ -308,16 +308,12 @@ st.markdown("---")
 # ==========================
 tab1, tab2, tab3 = st.tabs(["1️⃣ Drawings", "2️⃣ DDM Calculation (Interactive)", "3️⃣ EFM Stiffness"])
 
+# ==========================
+# [FIXED] Tab 1: Corrected Logic (No Duplicates)
+# ==========================
 with tab1:
     try:
-        # Pass moment values for visualization
-        tab_drawings.render(L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, d_eff=d_eff_slab, moment_vals=M_vals_x)
-    except Exception as e:
-        st.info(f"Drawing module error: {e}")
-# ... (โค้ดส่วน tab1 เดิม) ...
-with tab1:
-    try:
-        # [UPDATED] สร้าง Dict สำหรับข้อมูล Drop Panel
+        # 1. Create Drop Panel Data Dictionary
         drop_data = {
             "has_drop": has_drop,
             "width": drop_w,   # cm
@@ -325,7 +321,7 @@ with tab1:
             "depth": h_drop    # cm
         }
         
-        # [UPDATED] ส่ง drop_data เข้าไปเพิ่ม
+        # 2. Single Call to render with ALL parameters
         tab_drawings.render(
             L1=Lx, L2=Ly, 
             c1_w=cx, c2_w=cy, 
@@ -333,10 +329,12 @@ with tab1:
             lc=lc, 
             cover=cover, 
             d_eff=d_eff_slab, 
-            drop_data=drop_data # <--- เพิ่มบรรทัดนี้
+            drop_data=drop_data,   # ส่งข้อมูล Drop Panel
+            moment_vals=M_vals_x   # ส่งค่า Moment (เพื่อป้องกัน Error)
         )
     except Exception as e:
         st.error(f"Drawing module error: {e}")
+
 with tab2:
     data_x = {
         "L_span": Lx, "L_width": Ly, "c_para": cx, 
@@ -347,8 +345,6 @@ with tab2:
         "ln": ln_y, "Mo": Mo_y, "M_vals": M_vals_y
     }
     tab_ddm.render_dual(data_x, data_y, mat_props, w_u)
-
-
 
 with tab3:
     try:
