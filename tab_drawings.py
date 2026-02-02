@@ -1,24 +1,20 @@
 import streamlit as st
-from geometry_view import plot_combined_view
 
 def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, moment_vals):
-    st.header("1. Engineering Drawings & Details")
+    st.markdown("## 🏗️ Construction Drawings")
+    st.info("ℹ️ Module นี้กำลังอยู่ระหว่างการพัฒนา (Drawing Module is under construction)")
     
-    col1, col2 = st.columns([3, 1])
+    st.markdown("""
+    ### Features to come:
+    - Auto-generated DXF export
+    - Detailed Rebar Schedule
+    - Section cuts automation
+    """)
     
-    with col1:
-        st.pyplot(plot_combined_view(L1, L2, c1_w, c2_w, h_slab, lc, moment_vals))
-        
-    with col2:
-        st.markdown("### 📋 Design Summary")
-        st.info(f"""
-        **Geometry:**
-        - Design Span (L1): {L1} m
-        - Width (L2): {L2} m
-        - Thickness: {h_slab} cm
-        
-        **Section:**
-        - Col (Parallel): {c1_w} cm
-        - Col (Perp): {c2_w} cm
-        - d_eff: {d_eff:.2f} cm
-        """)
+    # แสดงค่าที่รับมา เพื่อ Debug ว่าส่งค่ามาถูกไหม
+    with st.expander("Debug: Received Parameters"):
+        st.write({
+            "Lx": L1, "Ly": L2, 
+            "h_slab": h_slab, 
+            "Moment Data": moment_vals
+        })
