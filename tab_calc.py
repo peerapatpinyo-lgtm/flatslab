@@ -4,226 +4,283 @@ import pandas as pd
 import numpy as np
 
 # ==========================================
-# 1. HELPER: STYLING & UTILS
+# 1. HELPER: VISUAL STYLING (CSS)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
     <style>
-        /* Modern Calculation Header */
-        .topic-header {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #1565c0; /* Blue 800 */
-            border-bottom: 2px solid #bbdefb;
-            padding-bottom: 8px;
-            margin-top: 30px;
-            margin-bottom: 20px;
+        /* Main Report Container */
+        .report-container {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
         }
-        .topic-header span {
-            background-color: #e3f2fd;
-            padding: 5px 12px;
-            border-radius: 5px 5px 0 0;
-            border: 1px solid #bbdefb;
-            border-bottom: none;
-        }
-        /* Subsection Box */
-        .sub-box {
-            background-color: #f8f9fa;
-            border-left: 4px solid #546e7a;
+
+        /* 1. Executive Summary Cards */
+        .summary-box {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
             padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+        }
+        .summary-box:hover { transform: translateY(-2px); }
+        .summary-label { font-size: 0.85rem; color: #757575; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .summary-val { font-size: 1.6rem; font-weight: 800; color: #1a237e; margin: 8px 0; }
+        
+        /* Status Badges */
+        .badge { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-block; }
+        .badge-pass { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+        .badge-fail { background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+        .badge-info { background-color: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+
+        /* 2. Topic Headers */
+        .topic-header {
+            margin-top: 35px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eeeeee;
+            padding-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        .topic-number {
+            background-color: #1a237e;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 15px;
+        }
+        .topic-title { font-size: 1.3rem; font-weight: 700; color: #37474f; }
+
+        /* 3. Sub-components */
+        .calc-card {
+            background-color: #f8f9fa;
+            border-left: 4px solid #3949ab;
+            padding: 15px 20px;
             border-radius: 4px;
             margin-bottom: 15px;
         }
-        /* Formula Box */
-        .formula-card {
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
+        .formula-box {
+            text-align: center;
+            background: #ffffff;
+            border: 1px dashed #bdbdbd;
             border-radius: 8px;
             padding: 15px;
-            text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            margin: 10px 0;
         }
-        /* Status Badges */
-        .badge-pass { background-color: #c8e6c9; color: #2e7d32; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
-        .badge-fail { background-color: #ffcdd2; color: #c62828; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-def render_punching_check_section(res, title_suffix=""):
-    """Helper to render one punching check block"""
+# ==========================================
+# 2. HELPER: COMPONENT RENDERERS
+# ==========================================
+
+def card_metric(label, value, status, subtext=""):
+    """Renders a single summary card"""
+    if status == "PASS":
+        badge_cls = "badge-pass"
+        icon = "✅ PASS"
+    elif status == "FAIL":
+        badge_cls = "badge-fail"
+        icon = "❌ FAIL"
+    else:
+        badge_cls = "badge-info"
+        icon = f"ℹ️ {status}"
+
+    st.markdown(f"""
+    <div class="summary-box">
+        <div class="summary-label">{label}</div>
+        <div class="summary-val">{value}</div>
+        <div class="badge {badge_cls}">{icon}</div>
+        <div style="margin-top:8px; font-size:0.75rem; color:#9e9e9e;">{subtext}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_punching_details(res, sub_title):
+    """Renders details for one punching shear critical section"""
+    st.markdown(f"**📍 Location:** {sub_title}")
     
-    st.markdown(f"**📍 Critical Section: {title_suffix}**")
-    
-    # 1. Geometry Data
+    # 1. Geometric Properties
     c1, c2, c3 = st.columns(3)
     c1.metric("Effective Depth (d)", f"{res['d']:.2f} cm")
     c2.metric("Perimeter (b0)", f"{res['b0']:.2f} cm")
-    beta_val = res.get('beta', 0)
-    c3.metric("Aspect Ratio (β)", f"{beta_val:.2f}")
-
-    # 2. Capacity Table
-    vc_governing = min(res['Vc1'], res['Vc2'], res['Vc3'])
-    phi_vn = 0.85 * vc_governing
+    c3.metric("Beta (β)", f"{res.get('beta', 0):.2f}")
     
-    with st.expander("View ACI 318 Equations & Vc Values", expanded=True):
-        col_eq, col_tbl = st.columns([1.2, 1])
-        with col_eq:
+    # 2. Formulas & Table
+    with st.expander("Show Calculation Details (ACI 318)", expanded=True):
+        col_f, col_t = st.columns([1, 1])
+        with col_f:
+            st.caption("Shear Capacity Formulas ($V_c$):")
             st.latex(r"V_{c1} = 0.53 (1 + 2/\beta) \sqrt{f'_c} b_0 d")
             st.latex(r"V_{c2} = 0.53 (\alpha_s d/b_0 + 2) \sqrt{f'_c} b_0 d")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
-        with col_tbl:
+        with col_t:
             df_vc = pd.DataFrame({
-                "Eq.": ["Vc1", "Vc2", "Vc3"],
-                "Value (kg)": [res['Vc1'], res['Vc2'], res['Vc3']]
+                "Criteria": ["Aspect Ratio", "Perimeter", "Basic"],
+                "Vc Value (kg)": [res['Vc1'], res['Vc2'], res['Vc3']]
             })
-            st.dataframe(df_vc.style.format({"Value (kg)": "{:,.0f}"}), use_container_width=True, hide_index=True)
-
-    # 3. Final Compare
-    c_final1, c_final2 = st.columns([2, 1])
-    with c_final1:
-        st.write(f"Governing $V_c$: **{vc_governing:,.0f}** kg")
-        st.write(f"Design Strength $\phi V_n$ (0.85): **{phi_vn:,.0f}** kg")
-        st.write(f"Factored Load $V_u$: **{res['Vu']:,.0f}** kg")
-    with c_final2:
-        ratio = res['Vu'] / phi_vn if phi_vn > 0 else 999
-        status = "PASS" if ratio <= 1.0 else "FAIL"
-        badge_cls = "badge-pass" if status == "PASS" else "badge-fail"
-        
+            st.dataframe(df_vc.style.format({"Vc Value (kg)": "{:,.0f}"}), use_container_width=True, hide_index=True)
+            
+    # 3. Final Check
+    vc_governing = min(res['Vc1'], res['Vc2'], res['Vc3'])
+    phi_vn = 0.85 * vc_governing
+    ratio = res['Vu'] / phi_vn if phi_vn > 0 else 999.0
+    status = "PASS" if ratio <= 1.0 else "FAIL"
+    
+    result_col1, result_col2 = st.columns([3, 1.5])
+    with result_col1:
         st.markdown(f"""
-        <div style="text-align:center; border:1px solid #ddd; border-radius:8px; padding:10px;">
-            <div style="font-size:0.8rem; color:#666;">Capacity Ratio</div>
-            <div style="font-size:1.6rem; font-weight:bold;">{ratio:.2f}</div>
-            <span class="{badge_cls}">{status}</span>
+        <div class="calc-card">
+            <div>🔹 Governing Vc: <b>{vc_governing:,.0f} kg</b></div>
+            <div>🔹 Design Strength (ϕVn): <b>{phi_vn:,.0f} kg</b> (ϕ=0.85)</div>
+            <div style="color:#d32f2f">🔸 Factored Load (Vu): <b>{res['Vu']:,.0f} kg</b></div>
         </div>
         """, unsafe_allow_html=True)
+    with result_col2:
+        st.metric("Stress Ratio", f"{ratio:.2f}", delta="Safe" if status=="PASS" else "Fail", delta_color="inverse")
     
     st.divider()
 
 # ==========================================
-# 2. MAIN RENDERER
+# 3. MAIN RENDER FUNCTION
 # ==========================================
 def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     inject_custom_css()
     
-    st.markdown("### 📑 Detailed Calculation Report")
+    # Header
+    st.title("📑 Structural Calculation Report")
+    st.caption(f"Project Code: ProFlat-001 | Date: {pd.Timestamp.now().strftime('%d %b %Y')}")
+    st.markdown("---")
+
+    # ----------------------------------------------------
+    # SECTION 0: EXECUTIVE SUMMARY (DASHBOARD CARDS)
+    # ----------------------------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        card_metric("Punching Shear", f"{punch_res['ratio']:.2f}", punch_res['status'], "Capacity Ratio")
+    with c2:
+        card_metric("One-Way Shear", f"{v_oneway_res['ratio']:.2f}", v_oneway_res['status'], "Beam Action")
+    with c3:
+        h_min = max(Lx, Ly)*100 / 33.0
+        s_def = "PASS" if mat_props['h_slab'] >= h_min else "CHECK"
+        card_metric("Deflection", f"L/33", s_def, f"Min Thk: {h_min:.1f} cm")
+    with c4:
+        card_metric("Factored Load", f"{loads['w_u']:,.0f}", "INFO", "kg/m² (ULS)")
+
+    # ----------------------------------------------------
+    # SECTION 1: PUNCHING SHEAR
+    # ----------------------------------------------------
+    st.markdown('<div class="topic-header"><div class="topic-number">1</div><div class="topic-title">Punching Shear Analysis</div></div>', unsafe_allow_html=True)
     
-    # ==========================================
-    # 1. PUNCHING SHEAR
-    # ==========================================
-    st.markdown('<div class="topic-header"><span>1. Punching Shear Analysis (Two-Way)</span></div>', unsafe_allow_html=True)
-    
-    # Check Dual Case
     if punch_res.get('is_dual', False):
-        st.info("ℹ️ **Drop Panel Case:** Checking two critical sections.")
-        render_punching_check_section(punch_res['check_1'], "Inside Drop Panel (d/2 from Column)")
-        render_punching_check_section(punch_res['check_2'], "Outside Drop Panel (d/2 from Drop Edge)")
+        st.info("ℹ️ **Configuration:** Slab with Drop Panel (Checking 2 Critical Sections)")
+        render_punching_details(punch_res['check_1'], "Inside Drop Panel (d/2 from Column Face)")
+        render_punching_details(punch_res['check_2'], "Outside Drop Panel (d/2 from Drop Panel Edge)")
     else:
-        render_punching_check_section(punch_res, "d/2 from Column Face")
+        render_punching_details(punch_res, "d/2 from Column Face")
 
-
-    # ==========================================
-    # 2. ONE-WAY SHEAR
-    # ==========================================
-    st.markdown('<div class="topic-header"><span>2. One-Way Shear Analysis (Beam Action)</span></div>', unsafe_allow_html=True)
+    # ----------------------------------------------------
+    # SECTION 2: ONE-WAY SHEAR
+    # ----------------------------------------------------
+    st.markdown('<div class="topic-header"><div class="topic-number">2</div><div class="topic-title">One-Way Shear Analysis</div></div>', unsafe_allow_html=True)
     
-    col_one_L, col_one_R = st.columns([1.5, 1])
+    c_one_L, c_one_R = st.columns([2, 1])
     
-    with col_one_L:
-        st.markdown("**Concept:** Check shear at distance $d$ from support face.")
-        st.markdown('<div class="formula-card">', unsafe_allow_html=True)
-        st.latex(r"\phi V_c = \phi \times 0.53 \sqrt{f'_c} b_w d")
-        st.caption("Where $\phi = 0.85$ for shear")
+    with c_one_L:
+        st.write("Checking beam-action shear at distance **d** from support face.")
+        st.markdown('<div class="formula-box">', unsafe_allow_html=True)
+        st.latex(r"\phi V_n = \phi \cdot 0.53 \sqrt{f'_c} b_w d")
+        st.caption("Assuming Unit Width bw = 100 cm")
         st.markdown('</div>', unsafe_allow_html=True)
         
-        vu_one = v_oneway_res.get('Vu', 0)
-        vc_one = v_oneway_res.get('Vc', 0) # Assuming Nominal
-        phi_vc_one = vc_one * 0.85 if vc_one > vu_one else vc_one # Adjust based on your calc logic
-        
-        st.write(f"• Section Width ($b_w$): **100** cm (Unit Strip)")
-        st.write(f"• Factored Shear ($V_u$): **{vu_one:,.0f}** kg")
-        st.write(f"• Design Capacity ($\phi V_c$): **{phi_vc_one:,.0f}** kg")
-
-    with col_one_R:
-        ratio_one = v_oneway_res['ratio']
-        status_one = "PASS" if ratio_one <= 1.0 else "FAIL"
-        badge_one = "badge-pass" if status_one == "PASS" else "badge-fail"
+        vu = v_oneway_res.get('Vu', 0)
+        vc = v_oneway_res.get('Vc', 0) # Assuming this is Nominal Vc
+        phi_vc = vc * 0.85 # Applying phi here if Vc is nominal
+        if phi_vc < vc: phi_vc = vc # Guard clause: if input was already design strength, don't reduce again (depends on your calc logic)
         
         st.markdown(f"""
-        <div style="text-align:center; background:#f4f4f4; border-radius:8px; padding:20px; height:100%;">
-            <h4>Shear Ratio</h4>
-            <div style="font-size:2rem; font-weight:bold; margin:10px 0;">{ratio_one:.2f}</div>
-            <span class="{badge_one}">{status_one}</span>
+        <div class="calc-card">
+            <ul>
+                <li>Factored Shear Force ($V_u$): <b>{vu:,.0f} kg</b></li>
+                <li>Design Shear Capacity ($\phi V_c$): <b>{phi_vc:,.0f} kg</b></li>
+            </ul>
         </div>
         """, unsafe_allow_html=True)
 
+    with c_one_R:
+        ratio = v_oneway_res['ratio']
+        status = "PASS" if ratio <= 1.0 else "FAIL"
+        color = "green" if status == "PASS" else "red"
+        st.markdown(f"""
+        <div style="text-align:center; padding:20px; border:2px solid {color}; border-radius:10px;">
+            <h3 style="color:{color}">{status}</h3>
+            <div style="font-size:2rem; font-weight:bold;">{ratio:.2f}</div>
+            <div>Stress Ratio</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # ==========================================
-    # 3. DEFLECTION (MIN THICKNESS)
-    # ==========================================
-    st.markdown('<div class="topic-header"><span>3. Deflection Control (Minimum Thickness)</span></div>', unsafe_allow_html=True)
+    # ----------------------------------------------------
+    # SECTION 3: DEFLECTION
+    # ----------------------------------------------------
+    st.markdown('<div class="topic-header"><div class="topic-number">3</div><div class="topic-title">Deflection Control</div></div>', unsafe_allow_html=True)
     
-    col_def1, col_def2 = st.columns([2, 1])
-    
-    with col_def1:
-        st.markdown("**Method:** ACI 318 Table 8.3.1.1 - Minimum thickness for slabs without interior beams.")
-        
-        # Calculation Logic Display
+    c_def1, c_def2 = st.columns([1.5, 1])
+    with c_def1:
+        st.markdown("**Criteria:** ACI 318 Table 8.3.1.1 (Min Thickness for Slabs without Interior Beams)")
         max_span = max(Lx, Ly)
-        denom = 33.0 # Basic assumption for Interior Panel w/o Drop
+        st.latex(r"h_{min} = \frac{L_n}{33} \quad \text{(for Interior Panels)}")
         
-        st.markdown(f"""
-        * **Longest Span ($L_n$):** {max_span:.2f} m
-        * **Criteria:** $L_n / {denom:.0f}$ (Interior Panel)
-        * **Calculation:** $({max_span:.2f} \\times 100) / {denom:.0f}$
-        """)
-        
-        h_min = (max_span * 100) / denom
-        st.markdown(f"👉 **Required Minimum Thickness ($h_{{min}}$): {h_min:.2f} cm**")
-
-    with col_def2:
+        st.write(f"• Longest Span ($L$): **{max_span:.2f} m**")
+        st.write(f"• Required Thickness ($h_{{min}}$): **{h_min:.2f} cm**")
+    
+    with c_def2:
         h_actual = mat_props['h_slab']
-        status_def = "PASS" if h_actual >= h_min else "CHECK"
-        bg_def = "#e8f5e9" if status_def == "PASS" else "#fff3e0"
-        
+        delta = h_actual - h_min
+        icon = "✅" if delta >= 0 else "⚠️"
         st.markdown(f"""
-        <div style="background-color:{bg_def}; padding:15px; border-radius:8px; border:1px solid #ccc;">
-            <strong>Actual Thickness</strong>
-            <div style="font-size:1.8rem; font-weight:bold; color:#333;">{h_actual:.0f} cm</div>
-            <div style="margin-top:5px; font-size:0.9rem;">vs Min: {h_min:.1f} cm</div>
-            <hr style="margin:5px 0;">
-            <strong style="color:{'green' if status_def=='PASS' else 'orange'};">{status_def}</strong>
+        <div style="background:#f1f8e9; padding:15px; border-radius:8px;">
+            <strong>Actual Slab Thickness:</strong>
+            <div style="font-size:24px; font-weight:bold; color:#2e7d32;">{h_actual:.0f} cm</div>
+            <hr>
+            <div>{icon} Margin: {delta:+.1f} cm</div>
         </div>
         """, unsafe_allow_html=True)
 
-
-    # ==========================================
-    # 4. FACTORED LOAD
-    # ==========================================
-    st.markdown('<div class="topic-header"><span>4. Factored Load Analysis (ULS)</span></div>', unsafe_allow_html=True)
+    # ----------------------------------------------------
+    # SECTION 4: FACTORED LOAD
+    # ----------------------------------------------------
+    st.markdown('<div class="topic-header"><div class="topic-number">4</div><div class="topic-title">Factored Load Analysis (ULS)</div></div>', unsafe_allow_html=True)
     
-    # 1. Inputs
+    # Data Prep
+    h_m = mat_props['h_slab'] / 100.0
+    w_self = h_m * 2400
     sdl = loads['SDL']
     ll = loads['LL']
-    h_m = mat_props['h_slab'] / 100.0
-    w_concrete = 2400 # kg/m3
+    dl_total = w_self + sdl
+    wu_calc = 1.2*dl_total + 1.6*ll
     
-    # 2. Calculation Steps
-    st.markdown("calculation of Uniformly Distributed Load ($w_u$):")
+    st.markdown("load Combination: **$w_u = 1.2D + 1.6L$**")
     
-    df_load = pd.DataFrame([
-        {"Item": "Slab Self-Weight", "Calc": f"{h_m:.2f} m × 2400 kg/m³", "Value": h_m*w_concrete},
-        {"Item": "Superimposed Dead Load (SDL)", "Calc": "Input", "Value": sdl},
-        {"Item": "Total Dead Load (D)", "Calc": "Sum", "Value": h_m*w_concrete + sdl},
-        {"Item": "Live Load (L)", "Calc": "Input", "Value": ll},
-    ])
+    # Table Styling
+    load_data = [
+        ["Self-Weight (D1)", f"{h_m:.2f}m × 2400", f"{w_self:.1f}", "1.2", f"{1.2*w_self:.1f}"],
+        ["Superimposed (D2)", "SDL Input", f"{sdl:.1f}", "1.2", f"{1.2*sdl:.1f}"],
+        ["Live Load (L)", "LL Input", f"{ll:.1f}", "1.6", f"{1.6*ll:.1f}"],
+        ["<b>TOTAL (ULS)</b>", "-", f"<b>{dl_total+ll:,.1f}</b>", "-", f"<b>{wu_calc:,.1f}</b>"]
+    ]
     
-    st.table(df_load.style.format({"Value": "{:,.1f}"}))
+    df_load = pd.DataFrame(load_data, columns=["Load Type", "Calculation", "Service (kg/m²)", "Factor", "Factored (kg/m²)"])
     
-    # 3. Final Formula
-    wu = loads['w_u']
-    st.markdown('<div class="sub-box">', unsafe_allow_html=True)
-    st.markdown("**Load Combination (ACI 318):**")
-    st.latex(r"w_u = 1.2 D + 1.6 L")
-    st.latex(f"w_u = 1.2({(h_m*w_concrete + sdl):.0f}) + 1.6({ll:.0f})")
-    st.markdown(f"### 👉 Total Factored Load ($w_u$) = <span style='color:#d32f2f'>{wu:,.0f} kg/m²</span>", unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Use HTML table for better control over bold text
+    st.markdown(df_load.to_html(escape=False, index=False, justify='center', border=0, classes='table'), unsafe_allow_html=True)
+    
+    st.markdown(f"""
+    <div style="margin-top:15px; text-align:right; font-size:1.1rem;">
+        Total Design Load ($w_u$) = <b style="color:#d32f2f; font-size:1.4rem;">{wu_calc:,.0f} kg/m²</b>
+    </div>
+    """, unsafe_allow_html=True)
