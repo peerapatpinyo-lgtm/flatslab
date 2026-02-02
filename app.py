@@ -208,38 +208,7 @@ with tab2:
     )    
    
     
-    def render_calc_section(res, label):
-        with st.container():
-            st.markdown(f"#### {label}")
-            # Use columns for a structured layout
-            c_a, c_b, c_c = st.columns([1, 1, 2])
-            with c_a:
-                st.markdown("**Geometric Params**")
-                st.latex(f"d = {res['d']:.2f} \\text{{ cm}}")
-                st.latex(f"b_0 = {res['b0']:.2f} \\text{{ cm}}")
-            with c_b:
-                st.markdown("**Coefficients**")
-                st.latex(f"\\beta = {res['beta']:.2f}")
-                st.latex(f"\\alpha_s = {res['alpha_s']}")
-            with c_c:
-                st.markdown("**Shear Capacity ($V_c$)**")
-                st.write(f"V_c1 (Aspect): **{res['Vc1']:,.0f}** kg")
-                st.write(f"V_c2 (Peri): **{res['Vc2']:,.0f}** kg")
-                st.write(f"V_c3 (Basic): **{res['Vc3']:,.0f}** kg")
-            
-            st.divider()
-            c_final1, c_final2 = st.columns([3, 1])
-            with c_final1:
-                st.info(f"Design Strength $\phi V_n$: **{res['Vc_design']:,.0f} kg** vs Factored Load $V_u$: **{res['Vu']:,.0f} kg**")
-            with c_final2:
-                st.metric("Ratio", f"{res['ratio']:.2f}", delta="-Safe" if res['ratio']<=1 else "+Fail", delta_color="inverse")
 
-    if punch_res.get('is_dual', False):
-        t1, t2 = st.tabs(["Inner Section (Column)", "Outer Section (Drop Panel)"])
-        with t1: render_calc_section(punch_res['check_1'], "Critical Section 1: d/2 from Column Face")
-        with t2: render_calc_section(punch_res['check_2'], "Critical Section 2: d/2 from Drop Panel")
-    else:
-        render_calc_section(punch_res, "Critical Section: d/2 from Column Face")
 
 # --- TAB 3: DDM ---
 with tab3:
