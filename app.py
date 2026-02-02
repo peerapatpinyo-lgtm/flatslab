@@ -190,7 +190,7 @@ with tab1:
     tab_drawings.render(
         L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, 
         d_eff=d_eff_slab, drop_data=drop_data, moment_vals=M_vals_x,
-        mat_props=mat_props, loads=load_props
+        mat_props=mat_props, loads=load_props,
         col_type=col_type  
     )
 
