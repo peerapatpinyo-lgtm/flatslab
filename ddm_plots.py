@@ -221,3 +221,49 @@ def plot_rebar_plan_view(L_span, L_width, c_para, rebar_results, axis_dir):
     ax.set_ylim(-2, H + 2)
     plt.tight_layout()
     return fig
+
+# เพิ่มต่อท้ายในไฟล์ ddm_plots.py
+def plot_punching_shear_geometry(c1, c2, d_avg, bo, status, ratio):
+    """
+    แสดงรูปแปลนจุดรองรับและแนววิกฤต Punching Shear
+    """
+    fig, ax = plt.subplots(figsize=(6, 6), facecolor=CLR_BG)
+    
+    # Scale constants
+    limit = max(c1, c2) * 3 + d_avg * 2
+    ax.set_xlim(-limit/2, limit/2)
+    ax.set_ylim(-limit/2, limit/2)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    
+    # 1. Column (Center)
+    col_rect = patches.Rectangle((-c1/2, -c2/2), c1, c2, 
+                                 fc='#343A40', ec='black', zorder=10)
+    ax.add_patch(col_rect)
+    ax.text(0, 0, "Column", color='white', ha='center', va='center', fontweight='bold')
+    
+    # 2. Critical Section (d/2 offset)
+    crit_w = c1 + d_avg
+    crit_h = c2 + d_avg
+    color_crit = '#28A745' if status == "OK" else '#DC3545' # Green or Red
+    
+    crit_rect = patches.Rectangle((-crit_w/2, -crit_h/2), crit_w, crit_h, 
+                                  fc=color_crit, ec=color_crit, alpha=0.2, ls='--', lw=2, zorder=5)
+    ax.add_patch(crit_rect)
+    
+    # เส้นขอบเขต Critical
+    crit_outline = patches.Rectangle((-crit_w/2, -crit_h/2), crit_w, crit_h, 
+                                     fill=False, ec=color_crit, ls='--', lw=2, zorder=6)
+    ax.add_patch(crit_outline)
+
+    # 3. Dimensions
+    # d/2 arrows
+    ax.annotate("", xy=(c1/2, 0), xytext=(crit_w/2, 0), arrowprops=dict(arrowstyle='<->', color='black'))
+    ax.text((c1/2 + crit_w/2)/2, 0.1 * limit, "d/2", ha='center', fontsize=9)
+    
+    # 4. Status Label
+    ax.set_title(f"PUNCHING SHEAR CHECK: {status}\nRatio = {ratio:.2f}", 
+                 color=color_crit, fontweight='bold', fontsize=12)
+    
+    plt.tight_layout()
+    return fig
