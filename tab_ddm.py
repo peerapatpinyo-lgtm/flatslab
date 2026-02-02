@@ -209,38 +209,43 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         ]
         st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
-    # ==========================================================
-    # 2️⃣ PUNCHING SHEAR CHECK (NEW ADDITION)
+# ==========================================================
+    # 2️⃣ PUNCHING SHEAR CHECK (FIXED)
     # ==========================================================
     if HAS_CALC and HAS_PLOTS:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
         
-        # 1. Prepare Data for Punching Check
-        # Assumption: For the DDM tab, we approximate the check using current tab's geometry
-        # L1 = Span, L2 = Width, c1 = c_para, c2 = c_para (Square assumption if not provided)
-        c_col = c_para # cm
+        # 1. Prepare Data
+        c_col = float(c_para)
         
-        load_area = (span_val * width_val) - ((c_col/100) * (c_col/100))
-        Vu_approx = w_u * load_area # Factored Load from Main input
+        # Calculate Load
+        load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
+        Vu_approx = float(w_u) * load_area 
         
-        # 2. Perform Check
+        # --- คำนวณค่า d (Effective Depth) ก่อนส่งเข้าฟังก์ชัน ---
+        # สมมติเหล็กแกน 12mm = 1.2 cm
+        d_bar_val = 1.2 
+        d_eff = float(h_slab) - float(cover) - d_bar_val
+        if d_eff <= 0: d_eff = 1.0 # กัน Error กรณีใส่เลขแปลกๆ
+
+        # 2. Perform Check (แก้ไขชื่อตัวแปรให้ตรงกับ calculations.py ใหม่)
         ps_res = calc.check_punching_shear(
-            Vu_kg=Vu_approx, 
-            fc=fc, 
-            h_slab=h_slab, 
-            c1_cm=c_col, 
-            c2_cm=c_col, 
-            cover=cover, 
-            d_bar_mm=12 # Assumption for check
+            Vu=Vu_approx,        # แก้จาก Vu_kg เป็น Vu
+            fc=float(fc),
+            c1=c_col,            # แก้จาก c1_cm เป็น c1
+            c2=c_col,            # แก้จาก c2_cm เป็น c2
+            d=d_eff,             # ส่งค่า d ที่คำนวณแล้วไปตรงๆ
+            col_type="interior"  # ระบุประเภทเสา (DDM คิดเป็น Interior Strip)
         )
         
         # 3. Display Results
         col_p1, col_p2 = st.columns([1, 1.5])
         
         with col_p1:
+            # ส่งค่าเข้า Plot (ใช้ key 'bo' หรือ 'b0' ก็ได้ เพราะเราแก้ calc รองรับไว้แล้ว)
             st.pyplot(ddm_plots.plot_punching_shear_geometry(
-                c_col, c_col, ps_res['d_avg'], ps_res['bo'], ps_res['status'], ps_res['ratio']
+                c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
             ))
         
         with col_p2:
@@ -252,25 +257,21 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
             
             with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
                 st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
-                st.latex(r"d_{avg} = h - cover - d_b = " + f"{ps_res['d_avg']:.2f}" + " cm")
-                st.latex(r"b_o = 2(c_1+d) + 2(c_2+d) = " + f"{ps_res['bo']:.2f}" + " cm")
+                st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
+                st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
                 
                 st.write("**2. Concrete Capacity ($V_c$):**")
+                # ใช้ key 'Vc_nominal' และ 'phi_Vc' ที่มีอยู่ใน calc ใหม่
                 st.latex(r"\phi V_c = 0.85 \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
                 
                 st.write("**3. Check:**")
                 st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
-
-            # Suggest Drop Panel
-            if ps_res['status'] == "FAIL":
-                req_Vc = ps_res['Vu'] / 0.85
-                req_d = req_Vc / (1.06 * np.sqrt(fc) * ps_res['bo']) # Approximate
-                req_h = req_d + cover + 1.2
-                add_h = req_h - h_slab
-                st.info(f"💡 **Recommendation:** Need Drop Panel thickness >= {add_h:.1f} cm (Total thickness {req_h:.1f} cm)")
                 
+            if ps_res['status'] == "FAIL":
+                st.info(f"💡 **Tip:** Try increasing slab thickness or column size.")
+
     elif not HAS_CALC:
-        st.warning("⚠️ module 'calculations.py' not found. Skipping Punching Shear Check.")
+        st.warning("⚠️ module 'calculations.py' not found.")
 
     # --- PART 3: INPUTS (Renumbered to 3) ---
     st.markdown("---")
