@@ -5,272 +5,302 @@ import numpy as np
 import math
 
 # ==========================================
-# 1. CSS & STYLING
+# 1. VISUAL STYLING (CSS)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
     <style>
-        .report-container { font-family: 'Sarabun', sans-serif; }
+        /* Main Container Font */
+        .report-container { font-family: 'Segoe UI', Tahoma, sans-serif; }
         
-        /* Box สำหรับแสดงวิธีทำ (Step-by-Step Box) */
-        .step-box {
-            background-color: #f8f9fa;
-            border-left: 4px solid #455a64;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.95rem;
-            color: #37474f;
-        }
-        
-        /* Header ของแต่ละ Step */
-        .step-header {
-            font-weight: bold;
-            color: #1565c0;
-            margin-top: 10px;
-            margin-bottom: 5px;
-            font-size: 1rem;
-        }
-
-        /* Summary Cards */
-        .summary-card {
-            background: white;
+        /* 1. Dashboard Cards (Top Summary) */
+        .metric-container {
+            background-color: #ffffff;
             border: 1px solid #e0e0e0;
             border-radius: 8px;
-            padding: 12px;
+            padding: 15px 10px;
             text-align: center;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            height: 100%;
         }
+        .metric-title { font-size: 0.85rem; color: #616161; font-weight: 600; text-transform: uppercase; }
+        .metric-value { font-size: 1.5rem; font-weight: 800; color: #1565c0; margin: 5px 0; }
+        
+        /* 2. Step Containers */
+        .step-container {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #eceff1;
+        }
+        .step-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #37474f;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #cfd8dc;
+            padding-bottom: 5px;
+            display: flex;
+            align-items: center;
+        }
+        .step-icon { margin-right: 10px; background: #37474f; color: white; width: 24px; height: 24px; text-align: center; border-radius: 50%; font-size: 0.8rem; line-height: 24px; }
+
+        /* 3. Formula Box */
+        .eq-box {
+            background: #ffffff;
+            border: 1px dashed #b0bec5;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 10px 0;
+            text-align: center;
+        }
+        
+        /* 4. Result/Verdict Box */
+        .verdict-box {
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+        .pass { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .fail { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+        
+        /* Custom Divider */
+        hr { margin: 30px 0; border: 0; border-top: 1px solid #e0e0e0; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. HELPER FUNCTIONS
+# 2. HELPER COMPONENTS
 # ==========================================
-def render_latex_substitution(formula_str, substitution_str, result_str):
-    """Helper to render Formula -> Substitution -> Result"""
-    st.markdown(f"**Formula:**")
-    st.latex(formula_str)
-    st.markdown(f"**Substitution:**")
-    st.latex(substitution_str)
-    st.markdown(f"**Result:**")
-    st.write(result_str)
+def render_summary_card(title, value, status, suffix=""):
+    icon = "✅" if status == "PASS" else ("❌" if status == "FAIL" else "ℹ️")
+    color = "#2e7d32" if status == "PASS" else ("#c62828" if status == "FAIL" else "#1565c0")
+    st.markdown(f"""
+    <div class="metric-container">
+        <div class="metric-title">{title}</div>
+        <div class="metric-value" style="color:{color}">{value}</div>
+        <div style="font-size:0.8rem; color:#757575;">{icon} {status} {suffix}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-def render_punching_step_by_step(res, mat_props, label):
-    st.markdown(f"#### 📍 Critical Section: {label}")
+def render_step_header(number, text):
+    st.markdown(f'<div class="step-title"><div class="step-icon">{number}</div>{text}</div>', unsafe_allow_html=True)
+
+# ==========================================
+# 3. DETAILED RENDERERS
+# ==========================================
+
+def render_punching_detailed(res, mat_props, label):
+    st.markdown(f"#### 📍 Checking: {label}")
     
     fc = mat_props['fc']
     d = res['d']
     b0 = res['b0']
     beta = res.get('beta', 2.0)
-    alpha_s = 40 # Interior column assumption usually
     
-    # --- Step 1: Geometric Parameters ---
-    st.markdown('<div class="step-header">Step 1: Geometric Parameters</div>', unsafe_allow_html=True)
     with st.container():
-        st.markdown(f"""
-        * **Effective Depth ($d$):** {d:.2f} cm
-        * **Critical Perimeter ($b_0$):** {b0:.2f} cm (Calculated at distance $d/2$ from face)
-        * **Column Aspect Ratio ($\beta$):** {beta:.2f}
-        * **Concrete Strength ($\sqrt{{f'_c}}$):** $\sqrt{{{fc:.0f}}} = {math.sqrt(fc):.2f}$ ksc
-        """)
-
-    # --- Step 2: Calculate Vc (3 Equations) ---
-    st.markdown('<div class="step-header">Step 2: ACI 318 Shear Capacity Calculation ($V_c$)</div>', unsafe_allow_html=True)
-    
-    # Eq 1
-    with st.expander("Detailed Substitution for Vc1, Vc2, Vc3", expanded=True):
-        st.markdown("**Equation 1: Aspect Ratio Effect**")
-        st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
-        st.latex(f"V_{{c1}} = 0.53 \\left(1 + \\frac{{2}}{{{beta:.2f}}}\\right) ({math.sqrt(fc):.2f}) ({b0:.2f}) ({d:.2f})")
-        st.latex(f"V_{{c1}} = {res['Vc1']:,.0f} \\text{{ kg}}")
+        st.markdown('<div class="step-container">', unsafe_allow_html=True)
+        render_step_header(1, "Geometry & Material Properties")
         
-        st.markdown("---")
-        st.markdown("**Equation 2: Perimeter Effect**")
-        st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
-        term_2 = (alpha_s * d / b0) + 2
-        st.latex(f"V_{{c2}} = 0.53 \\left({term_2:.2f}\\right) ({math.sqrt(fc):.2f}) ({b0:.2f}) ({d:.2f})")
-        st.latex(f"V_{{c2}} = {res['Vc2']:,.0f} \\text{{ kg}}")
+        # Grid Layout for Inputs
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Effective Depth (d)", f"{d:.2f} cm")
+        c2.metric("Perimeter (b0)", f"{b0:.2f} cm")
+        c3.metric("Beta (β)", f"{beta:.2f}")
+        c4.metric("Sqrt(fc')", f"{math.sqrt(fc):.2f} ksc")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with st.container():
+        st.markdown('<div class="step-container">', unsafe_allow_html=True)
+        render_step_header(2, "Shear Capacity Calculation (ACI 318)")
+        st.info("The nominal shear strength ($V_c$) is the smallest of the following three equations:")
         
-        st.markdown("---")
-        st.markdown("**Equation 3: Basic Shear Strength**")
-        st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
-        st.latex(f"V_{{c3}} = 1.06 ({math.sqrt(fc):.2f}) ({b0:.2f}) ({d:.2f})")
-        st.latex(f"V_{{c3}} = {res['Vc3']:,.0f} \\text{{ kg}}")
+        # 3-Column Layout for Equations (Best for comparison)
+        eq1, eq2, eq3 = st.columns(3)
+        
+        with eq1:
+            st.markdown("**Eq. 1: Aspect Ratio**")
+            st.latex(r"V_{c1} = 0.53 (1 + \frac{2}{\beta}) \sqrt{f'_c} b_0 d")
+            st.caption("Substitution:")
+            st.latex(f"0.53 (1 + \\frac{{2}}{{{beta:.2f}}}) ({math.sqrt(fc):.2f}) ({b0:.0f}) ({d:.0f})")
+            st.markdown(f"<div class='eq-box'><b>{res['Vc1']:,.0f}</b> kg</div>", unsafe_allow_html=True)
 
-    # --- Step 3: Determine Governing Vc ---
-    vc_min = min(res['Vc1'], res['Vc2'], res['Vc3'])
-    phi_vn = 0.85 * vc_min
-    
-    st.markdown('<div class="step-header">Step 3: Design Strength ($\phi V_n$)</div>', unsafe_allow_html=True)
-    st.markdown(f"""
-    The governing nominal shear strength ($V_c$) is the minimum of the three values:
-    
-    $$V_c = \min({res['Vc1']:,.0f}, {res['Vc2']:,.0f}, {res['Vc3']:,.0f}) = \\mathbf{{{vc_min:,.0f}}} \\text{{ kg}}$$
-    
-    Apply reduction factor $\phi = 0.85$:
-    
-    $$\phi V_n = 0.85 \\times {vc_min:,.0f} = \\mathbf{{{phi_vn:,.0f}}} \\text{{ kg}}$$
-    """)
+        with eq2:
+            st.markdown("**Eq. 2: Perimeter**")
+            st.latex(r"V_{c2} = 0.53 (\frac{40 d}{b_0} + 2) \sqrt{f'_c} b_0 d")
+            st.caption("Substitution:")
+            val_term = (40*d/b0) + 2
+            st.latex(f"0.53 ({val_term:.2f}) ({math.sqrt(fc):.2f}) ({b0:.0f}) ({d:.0f})")
+            st.markdown(f"<div class='eq-box'><b>{res['Vc2']:,.0f}</b> kg</div>", unsafe_allow_html=True)
 
-    # --- Step 4: Check against Vu ---
-    st.markdown('<div class="step-header">Step 4: Safety Check</div>', unsafe_allow_html=True)
-    vu = res['Vu']
-    ratio = vu / phi_vn if phi_vn > 0 else 999
-    status = "PASS" if ratio <= 1.0 else "FAIL"
-    color = "green" if status == "PASS" else "red"
-    
-    st.markdown(f"""
-    $$V_u = {vu:,.0f} \\text{{ kg}}$$
-    
-    $$Ratio = \\frac{{V_u}}{{\phi V_n}} = \\frac{{{vu:,.0f}}}{{{phi_vn:,.0f}}} = \\mathbf{{{ratio:.2f}}}$$
-    
-    <div style="background-color:{'#e8f5e9' if status=='PASS' else '#ffebee'}; padding:10px; border-radius:5px; text-align:center; border:1px solid {color}; margin-top:10px;">
-        <strong style="color:{color}; font-size:1.2rem;">Result: {status}</strong>
-    </div>
-    """, unsafe_allow_html=True)
+        with eq3:
+            st.markdown("**Eq. 3: Basic**")
+            st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
+            st.caption("Substitution:")
+            st.latex(f"1.06 ({math.sqrt(fc):.2f}) ({b0:.0f}) ({d:.0f})")
+            st.markdown(f"<div class='eq-box'><b>{res['Vc3']:,.0f}</b> kg</div>", unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Comparison Block
+    with st.container():
+        st.markdown('<div class="step-container">', unsafe_allow_html=True)
+        render_step_header(3, "Final Check (Capacity vs Demand)")
+        
+        vc_min = min(res['Vc1'], res['Vc2'], res['Vc3'])
+        phi_vn = 0.85 * vc_min
+        vu = res['Vu']
+        ratio = vu / phi_vn
+        status = "PASS" if ratio <= 1.0 else "FAIL"
+        
+        # Left: Numbers | Right: Verdict
+        res_L, res_R = st.columns([2, 1])
+        
+        with res_L:
+            st.write(f"• Governing $V_c$ (Min) = **{vc_min:,.0f}** kg")
+            st.write(f"• Design Strength $\phi V_n$ ($0.85 \\times V_c$) = **{phi_vn:,.0f}** kg")
+            st.markdown(f"• Factored Load $V_u$ = <b style='color:#d32f2f'>{vu:,.0f}</b> kg", unsafe_allow_html=True)
+        
+        with res_R:
+            cls = "pass" if status == "PASS" else "fail"
+            st.markdown(f"""
+            <div class="verdict-box {cls}">
+                <div style="font-size:0.9rem;">Capacity Ratio</div>
+                <div style="font-size:2rem;">{ratio:.2f}</div>
+                <div>{status}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     st.divider()
 
 # ==========================================
-# 3. MAIN RENDER FUNCTION
+# 4. MAIN RENDERER
 # ==========================================
 def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     inject_custom_css()
     
-    # HEADER
-    st.title("📘 Detailed Calculation Report")
-    st.caption(f"Fully detailed step-by-step analysis per ACI 318.")
+    st.title("📑 Detailed Calculation Report")
+    st.caption("Step-by-step verification of structural adequacy.")
     
-    # ----------------------------------------------------
-    # DASHBOARD SUMMARY (Keep clean on top)
-    # ----------------------------------------------------
+    # --- TOP DASHBOARD ---
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f"<div class='summary-card'><b>Punching Shear</b><br><h2>{punch_res['ratio']:.2f}</h2>{punch_res['status']}</div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"<div class='summary-card'><b>One-Way Shear</b><br><h2>{v_oneway_res['ratio']:.2f}</h2>{v_oneway_res['status']}</div>", unsafe_allow_html=True)
-    with c3:
-        h_min = max(Lx, Ly)*100/33
-        st.markdown(f"<div class='summary-card'><b>Deflection (Min h)</b><br><h2>{h_min:.1f} cm</h2>Limit</div>", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"<div class='summary-card'><b>Factored Load</b><br><h2>{loads['w_u']:,.0f}</h2>kg/m²</div>", unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # ----------------------------------------------------
-    # 1. PUNCHING SHEAR (DETAILED)
-    # ----------------------------------------------------
-    st.header("1. Punching Shear Analysis (Two-Way Action)")
+    with c1: render_summary_card("Punching Shear", f"{punch_res['ratio']:.2f}", punch_res['status'])
+    with c2: render_summary_card("One-Way Shear", f"{v_oneway_res['ratio']:.2f}", v_oneway_res['status'])
+    h_min = max(Lx, Ly)*100/33
+    h_status = "PASS" if mat_props['h_slab'] >= h_min else "CHECK"
+    with c3: render_summary_card("Deflection", f"L/33", h_status, f"Req: {h_min:.1f} cm")
+    with c4: render_summary_card("Factored Load", f"{loads['w_u']:,.0f}", "INFO", "kg/m²")
     
+    st.write("") # Spacer
+
+    # --- 1. PUNCHING SHEAR ---
+    st.header("1. Punching Shear Analysis")
     if punch_res.get('is_dual', False):
-        st.info("Structure contains Drop Panels. Checking both critical sections.")
-        render_punching_step_by_step(punch_res['check_1'], mat_props, "Inside Drop Panel (d/2 from Column)")
-        render_punching_step_by_step(punch_res['check_2'], mat_props, "Outside Drop Panel (d/2 from Drop Edge)")
+        tab1, tab2 = st.tabs(["Inner Section (Column Face)", "Outer Section (Drop Panel)"])
+        with tab1: render_punching_detailed(punch_res['check_1'], mat_props, "d/2 from Column Face")
+        with tab2: render_punching_detailed(punch_res['check_2'], mat_props, "d/2 from Drop Panel Edge")
     else:
-        render_punching_step_by_step(punch_res, mat_props, "d/2 from Column Face")
+        render_punching_detailed(punch_res, mat_props, "d/2 from Column Face")
 
-    # ----------------------------------------------------
-    # 2. ONE-WAY SHEAR (DETAILED)
-    # ----------------------------------------------------
-    st.header("2. One-Way Shear Analysis (Beam Action)")
+    # --- 2. ONE-WAY SHEAR ---
+    st.header("2. One-Way Shear Analysis")
+    st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
+    col_cap, col_dem = st.columns(2)
+    
+    # Prepare Data
     fc = mat_props['fc']
-    bw = 100.0 # Unit strip
-    
-    # Note: v_oneway_res usually stores the worst case. 
-    # To show detailed calculation, we reconstruct the steps.
+    d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0 
+    vc_calc = 0.53 * math.sqrt(fc) * 100 * d_slab
+    phi_vc = 0.85 * vc_calc
     vu_one = v_oneway_res.get('Vu', 0)
-    vc_one_nominal = v_oneway_res.get('Vc', 0) 
-    # If the stored Vc is already design strength, we need to handle it, but let's assume it's nominal for calculation display
-    # Or back-calculate d from Vc: Vc = 0.53 * sqrt(fc) * bw * d
     
-    # Let's use the slab d
-    d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0 # approx effective depth
-    
-    st.markdown('<div class="step-header">Step 1: Calculate Capacity ($\phi V_c$)</div>', unsafe_allow_html=True)
-    st.markdown("Consider a unit strip width $b_w = 100$ cm.")
-    
-    st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
-    st.latex(f"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
-    
-    calc_vc = 0.53 * math.sqrt(fc) * 100 * d_slab
-    st.latex(f"V_c = {calc_vc:,.0f} \\text{{ kg/m}}")
-    
-    st.markdown("Apply reduction factor $\phi = 0.85$:")
-    st.latex(f"\\phi V_c = 0.85 \\times {calc_vc:,.0f} = \\mathbf{{{0.85*calc_vc:,.0f}}} \\text{{ kg/m}}")
+    with col_cap:
+        render_step_header("A", "Capacity ($\phi V_c$)")
+        st.write("Consider 1m strip ($b_w=100$ cm):")
+        st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
+        st.latex(f"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
+        st.markdown(f"**$V_c$ = {vc_calc:,.0f} kg/m**")
+        st.markdown(f"**$\phi V_c$ = {phi_vc:,.0f} kg/m** (at $\phi=0.85$)")
 
-    st.markdown('<div class="step-header">Step 2: Check Demand ($V_u$)</div>', unsafe_allow_html=True)
-    st.write(f"Factored shear force at distance $d$ from support:")
-    st.latex(f"V_u = {vu_one:,.0f} \\text{{ kg/m}}")
+    with col_dem:
+        render_step_header("B", "Demand ($V_u$)")
+        st.write("Shear at distance $d$ from support:")
+        st.latex(r"V_u = w_u \times (L_n/2 - d)")
+        st.markdown(f"<h3 style='text-align:center; color:#d32f2f'>{vu_one:,.0f} kg/m</h3>", unsafe_allow_html=True)
     
-    ratio_one = vu_one / (0.85*calc_vc)
+    # Verdict
+    st.markdown("---")
+    ratio_one = vu_one / phi_vc
     status_one = "PASS" if ratio_one <= 1.0 else "FAIL"
-    
-    st.markdown(f"**Conclusion:** Ratio = {ratio_one:.2f} $\\rightarrow$ **{status_one}**")
+    st.markdown(f"**Conclusion:** Ratio = {vu_one:,.0f} / {phi_vc:,.0f} = **{ratio_one:.2f}** ({status_one})")
+    st.markdown('</div>', unsafe_allow_html=True)
 
+    # --- 3. DEFLECTION ---
+    st.header("3. Deflection (Min. Thickness)")
+    st.markdown('<div class="step-container">', unsafe_allow_html=True)
+    
+    # Layout: Timeline style
+    c_d1, c_d2, c_d3 = st.columns([1, 1.5, 1])
+    
+    with c_d1:
+        st.markdown("**1. Span Data**")
+        st.write(f"$L_x$ = {Lx} m")
+        st.write(f"$L_y$ = {Ly} m")
+        max_span = max(Lx, Ly)
+        st.write(f"$L_{{max}}$ = {max_span} m")
+    
+    with c_d2:
+        st.markdown("**2. ACI Formula (Interior)**")
+        st.latex(r"h_{min} = \frac{L_n}{33} = \frac{" + f"{max_span*100:.0f}" + r"}{33}")
+        st.markdown(f"<div style='text-align:center; font-weight:bold; font-size:1.2rem;'>Req: {h_min:.2f} cm</div>", unsafe_allow_html=True)
+        
+    with c_d3:
+        st.markdown("**3. Check**")
+        h_prov = mat_props['h_slab']
+        st.write(f"Provided: **{h_prov} cm**")
+        if h_prov >= h_min:
+            st.success("✅ OK")
+        else:
+            st.error("❌ Too Thin")
+            
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ----------------------------------------------------
-    # 3. DEFLECTION (DETAILED)
-    # ----------------------------------------------------
-    st.markdown("---")
-    st.header("3. Deflection Control (Minimum Thickness)")
-    
-    st.markdown('<div class="step-header">Step 1: Determine Criteria</div>', unsafe_allow_html=True)
-    st.write("Per ACI 318 Table 8.3.1.1 for Slabs without Interior Beams (Interior Panel):")
-    st.latex(r"h_{min} = \frac{L_n}{33}")
-    
-    st.markdown('<div class="step-header">Step 2: Identify Longest Span</div>', unsafe_allow_html=True)
-    st.write(f"Long Span ($L_x$) = {Lx:.2f} m")
-    st.write(f"Short Span ($L_y$) = {Ly:.2f} m")
-    max_span = max(Lx, Ly)
-    st.latex(f"L_n = \\max({Lx}, {Ly}) = {max_span:.2f} \\text{{ m}} = {max_span*100:.0f} \\text{{ cm}}")
-    
-    st.markdown('<div class="step-header">Step 3: Calculate Minimum Thickness</div>', unsafe_allow_html=True)
-    h_min_calc = (max_span * 100) / 33.0
-    st.latex(f"h_{{min}} = \\frac{{{max_span*100:.0f}}}{{33}} = \\mathbf{{{h_min_calc:.2f}}} \\text{{ cm}}")
-    
-    st.markdown('<div class="step-header">Step 4: Check Provided Thickness</div>', unsafe_allow_html=True)
-    h_prov = mat_props['h_slab']
-    check_def = "PASS" if h_prov >= h_min_calc else "CHECK REQ."
-    st.write(f"Provided Thickness ($h_{{slab}}$) = **{h_prov:.0f} cm**")
-    st.success(f"Status: {check_def} (Provided {h_prov} cm ≥ Required {h_min_calc:.1f} cm)")
-
-
-    # ----------------------------------------------------
-    # 4. FACTORED LOAD (DETAILED)
-    # ----------------------------------------------------
-    st.markdown("---")
+    # --- 4. LOADS ---
     st.header("4. Factored Load Analysis ($w_u$)")
+    st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
+    # Prepare Dataframe for cleaner look
     h_m = mat_props['h_slab'] / 100.0
-    conc_density = 2400
+    wd = h_m * 2400
     sdl = loads['SDL']
     ll = loads['LL']
     
-    st.markdown('<div class="step-header">Step 1: Calculate Dead Load (D)</div>', unsafe_allow_html=True)
+    data = [
+        {"Load Type": "Slab Weight", "Details": f"{h_m:.2f}m × 2400 kg/m³", "Service Load": wd, "Factor": 1.2, "Factored Load": wd*1.2},
+        {"Load Type": "Superimposed (SDL)", "Details": "User Input", "Service Load": sdl, "Factor": 1.2, "Factored Load": sdl*1.2},
+        {"Load Type": "Live Load (LL)", "Details": "User Input", "Service Load": ll, "Factor": 1.6, "Factored Load": ll*1.6},
+    ]
+    df = pd.DataFrame(data)
     
-    st.markdown("**1.1 Self-Weight of Slab:**")
-    st.latex(r"w_{SW} = \text{thickness} \times \text{density}")
-    st.latex(f"w_{{SW}} = {h_m:.2f} \\text{{ m}} \\times {conc_density} \\text{{ kg/m}}^3 = {h_m*conc_density:.1f} \\text{{ kg/m}}^2")
+    # Show Table
+    st.table(df.style.format({
+        "Service Load": "{:,.1f}", 
+        "Factored Load": "{:,.1f}",
+        "Factor": "{:.1f}"
+    }))
     
-    st.markdown("**1.2 Superimposed Dead Load (SDL):**")
-    st.write(f"Given Input SDL = {sdl:.1f} kg/m²")
+    # Final Sum
+    wu_sum = df["Factored Load"].sum()
+    st.markdown(f"""
+    <div style="text-align:right; padding:10px; background:#e3f2fd; border-radius:5px;">
+        <span style="font-size:1.2rem; margin-right:15px;">Total Factored Load ($w_u$) =</span>
+        <span style="font-size:1.8rem; font-weight:bold; color:#1565c0;">{wu_sum:,.0f} kg/m²</span>
+    </div>
+    """, unsafe_allow_html=True)
     
-    total_dl = (h_m * conc_density) + sdl
-    st.markdown("**1.3 Total Dead Load ($D$):**")
-    st.latex(f"D = {h_m*conc_density:.1f} + {sdl:.1f} = {total_dl:.1f} \\text{{ kg/m}}^2")
-    
-    st.markdown('<div class="step-header">Step 2: Identify Live Load (L)</div>', unsafe_allow_html=True)
-    st.write(f"Given Input Live Load ($L$) = {ll:.1f} kg/m²")
-    
-    st.markdown('<div class="step-header">Step 3: Apply Load Factors (ULS)</div>', unsafe_allow_html=True)
-    st.write("ACI Load Combination: $1.2D + 1.6L$")
-    
-    term_d = 1.2 * total_dl
-    term_l = 1.6 * ll
-    wu_final = term_d + term_l
-    
-    st.latex(f"w_u = 1.2({total_dl:.1f}) + 1.6({ll:.1f})")
-    st.latex(f"w_u = {term_d:.1f} + {term_l:.1f}")
-    st.latex(f"w_u = \\mathbf{{{wu_final:,.0f}}} \\text{{ kg/m}}^2")
+    st.markdown('</div>', unsafe_allow_html=True)
