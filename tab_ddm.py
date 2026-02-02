@@ -3,12 +3,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Try importing the plotting module safely
+# Try importing dependencies
 try:
     import ddm_plots 
     HAS_PLOTS = True
 except ImportError:
     HAS_PLOTS = False
+
+try:
+    import calculations as calc
+    HAS_CALC = True
+except ImportError:
+    HAS_CALC = False
 
 # ========================================================
 # 1. CORE CALCULATION ENGINE
@@ -203,9 +209,72 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         ]
         st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
-    # --- PART 2: INPUTS ---
+    # ==========================================================
+    # 2️⃣ PUNCHING SHEAR CHECK (NEW ADDITION)
+    # ==========================================================
+    if HAS_CALC and HAS_PLOTS:
+        st.markdown("---")
+        st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
+        
+        # 1. Prepare Data for Punching Check
+        # Assumption: For the DDM tab, we approximate the check using current tab's geometry
+        # L1 = Span, L2 = Width, c1 = c_para, c2 = c_para (Square assumption if not provided)
+        c_col = c_para # cm
+        
+        load_area = (span_val * width_val) - ((c_col/100) * (c_col/100))
+        Vu_approx = w_u * load_area # Factored Load from Main input
+        
+        # 2. Perform Check
+        ps_res = calc.check_punching_shear(
+            Vu_kg=Vu_approx, 
+            fc=fc, 
+            h_slab=h_slab, 
+            c1_cm=c_col, 
+            c2_cm=c_col, 
+            cover=cover, 
+            d_bar_mm=12 # Assumption for check
+        )
+        
+        # 3. Display Results
+        col_p1, col_p2 = st.columns([1, 1.5])
+        
+        with col_p1:
+            st.pyplot(ddm_plots.plot_punching_shear_geometry(
+                c_col, c_col, ps_res['d_avg'], ps_res['bo'], ps_res['status'], ps_res['ratio']
+            ))
+        
+        with col_p2:
+            if ps_res['status'] == "OK":
+                st.success(f"✅ **PASSED** (Ratio: {ps_res['ratio']:.2f})")
+            else:
+                st.error(f"❌ **FAILED** (Ratio: {ps_res['ratio']:.2f})")
+                st.warning("⚠️ แนะนำ: เพิ่มความหนาพื้น, เพิ่มขนาดเสา, หรือใส่ Drop Panel")
+            
+            with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
+                st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
+                st.latex(r"d_{avg} = h - cover - d_b = " + f"{ps_res['d_avg']:.2f}" + " cm")
+                st.latex(r"b_o = 2(c_1+d) + 2(c_2+d) = " + f"{ps_res['bo']:.2f}" + " cm")
+                
+                st.write("**2. Concrete Capacity ($V_c$):**")
+                st.latex(r"\phi V_c = 0.85 \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
+                
+                st.write("**3. Check:**")
+                st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
+
+            # Suggest Drop Panel
+            if ps_res['status'] == "FAIL":
+                req_Vc = ps_res['Vu'] / 0.85
+                req_d = req_Vc / (1.06 * np.sqrt(fc) * ps_res['bo']) # Approximate
+                req_h = req_d + cover + 1.2
+                add_h = req_h - h_slab
+                st.info(f"💡 **Recommendation:** Need Drop Panel thickness >= {add_h:.1f} cm (Total thickness {req_h:.1f} cm)")
+                
+    elif not HAS_CALC:
+        st.warning("⚠️ module 'calculations.py' not found. Skipping Punching Shear Check.")
+
+    # --- PART 3: INPUTS (Renumbered to 3) ---
     st.markdown("---")
-    st.markdown("### 2️⃣ Reinforcement Selection")
+    st.markdown("### 3️⃣ Reinforcement Selection")
     
     col_cs, gap, col_ms = st.columns([1, 0.05, 1])
     
@@ -258,9 +327,9 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         res.update(cfg) # Merge config into result
         results.append(res)
 
-    # --- PART 3: SUMMARY ---
+    # --- PART 4: SUMMARY ---
     st.write("")
-    st.markdown("### 3️⃣ Verification Table")
+    st.markdown("### 4️⃣ Verification Table")
     
     df_show = pd.DataFrame(results)
     st.dataframe(
@@ -271,9 +340,9 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         use_container_width=True
     )
 
-    # --- PART 4: DETAILED CALCULATION SHEET ---
+    # --- PART 5: DETAILED CALCULATION SHEET ---
     st.markdown("---")
-    st.markdown("### 4️⃣ Detailed Calculation Sheet")
+    st.markdown("### 5️⃣ Detailed Calculation Sheet")
     
     sel_label = st.selectbox(f"Select Zone to View Details ({axis_id}):", [r['Label'] for r in results])
     target = next(r for r in results if r['Label'] == sel_label)
