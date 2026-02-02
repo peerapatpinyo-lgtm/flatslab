@@ -1,21 +1,22 @@
-# tab_drawing.py
+# tab_drawings.py
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import calculations as calc
 
 # ==========================================
 # HELPER: ฟังก์ชันวาดเส้นบอกระยะ (Dimension Line)
 # ==========================================
-def draw_dimension(ax, start, end, text, offset=0, color='blue', fontsize=10):
+def draw_dimension(ax, start, end, text, offset=0, color='blue', fontsize=9):
     """
     วาดเส้นบอกระยะแบบ CAD (ลูกศรหัวท้าย + ตัวหนังสือตรงกลาง)
+    start, end: tuple (x, y)
+    offset: ระยะห่างจากจุดวัด
     """
     x1, y1 = start
     x2, y2 = end
     
     # คำนวณจุดสำหรับวาดเส้น (ขยับตาม Offset)
-    if x1 == x2: # Vertical Dimension
+    if abs(x1 - x2) < 0.001: # Vertical Dimension
         x1 += offset
         x2 += offset
         rotation = 90
@@ -30,155 +31,176 @@ def draw_dimension(ax, start, end, text, offset=0, color='blue', fontsize=10):
 
     # 1. วาดเส้นลูกศร (Arrow Line)
     ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
-                arrowprops=dict(arrowstyle='<->', color=color, lw=1.0))
+                arrowprops=dict(arrowstyle='<->', color=color, lw=0.8))
     
-    # 2. วาดเส้น Extension lines (เส้นฉาย) เล็กๆ
-    ext_len = 0.2 if abs(offset) > 0 else 0
-    if x1 == x2: # Vertical lines
+    # 2. วาดเส้น Extension lines (เส้นฉาย)
+    if abs(x1 - x2) < 0.001: # Vertical lines
         ax.plot([start[0], x1], [y1, y1], color=color, lw=0.5, linestyle=':')
         ax.plot([end[0], x2], [y2, y2], color=color, lw=0.5, linestyle=':')
     else: # Horizontal lines
         ax.plot([x1, x1], [start[1], y1], color=color, lw=0.5, linestyle=':')
         ax.plot([x2, x2], [end[1], y2], color=color, lw=0.5, linestyle=':')
 
-    # 3. ใส่ตัวหนังสือ (Text)
+    # 3. ใส่ตัวหนังสือ (Text) พร้อมพื้นหลังขาว
     mid_x = (x1 + x2) / 2
     mid_y = (y1 + y2) / 2
     
-    # ขยับ Text หนีเส้นนิดหน่อย
-    text_offset_x = 0
-    text_offset_y = 0
-    if x1 == x2: text_offset_x = -0.1 if offset < 0 else 0.1
-    else: text_offset_y = 0.1 if offset > 0 else -0.1
-        
-    ax.text(mid_x + text_offset_x, mid_y + text_offset_y, text, 
+    # ปรับตำแหน่ง Text เล็กน้อยเพื่อไม่ให้ทับเส้น
+    t_off_x = 0
+    t_off_y = 0
+    if abs(x1 - x2) < 0.001: t_off_x = -0.05 if offset < 0 else 0.05
+    else: t_off_y = 0.05 if offset > 0 else -0.05
+
+    ax.text(mid_x + t_off_x, mid_y + t_off_y, text, 
             color=color, fontsize=fontsize, ha=ha, va=va, rotation=rotation,
-            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
 
 # ==========================================
-# MAIN RENDER FUNCTION (Renamed to 'render')
+# MAIN RENDER FUNCTION
 # ==========================================
-def render(data_x, data_y, mat_props, w_u):
+def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, moment_vals):
     """
-    Main function called by app.py
+    Parameters รับค่าตรงกับที่ส่งมาจาก app.py:
+    - L1, L2: Span (m)
+    - c1_w, c2_w: Column sizes (cm)
+    - h_slab, cover, d_eff: Slab properties (cm)
+    - lc: Storey Height (m)
+    - moment_vals: Dict of moments (kg-m)
     """
-    st.header("📐 Structural Drawings & Dimensions")
-    st.info("หน้านี้แสดงตำแหน่งของค่า Input ต่างๆ เพื่อให้ท่านตรวจสอบความถูกต้องของระยะ")
-
-    # 1. Validation
-    if not data_x or not data_y:
-        st.warning("กรุณากรอกข้อมูลใน Tab 'Design' ให้ครบถ้วนก่อนครับ")
-        return
-
-    # 2. Prepare Data
-    Lx = data_x['span']
-    Ly = data_y['span']
-    # แปลงหน่วยเสาเป็นเมตรเพื่อวาดในแปลน
-    c1_m = data_x['col_size'] / 100.0 
-    c2_m = data_y['col_size'] / 100.0
     
-    h_slab = mat_props['h_slab']   # cm
-    cover = mat_props['cover']     # cm
-    fc = mat_props['fc']
+    st.header("📐 Structural Drawings & Details")
+
+    # แปลงหน่วยเสาเป็นเมตรเพื่อวาดใน Plan View (m)
+    c1_m = c1_w / 100.0
+    c2_m = c2_w / 100.0
+    
+    # คำนวณความกว้าง Strip ตามมาตรฐาน DDM (L_min / 4)
+    L_min = min(L1, L2)
+    strip_w = L_min / 4.0
 
     # ==========================================
-    # PART 1: PLAN VIEW (Top Down)
+    # PART 1: PLAN VIEW & STRIPS
     # ==========================================
-    st.subheader("1. Plan View: Span & Column Dimensions")
-    st.caption(f"แสดงระยะช่วงเสา (Lx, Ly) และขนาดเสา (c1, c2)")
+    st.subheader(f"1. Plan View: Column Strip & Middle Strip")
+    st.caption("แสดงขอบเขตของ Column Strip (แถบเสา) และ Middle Strip (แถบกลาง) สำหรับการคำนวณโมเมนต์")
     
     fig, ax = plt.subplots(figsize=(8, 6))
     
-    # วาดพื้น (Slab Boundary)
-    rect = patches.Rectangle((0, 0), Lx, Ly, linewidth=2, edgecolor='black', facecolor='#f0f2f6')
+    # 1. วาดพื้น (Slab)
+    rect = patches.Rectangle((0, 0), L1, L2, linewidth=2, edgecolor='black', facecolor='white')
     ax.add_patch(rect)
     
-    # วาดเสา (Columns) ที่ 4 มุม
-    col_style = dict(facecolor='gray', edgecolor='black', alpha=0.7)
-    # BL
-    ax.add_patch(patches.Rectangle((-c1_m/2, -c2_m/2), c1_m, c2_m, **col_style))
-    # BR
-    ax.add_patch(patches.Rectangle((Lx-c1_m/2, -c2_m/2), c1_m, c2_m, **col_style))
-    # TL
-    ax.add_patch(patches.Rectangle((-c1_m/2, Ly-c2_m/2), c1_m, c2_m, **col_style))
-    # TR
-    ax.add_patch(patches.Rectangle((Lx-c1_m/2, Ly-c2_m/2), c1_m, c2_m, **col_style))
-
-    # --- DIMENSIONS ---
-    # 1. Span Dimensions (Lx, Ly)
-    draw_dimension(ax, (0, Ly), (Lx, Ly), f"Span Lx = {Lx} m", offset=0.8, color='blue')
-    draw_dimension(ax, (Lx, 0), (Lx, Ly), f"Span Ly = {Ly} m", offset=0.8, color='blue')
+    # 2. วาดโซน Column Strip (สีฟ้าจางๆ)
+    # แนวนอน (Along L1)
+    ax.add_patch(patches.Rectangle((0, 0), L1, strip_w, facecolor='blue', alpha=0.1, label='Column Strip'))
+    ax.add_patch(patches.Rectangle((0, L2-strip_w), L1, strip_w, facecolor='blue', alpha=0.1))
     
-    # 2. Column Dimensions (Zoom in at Bottom Left)
-    # c1 (Dimension parallel to X)
-    draw_dimension(ax, (-c1_m/2, -c2_m/2), (c1_m/2, -c2_m/2), f"c1 = {data_x['col_size']} cm", offset=-0.4, color='red')
-    # c2 (Dimension parallel to Y)
-    draw_dimension(ax, (-c1_m/2, -c2_m/2), (-c1_m/2, c2_m/2), f"c2 = {data_y['col_size']} cm", offset=-0.4, color='red')
+    # 3. วาดเสา (Columns) - 4 มุม
+    col_kws = dict(facecolor='gray', edgecolor='black', zorder=5)
+    ax.add_patch(patches.Rectangle((-c1_m/2, -c2_m/2), c1_m, c2_m, **col_kws)) # BL
+    ax.add_patch(patches.Rectangle((L1-c1_m/2, -c2_m/2), c1_m, c2_m, **col_kws)) # BR
+    ax.add_patch(patches.Rectangle((-c1_m/2, L2-c2_m/2), c1_m, c2_m, **col_kws)) # TL
+    ax.add_patch(patches.Rectangle((L1-c1_m/2, L2-c2_m/2), c1_m, c2_m, **col_kws)) # TR
 
-    # Config Plot
-    ax.set_xlim(-1.5, Lx + 1.5)
-    ax.set_ylim(-1.5, Ly + 1.5)
+    # 4. Dimensions (Dimensions)
+    # Span Dimensions
+    draw_dimension(ax, (0, L2), (L1, L2), f"Lx = {L1} m", offset=0.8, color='black')
+    draw_dimension(ax, (L1, 0), (L1, L2), f"Ly = {L2} m", offset=0.8, color='black')
+    
+    # Strip Dimensions
+    draw_dimension(ax, (L1+0.5, 0), (L1+0.5, strip_w), f"CS: {strip_w:.2f}m", offset=0.2, color='blue')
+    draw_dimension(ax, (L1+0.5, strip_w), (L1+0.5, L2-strip_w), f"MS: {L2 - 2*strip_w:.2f}m", offset=0.2, color='green')
+    
+    # Column Detail Zoom
+    draw_dimension(ax, (-c1_m/2, -0.5), (c1_m/2, -0.5), f"c1: {c1_w}cm", offset=-0.1, color='red')
+    
+    ax.set_xlim(-1, L1 + 1.5)
+    ax.set_ylim(-1, L2 + 1.5)
     ax.set_aspect('equal')
     ax.axis('off')
-    ax.set_title("Plan View (Top-Down)", fontsize=14, fontweight='bold')
+    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.05))
+    ax.set_title(f"Plan View (Lmin/4 = {strip_w:.2f} m)", fontweight='bold')
     
     st.pyplot(fig)
-
+    
     # ==========================================
-    # PART 2: SECTION VIEW (Side Cut)
+    # PART 2: SECTION VIEW
     # ==========================================
     st.markdown("---")
-    st.subheader("2. Section View: Thickness & Depth")
-    st.caption("แสดงความหนาพื้น (h), ระยะหุ้ม (cover) และความลึกประสิทธิผล (d)")
+    st.subheader("2. Section View (Typical)")
     
-    fig_sec, ax_sec = plt.subplots(figsize=(8, 4))
+    fig2, ax2 = plt.subplots(figsize=(8, 4))
     
-    # Scale: วาดหน่วยเป็น cm เพื่อให้ดูง่าย
-    plot_w = 100 # ความกว้างพื้นในรูปตัดสมมติ
-    col_w_cm = data_x['col_size'] # c1
+    # Draw logic (Scale: cm everywhere for section detail)
+    # Convert m to cm for plotting relative to slab thickness
+    lc_cm = lc * 100 
     
-    # 1. Draw Slab
-    slab_rect = patches.Rectangle((-plot_w/2, 0), plot_w, h_slab, facecolor='#e0e0e0', edgecolor='black', lw=1.5)
-    ax_sec.add_patch(slab_rect)
+    # 1. Slab
+    ax2.add_patch(patches.Rectangle((-50, lc_cm), 100, h_slab, facecolor='#e0e0e0', edgecolor='black'))
     
-    # 2. Draw Column (Below)
-    col_rect = patches.Rectangle((-col_w_cm/2, -40), col_w_cm, 40, facecolor='gray', edgecolor='black')
-    ax_sec.add_patch(col_rect)
+    # 2. Column (Bottom)
+    ax2.add_patch(patches.Rectangle((-c1_w/2, 0), c1_w, lc_cm, facecolor='gray', alpha=0.5, edgecolor='black'))
     
-    # 3. Draw Rebar (เหล็กเสริม)
-    # สมมติเหล็กบน (Top Bar)
-    rebar_y = h_slab - cover - 0.6 # กึ่งกลางเหล็ก (สมมติ 12mm)
-    ax_sec.plot([-plot_w/2 + 5, plot_w/2 - 5], [rebar_y, rebar_y], color='red', lw=3, label='Main Rebar')
+    # 3. Column (Top - Stub)
+    ax2.add_patch(patches.Rectangle((-c1_w/2, lc_cm+h_slab), c1_w, 30, facecolor='gray', alpha=0.5, edgecolor='black', linestyle='--'))
     
-    # --- DIMENSIONS ---
-    # 1. Total Thickness (h)
-    draw_dimension(ax_sec, (-plot_w/2 - 10, 0), (-plot_w/2 - 10, h_slab), f"h = {h_slab} cm", offset=-5, color='black')
+    # 4. Rebar (Top & Bottom)
+    # Top Bar
+    ax2.plot([-40, 40], [lc_cm + h_slab - cover, lc_cm + h_slab - cover], color='blue', lw=2, label='Top Bar')
+    # Bottom Bar
+    ax2.plot([-40, 40], [lc_cm + cover, lc_cm + cover], color='green', lw=2, label='Bottom Bar')
     
-    # 2. Cover
-    draw_dimension(ax_sec, (plot_w/2 + 10, h_slab), (plot_w/2 + 10, h_slab-cover), f"Cov = {cover} cm", offset=5, color='green')
+    # Dimensions
+    # Storey Height
+    draw_dimension(ax2, (-60, 0), (-60, lc_cm), f"Storey H = {lc} m", offset=-10, color='black')
     
-    # 3. Effective Depth (d)
-    d_approx = h_slab - cover - 0.6
-    draw_dimension(ax_sec, (plot_w/2 + 25, 0), (plot_w/2 + 25, d_approx), f"d ≈ {d_approx:.1f} cm", offset=5, color='blue')
+    # Slab Thickness
+    draw_dimension(ax2, (60, lc_cm), (60, lc_cm+h_slab), f"h = {h_slab} cm", offset=10, color='black')
     
-    # 4. Column Width
-    draw_dimension(ax_sec, (-col_w_cm/2, -10), (col_w_cm/2, -10), f"c1 = {col_w_cm} cm", offset=0, color='red')
+    # Effective Depth (d)
+    d_loc = lc_cm + h_slab - cover - 0.6 # approx
+    draw_dimension(ax2, (80, lc_cm), (80, d_loc), f"d = {d_eff:.1f} cm", offset=5, color='red')
 
-    # Config Plot
-    ax_sec.set_xlim(-plot_w/2 - 40, plot_w/2 + 40)
-    ax_sec.set_ylim(-50, h_slab + 20)
-    ax_sec.set_aspect('equal')
-    ax_sec.axis('off')
-    ax_sec.set_title("Section View (Cut through Slab)", fontsize=14, fontweight='bold')
+    ax2.set_xlim(-100, 100)
+    ax2.set_ylim(-20, lc_cm + h_slab + 50)
+    ax2.axis('off')
+    ax2.set_aspect('equal')
+    ax2.legend(loc='lower right')
+    ax2.set_title("Section A-A: Support Detail")
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.pyplot(fig_sec)
-    with col2:
-        st.info("""
-        **คำอธิบายตัวแปร:**
-        * **h:** ความหนาพื้นทั้งหมด (Slab Thickness)
-        * **Cov:** ระยะหุ้มคอนกรีต (Clear Cover)
-        * **d:** ระยะจากผิวรับแรงอัดถึงกึ่งกลางเหล็กเสริม (Effective Depth)
-        * **c1/c2:** ขนาดหน้าตัดเสา
-        """)
+    st.pyplot(fig2)
+
+    # ==========================================
+    # PART 3: MOMENT DIAGRAM SCHEMATIC
+    # ==========================================
+    st.markdown("---")
+    st.subheader("3. Moment Distribution Schematic (Concept)")
+    
+    # ดึงค่าโมเมนต์มาแสดง
+    M_neg = moment_vals.get('M_cs_neg', 0)
+    M_pos = moment_vals.get('M_cs_pos', 0)
+    
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.info(f"**Column Strip Moments (Calculated):**\n\n"
+                f"🔴 Negative (Support): {M_neg:,.0f} kg-m\n\n"
+                f"🔵 Positive (Midspan): {M_pos:,.0f} kg-m")
+        
+    with col_m2:
+        # Simple schematic of moment diagram
+        fig3, ax3 = plt.subplots(figsize=(5, 2))
+        x = [0, 0.2, 0.5, 0.8, 1.0]
+        y = [-1, 0, 0.6, 0, -1] # Normalize shape
+        
+        ax3.plot(x, y, 'r-', lw=2)
+        ax3.axhline(0, color='black', lw=0.5)
+        ax3.fill_between(x, y, 0, where=[i>0 for i in y], color='blue', alpha=0.3)
+        ax3.fill_between(x, y, 0, where=[i<0 for i in y], color='red', alpha=0.3)
+        
+        ax3.text(0, -1.2, "Support (-)", ha='center', fontsize=8, color='red')
+        ax3.text(0.5, 0.8, "Midspan (+)", ha='center', fontsize=8, color='blue')
+        ax3.text(1.0, -1.2, "Support (-)", ha='center', fontsize=8, color='red')
+        
+        ax3.axis('off')
+        ax3.set_title("Typical Moment Diagram")
+        st.pyplot(fig3)
