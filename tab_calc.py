@@ -44,14 +44,6 @@ def inject_custom_css():
             line-height: 24px; 
         }
 
-        /* Result Box Style (Applied via Markdown Quote) */
-        blockquote {
-            background-color: #ffffff;
-            border-left: 5px solid #b0bec5;
-            padding: 10px;
-            font-size: 1rem;
-        }
-
         /* Verdict Box */
         .verdict-box {
             padding: 15px;
@@ -69,13 +61,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 def render_step_header(number, text):
-    # Function to render header cleanly
     st.markdown(f'<div class="step-title"><div class="step-icon">{number}</div>{text}</div>', unsafe_allow_html=True)
-
-def render_latex_kv(key_latex, value_str):
-    # Render Key-Value Pair safely
-    st.markdown(f"**{key_latex}**")
-    st.markdown(f"### {value_str}")
 
 # ==========================================
 # 2. DETAILED RENDERERS
@@ -119,16 +105,15 @@ def render_punching_detailed(res, mat_props, label):
         
         eq1, eq2, eq3 = st.columns(3)
         
-        # Note: We use st.latex for equations and st.markdown for results to ensure no $ leaks
-        
         # Eq 1
         with eq1:
             st.markdown(r"**1. Aspect Ratio ($V_{c1}$)**")
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
             term_beta = 1 + (2/beta)
             val_vc1 = 0.53 * term_beta * math.sqrt(fc) * b0 * d
-            # Result Display
-            st.markdown(rf"> $V_{{c1}} =$ **{val_vc1:,.0f}** kg")
+            # Format nicely
+            vc1_str = f"{val_vc1:,.0f}"
+            st.markdown(f"> $V_{{c1}} =$ **{vc1_str}** kg")
 
         # Eq 2
         with eq2:
@@ -136,16 +121,16 @@ def render_punching_detailed(res, mat_props, label):
             st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
             term_peri = (alpha_s * d / b0) + 2
             val_vc2 = 0.53 * term_peri * math.sqrt(fc) * b0 * d
-            # Result Display
-            st.markdown(rf"> $V_{{c2}} =$ **{val_vc2:,.0f}** kg")
+            vc2_str = f"{val_vc2:,.0f}"
+            st.markdown(f"> $V_{{c2}} =$ **{vc2_str}** kg")
 
         # Eq 3
         with eq3:
             st.markdown(r"**3. Basic ($V_{c3}$)**")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
             val_vc3 = 1.06 * math.sqrt(fc) * b0 * d
-            # Result Display
-            st.markdown(rf"> $V_{{c3}} =$ **{val_vc3:,.0f}** kg")
+            vc3_str = f"{val_vc3:,.0f}"
+            st.markdown(f"> $V_{{c3}} =$ **{vc3_str}** kg")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -163,30 +148,35 @@ def render_punching_detailed(res, mat_props, label):
         passed = phi_vn >= vu
         status_text = "PASS" if passed else "FAIL"
         
-        # Color logic for Math (Red if fail)
         color_vu = "black" if passed else "red"
         operator = r"\geq" if passed else "<"
+        
+        # Format strings first to avoid f-string nesting issues
+        vn_str = f"{phi_vn:,.0f}"
+        vu_str = f"{vu:,.0f}"
+        vc_min_str = f"{vc_min:,.0f}"
         
         c_left, c_right = st.columns([2, 1])
         
         with c_left:
             st.markdown("Comparing Design Capacity vs. Factored Demand:")
             
-            # Main Comparison Equation (LaTeX handles color safely)
-            st.latex(rf"\phi V_n \quad \text{{vs}} \quad V_u")
-            st.latex(rf"{phi_vn:,.0f} \quad {operator} \quad \textcolor{{{color_vu}}}{{{vu:,.0f}}}")
+            st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
+            
+            # Construct LaTeX string safely
+            latex_compare = f"{vn_str} \\quad {operator} \\quad \\textcolor{{{color_vu}}}{{{vu_str}}}"
+            st.latex(latex_compare)
             
             st.markdown("---")
-            # Summary List using standard Markdown to prevent HTML issues
-            st.markdown(rf"- Nominal Capacity ($V_c$): **{vc_min:,.0f}** kg")
-            st.markdown(rf"- Design Capacity ($\phi V_n$): **{phi_vn:,.0f}** kg")
-            # Use LaTeX color for consistent Vu rendering
-            st.markdown(rf"- Factored Demand ($V_u$): $\textcolor{{{color_vu}}}{{\mathbf{{{vu:,.0f}}}}}}$ kg")
+            st.markdown(f"- Nominal Capacity ($V_c$): **{vc_min_str}** kg")
+            st.markdown(f"- Design Capacity ($\phi V_n$): **{vn_str}** kg")
+            
+            # HTML color span is safer for Markdown mixed content
+            st.markdown(f"- Factored Demand ($V_u$): <b style='color:{color_vu}'>{vu_str}</b> kg", unsafe_allow_html=True)
         
         with c_right:
             cls = "pass" if passed else "fail"
             ratio = vu / phi_vn
-            # HTML only for the box container, no math inside
             st.markdown(f"""
             <div class="verdict-box {cls}">
                 <div style="font-size:0.9rem;">Demand/Capacity</div>
@@ -231,23 +221,30 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     phi_vc = phi * vc_nominal_calc
     vu_one = v_oneway_res.get('Vu', 0)
     
+    # Pre-format numbers
+    phi_vc_str = f"{phi_vc:,.0f}"
+    vu_one_str = f"{vu_one:,.0f}"
+    
     c_cap, c_dem = st.columns(2)
     
     with c_cap:
         render_step_header("A", "Capacity ($\phi V_c$)")
         st.markdown(r"Unit strip $b_w = 100$ cm")
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
-        st.latex(rf"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
-        st.markdown(rf"Design $\phi V_c$ = **{phi_vc:,.0f}** kg/m")
+        st.latex(f"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
+        st.markdown(f"Design $\phi V_c$ = **{phi_vc_str}** kg/m")
 
     with c_dem:
         render_step_header("B", "Demand ($V_u$)")
         st.markdown(r"At distance $d$ from support:")
         st.latex(r"V_u = w_u (L_n/2 - d)")
         
-        # Color logic for One-Way
+        # Color logic
         color_vu_one = "black" if vu_one <= phi_vc else "red"
-        st.latex(rf"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one:,.0f}}}}} \text{{ kg/m}}")
+        
+        # Safe LaTeX construction
+        latex_vu_one = f"V_u = \\textcolor{{{color_vu_one}}}{{\\mathbf{{{vu_one_str}}}}} \\text{{ kg/m}}"
+        st.latex(latex_vu_one)
     
     # Verdict
     st.markdown("---")
@@ -256,8 +253,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
     
-    # Conclusion Line
-    st.markdown(rf"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"**Conclusion:** $V_u$ ({vu_one_str}) ${op_one}$ $\phi V_c$ ({phi_vc_str}) $\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 3. DEFLECTION ---
@@ -269,18 +265,19 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     
     with c_d1:
         st.markdown("**1. Span Data**")
-        st.markdown(rf"Longest Span ($L$): **{max_span:.2f} m**")
+        st.markdown(f"Longest Span ($L$): **{max_span:.2f} m**")
     
     with c_d2:
         st.markdown("**2. ACI Formula**")
         st.latex(r"h_{min} = \frac{L}{33}")
-        st.latex(rf"h_{{min}} = \mathbf{{{max_span*100/33:.2f}}} \text{{ cm}}")
+        val_h_min = max_span*100/33
+        st.latex(f"h_{{min}} = \\mathbf{{{val_h_min:.2f}}} \\text{{ cm}}")
         
     with c_d3:
         st.markdown("**3. Check**")
         h_prov = mat_props['h_slab']
-        st.markdown(rf"Provided ($h$): **{h_prov:.0f} cm**")
-        if h_prov >= (max_span*100/33):
+        st.markdown(f"Provided ($h$): **{h_prov:.0f} cm**")
+        if h_prov >= val_h_min:
             st.success("✅ PASS")
         else:
             st.error("❌ CHECK REQ.")
@@ -311,11 +308,11 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         "Factor": "{:.1f}"
     }))
     
-    # Total Load Summary
-    st.markdown(rf"""
+    wu_str = f"{wu_total:,.0f}"
+    st.markdown(f"""
     <div style="text-align:right; padding:15px; background-color:#e1f5fe; border-radius:5px;">
         <span style="margin-right:20px; font-weight:bold; color:#455a64;">Total Design Load ($w_u$):</span>
-        <span style="font-size:1.5rem; font-weight:800; color:#0277bd;">{wu_total:,.0f} kg/m²</span>
+        <span style="font-size:1.5rem; font-weight:800; color:#0277bd;">{wu_str} kg/m²</span>
     </div>
     """, unsafe_allow_html=True)
     
