@@ -10,8 +10,6 @@ import calculations as calc
 def draw_dimension(ax, start, end, text, offset=0, color='blue', fontsize=10):
     """
     วาดเส้นบอกระยะแบบ CAD (ลูกศรหัวท้าย + ตัวหนังสือตรงกลาง)
-    start, end: tuple (x, y)
-    offset: ระยะห่างจากจุดวัด (เพื่อไม่ให้ทับเส้นจริง)
     """
     x1, y1 = start
     x2, y2 = end
@@ -58,9 +56,12 @@ def draw_dimension(ax, start, end, text, offset=0, color='blue', fontsize=10):
             bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
 
 # ==========================================
-# MAIN RENDER FUNCTION
+# MAIN RENDER FUNCTION (Renamed to 'render')
 # ==========================================
-def render_drawing_tab(data_x, data_y, mat_props, w_u):
+def render(data_x, data_y, mat_props, w_u):
+    """
+    Main function called by app.py
+    """
     st.header("📐 Structural Drawings & Dimensions")
     st.info("หน้านี้แสดงตำแหน่งของค่า Input ต่างๆ เพื่อให้ท่านตรวจสอบความถูกต้องของระยะ")
 
@@ -103,7 +104,7 @@ def render_drawing_tab(data_x, data_y, mat_props, w_u):
     # TR
     ax.add_patch(patches.Rectangle((Lx-c1_m/2, Ly-c2_m/2), c1_m, c2_m, **col_style))
 
-    # --- DIMENSIONS (จุดสำคัญที่เพิ่มเข้ามา) ---
+    # --- DIMENSIONS ---
     # 1. Span Dimensions (Lx, Ly)
     draw_dimension(ax, (0, Ly), (Lx, Ly), f"Span Lx = {Lx} m", offset=0.8, color='blue')
     draw_dimension(ax, (Lx, 0), (Lx, Ly), f"Span Ly = {Ly} m", offset=0.8, color='blue')
@@ -118,7 +119,7 @@ def render_drawing_tab(data_x, data_y, mat_props, w_u):
     ax.set_xlim(-1.5, Lx + 1.5)
     ax.set_ylim(-1.5, Ly + 1.5)
     ax.set_aspect('equal')
-    ax.axis('off') # ปิดแกน XY เดิม เพื่อความสวยงาม
+    ax.axis('off')
     ax.set_title("Plan View (Top-Down)", fontsize=14, fontweight='bold')
     
     st.pyplot(fig)
@@ -150,13 +151,13 @@ def render_drawing_tab(data_x, data_y, mat_props, w_u):
     ax_sec.plot([-plot_w/2 + 5, plot_w/2 - 5], [rebar_y, rebar_y], color='red', lw=3, label='Main Rebar')
     
     # --- DIMENSIONS ---
-    # 1. Total Thickness (h) - ด้านซ้าย
+    # 1. Total Thickness (h)
     draw_dimension(ax_sec, (-plot_w/2 - 10, 0), (-plot_w/2 - 10, h_slab), f"h = {h_slab} cm", offset=-5, color='black')
     
-    # 2. Cover - ด้านขวาบน
+    # 2. Cover
     draw_dimension(ax_sec, (plot_w/2 + 10, h_slab), (plot_w/2 + 10, h_slab-cover), f"Cov = {cover} cm", offset=5, color='green')
     
-    # 3. Effective Depth (d) - ด้านขวา
+    # 3. Effective Depth (d)
     d_approx = h_slab - cover - 0.6
     draw_dimension(ax_sec, (plot_w/2 + 25, 0), (plot_w/2 + 25, d_approx), f"d ≈ {d_approx:.1f} cm", offset=5, color='blue')
     
