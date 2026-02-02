@@ -202,7 +202,9 @@ with tab2:
         punch_res=punch_res, 
         v_oneway_res=v_oneway_res, 
         mat_props=mat_props, 
-        loads=load_props
+        loads=load_props,
+        Lx=Lx,
+        Ly=Ly
     )    
     st.markdown("### 📑 Detailed Calculation Report")
     
