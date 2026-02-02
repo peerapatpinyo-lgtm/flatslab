@@ -7,7 +7,8 @@ import pandas as pd
 from calculations import check_punching_shear, check_punching_dual_case, check_oneway_shear
 import tab_ddm  
 import tab_drawings 
-import tab_efm      
+import tab_efm
+import tab_calc
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIG & WORLD-CLASS STYLING
@@ -194,8 +195,15 @@ with tab1:
         col_type=col_type  
     )
 
-# --- TAB 2: CALC SHEET (Refactored for Cleanliness) ---
+# --- TAB 2: CALCULATIONS ---
 with tab2:
+    # เรียกใช้ Module ใหม่ที่เพิ่งสร้าง
+    tab_calc.render(
+        punch_res=punch_res, 
+        v_oneway_res=v_oneway_res, 
+        mat_props=mat_props, 
+        loads=load_props
+    )    
     st.markdown("### 📑 Detailed Calculation Report")
     
     def render_calc_section(res, label):
