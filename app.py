@@ -206,7 +206,7 @@ with tab2:
         Lx=Lx,
         Ly=Ly
     )    
-    st.markdown("### 📑 Detailed Calculation Report")
+   
     
     def render_calc_section(res, label):
         with st.container():
