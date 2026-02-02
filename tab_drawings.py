@@ -2,6 +2,7 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import pandas as pd  # <--- เพิ่มบรรทัดนี้เพื่อให้ pd.Timestamp ใช้งานได้
 
 # ==========================================
 # 1. HELPER: CAD STYLING & DIMENSIONS
