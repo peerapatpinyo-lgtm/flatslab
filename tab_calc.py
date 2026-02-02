@@ -5,14 +5,12 @@ import numpy as np
 import math
 
 # ==========================================
-# 1. VISUAL STYLING (CSS)
+# 1. VISUAL STYLING
 # ==========================================
 def inject_custom_css():
     st.markdown("""
     <style>
         .report-container { font-family: 'Segoe UI', Tahoma, sans-serif; }
-        
-        /* Containers */
         .step-container {
             background-color: #f8f9fa;
             border-radius: 8px;
@@ -20,8 +18,6 @@ def inject_custom_css():
             margin-bottom: 20px;
             border: 1px solid #eceff1;
         }
-        
-        /* Headers */
         .step-title {
             font-size: 1.1rem;
             font-weight: 700;
@@ -43,8 +39,6 @@ def inject_custom_css():
             font-size: 0.8rem; 
             line-height: 24px; 
         }
-
-        /* Verdict Box */
         .verdict-box {
             padding: 15px;
             border-radius: 8px;
@@ -55,18 +49,21 @@ def inject_custom_css():
         }
         .pass { background-color: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
         .fail { background-color: #ffebee; color: #c62828; border-color: #ef9a9a; }
-        
         hr { margin: 30px 0; border: 0; border-top: 1px solid #e0e0e0; }
+        
+        /* Highlight result value */
+        .calc-result {
+            font-weight: bold;
+            color: #0d47a1;
+        }
     </style>
     """, unsafe_allow_html=True)
 
 def render_step_header(number, text):
-    # แก้ไข: ใช้ HTML ล้วนสำหรับส่วนหัว เพื่อป้องกัน $ หลุด
-    # หากต้องการสัญลักษณ์คณิตศาสตร์ใน Header ให้ใช้ตัวแปรภาษาอังกฤษปกติ หรือ Unicode
     st.markdown(f'<div class="step-title"><div class="step-icon">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. DETAILED RENDERERS
+# 2. CALCULATION RENDERERS
 # ==========================================
 
 def render_punching_detailed(res, mat_props, label):
@@ -102,37 +99,48 @@ def render_punching_detailed(res, mat_props, label):
     # --- Step 2: Nominal Capacity ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        # แก้ไขจุดที่ 1: ตัด $ ออกจาก Header ($V_c$ -> Vc)
         render_step_header(2, "Nominal Shear Strength (Vc)")
-        st.write("Calculated based on ACI 318 (Minimum of 3 equations):")
+        st.write("Calculated based on ACI 318 (Min of 3 equations):")
+        
+        # Prepare strings for safe LaTeX injection
+        sqrt_fc_val = math.sqrt(fc)
         
         eq1, eq2, eq3 = st.columns(3)
         
-        # Eq 1
+        # --- EQ 1 ---
         with eq1:
             st.markdown(r"**1. Aspect Ratio ($V_{c1}$)**")
+            # Formula
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
+            # Substitution
             term_beta = 1 + (2/beta)
-            val_vc1 = 0.53 * term_beta * math.sqrt(fc) * b0 * d
-            vc1_str = f"{val_vc1:,.0f}"
-            st.markdown(f"> $V_{{c1}} =$ **{vc1_str}** kg")
+            val_vc1 = 0.53 * term_beta * sqrt_fc_val * b0 * d
+            st.latex(fr"= 0.53 \left(1 + \frac{{2}}{{{beta:.1f}}}\right) ({sqrt_fc_val:.2f}) ({b0:.0f}) ({d:.1f})")
+            # Result
+            st.markdown(f"<div class='calc-result'>= {val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # Eq 2
+        # --- EQ 2 ---
         with eq2:
             st.markdown(r"**2. Perimeter ($V_{c2}$)**")
+            # Formula
             st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
+            # Substitution
             term_peri = (alpha_s * d / b0) + 2
-            val_vc2 = 0.53 * term_peri * math.sqrt(fc) * b0 * d
-            vc2_str = f"{val_vc2:,.0f}"
-            st.markdown(f"> $V_{{c2}} =$ **{vc2_str}** kg")
+            val_vc2 = 0.53 * term_peri * sqrt_fc_val * b0 * d
+            st.latex(fr"= 0.53 \left(\frac{{{alpha_s:.0f} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc_val:.2f}) ({b0:.0f}) ({d:.1f})")
+            # Result
+            st.markdown(f"<div class='calc-result'>= {val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # Eq 3
+        # --- EQ 3 ---
         with eq3:
             st.markdown(r"**3. Basic ($V_{c3}$)**")
+            # Formula
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
-            val_vc3 = 1.06 * math.sqrt(fc) * b0 * d
-            vc3_str = f"{val_vc3:,.0f}"
-            st.markdown(f"> $V_{{c3}} =$ **{vc3_str}** kg")
+            # Substitution
+            val_vc3 = 1.06 * sqrt_fc_val * b0 * d
+            st.latex(fr"= 1.06 ({sqrt_fc_val:.2f}) ({b0:.0f}) ({d:.1f})")
+            # Result
+            st.markdown(f"<div class='calc-result'>= {val_vc3:,.0f} kg</div>", unsafe_allow_html=True)
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -146,31 +154,24 @@ def render_punching_detailed(res, mat_props, label):
         phi_vn = phi * vc_min
         vu = res['Vu']
         
-        # Status Logic
         passed = phi_vn >= vu
         status_text = "PASS" if passed else "FAIL"
-        
         color_vu = "black" if passed else "red"
         operator = r"\geq" if passed else "<"
-        
-        vn_str = f"{phi_vn:,.0f}"
-        vu_str = f"{vu:,.0f}"
-        vc_min_str = f"{vc_min:,.0f}"
         
         c_left, c_right = st.columns([2, 1])
         
         with c_left:
             st.markdown("Comparing Design Capacity vs. Factored Demand:")
             
-            st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
-            
-            latex_compare = f"{vn_str} \\quad {operator} \\quad \\textcolor{{{color_vu}}}{{{vu_str}}}"
-            st.latex(latex_compare)
+            # Show the calculation for phi Vn
+            st.latex(r"\phi V_n = \phi \times V_{c,min}")
+            st.latex(fr"= 0.85 \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
             
             st.markdown("---")
-            st.markdown(f"- Nominal Capacity ($V_c$): **{vc_min_str}** kg")
-            st.markdown(f"- Design Capacity ($\phi V_n$): **{vn_str}** kg")
-            st.markdown(f"- Factored Demand ($V_u$): <b style='color:{color_vu}'>{vu_str}</b> kg", unsafe_allow_html=True)
+            # Comparison
+            st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
+            st.latex(fr"{phi_vn:,.0f} \quad {operator} \quad \textcolor{{{color_vu}}}{{{vu:,.0f}}}")
         
         with c_right:
             cls = "pass" if passed else "fail"
@@ -214,42 +215,62 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
     bw = 100.0
     
+    # Nominal Vc
     vc_nominal_calc = 0.53 * math.sqrt(fc) * bw * d_slab
     phi = 0.85
     phi_vc = phi * vc_nominal_calc
-    vu_one = v_oneway_res.get('Vu', 0)
     
-    phi_vc_str = f"{phi_vc:,.0f}"
-    vu_one_str = f"{vu_one:,.0f}"
+    # Vu Demand (Assume coming from logic, we calculate backward for display if needed)
+    vu_one = v_oneway_res.get('Vu', 0)
     
     c_cap, c_dem = st.columns(2)
     
     with c_cap:
-        # แก้ไขจุดที่ 2: ตัด $ ออกจาก Header และใช้ Unicode φ แทน
         render_step_header("A", "Capacity (φVc)")
         st.markdown(r"Unit strip $b_w = 100$ cm")
+        # Formula
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
-        st.latex(f"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
-        st.markdown(f"Design $\phi V_c$ = **{phi_vc_str}** kg/m")
+        # Substitution
+        st.latex(fr"= 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
+        # Result Vc
+        st.markdown(f"> $V_c =$ **{vc_nominal_calc:,.0f}** kg/m")
+        st.markdown("---")
+        # Design Capacity
+        st.latex(r"\phi V_c = 0.85 \times V_c")
+        st.latex(fr"= 0.85 \times {vc_nominal_calc:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
 
     with c_dem:
-        # แก้ไขจุดที่ 3: ตัด $ ออกจาก Header ($V_u$ -> Vu)
         render_step_header("B", "Demand (Vu)")
         st.markdown(r"At distance $d$ from support:")
-        st.latex(r"V_u = w_u (L_n/2 - d)")
+        
+        # Assuming simplified Vu = wu * (Ln/2 - d) for display purpose
+        # We need wu (factored load)
+        h_m = mat_props['h_slab'] / 100.0
+        w_sw = h_m * 2400
+        sdl = loads['SDL']
+        ll = loads['LL']
+        wu_val = (1.2 * (w_sw + sdl)) + (1.6 * ll)
+        
+        # Back-calculate Ln/2 roughly for display, or use variables passed
+        # This is just for "Show your work" visualization
+        ln_approx = (vu_one / wu_val) + (d_slab/100) # approximate
+        
+        st.latex(r"V_u = w_u \left(\frac{L_n}{2} - d\right)")
+        # Substitution
+        d_m = d_slab / 100.0
+        st.latex(fr"= {wu_val:,.0f} \left( \text{{span}} - {d_m:.2f} \right)")
         
         color_vu_one = "black" if vu_one <= phi_vc else "red"
-        latex_vu_one = f"V_u = \\textcolor{{{color_vu_one}}}{{\\mathbf{{{vu_one_str}}}}} \\text{{ kg/m}}"
-        st.latex(latex_vu_one)
+        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one:,.0f}}}}} \text{{ kg/m}}")
     
-    # Verdict
     st.markdown("---")
+    # Conclusion
     passed_one = vu_one <= phi_vc
     op_one = r"\leq" if passed_one else ">"
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
     
-    st.markdown(f"**Conclusion:** $V_u$ ({vu_one_str}) ${op_one}$ $\phi V_c$ ({phi_vc_str}) $\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 3. DEFLECTION ---
@@ -266,8 +287,9 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     with c_d2:
         st.markdown("**2. ACI Formula**")
         st.latex(r"h_{min} = \frac{L}{33}")
+        # Substitution
         val_h_min = max_span*100/33
-        st.latex(f"h_{{min}} = \\mathbf{{{val_h_min:.2f}}} \\text{{ cm}}")
+        st.latex(fr"= \frac{{{max_span*100:.0f}}}{{33}} = \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
         
     with c_d3:
         st.markdown("**3. Check**")
@@ -281,7 +303,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 4. LOADS ---
-    st.header("4. Factored Load ($w_u$)")
+    st.header("4. Factored Load (wu)")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
     h_m = mat_props['h_slab'] / 100.0
@@ -289,28 +311,36 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     sdl = loads['SDL']
     ll = loads['LL']
     
+    # Calculation Steps for Total Load
+    st.markdown("#### Calculation of Factored Load:")
+    
+    # Dead Load Calc
+    st.markdown(r"**1. Dead Load ($DL$)**")
+    st.latex(r"DL = \text{Self Weight} + \text{SDL}")
+    st.latex(fr"DL = ({h_m:.2f} \times 2400) + {sdl:.0f} = {w_sw:.0f} + {sdl:.0f} = {w_sw + sdl:,.0f} \text{{ kg/m}}^2")
+    
+    # Live Load
+    st.markdown(r"**2. Live Load ($LL$)**")
+    st.latex(fr"LL = {ll:,.0f} \text{{ kg/m}}^2")
+    
+    # Factored Load
+    st.markdown(r"**3. Total Factored Load ($w_u$)**")
+    st.latex(r"w_u = 1.2(DL) + 1.6(LL)")
+    # Substitution
+    total_dl = w_sw + sdl
+    wu_total = 1.2 * total_dl + 1.6 * ll
+    st.latex(fr"w_u = 1.2({total_dl:.0f}) + 1.6({ll:.0f})")
+    # Result
+    st.latex(fr"w_u = {1.2*total_dl:,.0f} + {1.6*ll:,.0f} = \mathbf{{{wu_total:,.0f}}} \text{{ kg/m}}^2")
+    
+    # Summary Table (Optional now, but good for quick look)
+    st.markdown("---")
+    st.caption("Load Summary Table")
     data = [
-        {"Type": "Dead (Self-Weight)", "Service Load": w_sw, "Factor": 1.2, "Factored": w_sw*1.2},
-        {"Type": "Dead (SDL)",         "Service Load": sdl,  "Factor": 1.2, "Factored": sdl*1.2},
-        {"Type": "Live Load (LL)",     "Service Load": ll,   "Factor": 1.6, "Factored": ll*1.6},
+        {"Type": "Dead (SW+SDL)", "Service": total_dl, "Factor": 1.2, "Factored": total_dl*1.2},
+        {"Type": "Live (LL)",     "Service": ll,       "Factor": 1.6, "Factored": ll*1.6},
     ]
     df = pd.DataFrame(data)
-    wu_total = df["Factored"].sum()
-    
-    st.table(df.style.format({
-        "Service Load": "{:,.1f}", 
-        "Factored": "{:,.1f}",
-        "Factor": "{:.1f}"
-    }))
-    
-    wu_str = f"{wu_total:,.0f}"
-    
-    # แก้ไขจุดที่ 4: ตัด $ ออกจาก HTML string ($w_u$ -> wu)
-    st.markdown(f"""
-    <div style="text-align:right; padding:15px; background-color:#e1f5fe; border-radius:5px;">
-        <span style="margin-right:20px; font-weight:bold; color:#455a64;">Total Design Load (wu):</span>
-        <span style="font-size:1.5rem; font-weight:800; color:#0277bd;">{wu_str} kg/m²</span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.table(df.style.format({"Service": "{:,.0f}", "Factored": "{:,.0f}", "Factor": "{:.1f}"}))
     
     st.markdown('</div>', unsafe_allow_html=True)
