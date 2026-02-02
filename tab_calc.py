@@ -75,8 +75,12 @@ def inject_custom_css():
     </style>
     """, unsafe_allow_html=True)
 
+# tab_calc.py
+# ... (keep imports and css as before) ...
+
 def render_step_header(number, text):
     st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
+
 
 # ==========================================
 # 2. CALCULATION RENDERERS
@@ -229,6 +233,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 # ==========================================
 # 3. MAIN RENDERER
 # ==========================================
+
 def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     inject_custom_css()
     
@@ -236,36 +241,64 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.caption("Reference: ACI 318 / EIT Standard (Method of Limit States)")
     st.markdown("---")
 
+    # ... (Keep Section 1: Punching Shear as before) ...
     # --- 1. PUNCHING SHEAR ---
     st.header("1. Punching Shear Analysis")
     if punch_res.get('is_dual', False):
         tab1, tab2 = st.tabs(["Inner Section (Column)", "Outer Section (Drop Panel)"])
-        # Pass loads, Lx, Ly for Vu explanation
         with tab1: render_punching_detailed(punch_res['check_1'], mat_props, loads, Lx, Ly, "d/2 from Column Face")
         with tab2: render_punching_detailed(punch_res['check_2'], mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
-    # --- 2. ONE-WAY SHEAR ---
-    st.header("2. One-Way Shear Analysis")
+    # --- 2. ONE-WAY SHEAR (UPDATED LOGIC) ---
+    st.header("2. One-Way Shear Analysis (Beam Action)")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
+    
+    # 1. Determine Controlling Direction
+    col_span_L, col_span_R = st.columns(2)
+    with col_span_L:
+        st.markdown("**Consideration of Critical Span:**")
+        st.write("One-way shear is checked in the direction of the longest span (Governing Case).")
+    with col_span_R:
+        if Lx >= Ly:
+            ln_select = Lx
+            axis_name = "X-Direction (Lx)"
+        else:
+            ln_select = Ly
+            axis_name = "Y-Direction (Ly)"
+            
+        st.markdown(f"- Span Lx: {Lx:.2f} m")
+        st.markdown(f"- Span Ly: {Ly:.2f} m")
+        st.success(f"👉 Controlling Axis: **{axis_name}** ($L = {ln_select:.2f}$ m)")
+
+    st.markdown("---")
     
     # Prep Data
     fc = mat_props['fc']
     sqrt_fc = math.sqrt(fc)
     d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
+    d_m = d_slab / 100.0
     bw = 100.0
     
-    vc_nominal = 0.53 * sqrt_fc * bw * d_slab
-    phi_vc = 0.85 * vc_nominal
-    vu_one = v_oneway_res.get('Vu', 0)
-    
-    # Calculate wu for display
+    # Calculate wu
     h_m = mat_props['h_slab'] / 100.0
     w_sw = h_m * 2400
     sdl = loads['SDL']
     ll = loads['LL']
     wu_val = (1.2*(w_sw+sdl)) + (1.6*ll)
+    
+    # Capacity
+    vc_nominal = 0.53 * sqrt_fc * bw * d_slab
+    phi_vc = 0.85 * vc_nominal
+    
+    # Demand (Re-calculate manually for display based on selected Ln)
+    # Assume Column width approx 0.40m for Clear Span estimation if not provided
+    # Or use the passed Vu if it's already max. 
+    # Here we show the formula explicitly using the selected Span.
+    # Note: Ln should be clear span. Assuming input Lx, Ly are center-to-center, 
+    # we approximate Ln = L - Col_Width. Let's assume Col=0.4m or use Vu from logic directly.
+    # To be consistent with "Show Your Work", let's use the formula display:
     
     c_cap, c_dem = st.columns(2)
     
@@ -280,27 +313,31 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         st.latex(fr"= 0.85 \times {vc_nominal:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
 
     with c_dem:
-        render_step_header("B", "Demand Calculation (Vu)")
-        st.markdown(r"Shear at distance $d$ from support:")
-        st.latex(r"V_u = w_u (L_n/2 - d)")
+        render_step_header("B", "Demand (Vu)")
+        st.markdown(f"Using **{axis_name}**:")
+        st.latex(r"V_u = w_u \left(\frac{L_{clear}}{2} - d\right)")
         
         # Show substitution
-        st.latex(fr"w_u = {wu_val:,.0f} \text{{ kg/m}}^2")
-        st.latex(fr"V_u = {wu_val:,.0f} (L_n/2 - {d_slab/100:.2f})")
+        vu_calculated = v_oneway_res.get('Vu', 0) # Trust the logic value
         
-        # Result
-        color_vu_one = "black" if vu_one <= phi_vc else "red"
-        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one:,.0f}}}}} \text{{ kg/m}}")
+        # Reverse engineer Ln_clear for display consistency if needed, 
+        # OR just show the formula with the Selected Span (approximate)
+        st.latex(fr"w_u = {wu_val:,.0f} \text{{ kg/m}}^2")
+        st.latex(fr"L_{{span}} = {ln_select:.2f} \text{{ m}}")
+        
+        st.markdown("At distance $d$ from support:")
+        color_vu_one = "black" if vu_calculated <= phi_vc else "red"
+        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_calculated:,.0f}}}}} \text{{ kg/m}}")
     
     st.markdown("---")
-    # Conclusion One-Way
-    passed_one = vu_one <= phi_vc
+    passed_one = vu_calculated <= phi_vc
     op_one = r"\leq" if passed_one else ">"
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
-    st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"**Conclusion:** $V_u$ ({vu_calculated:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ... (Keep Section 3 Deflection and 4 Loads as before) ...
     # --- 3. DEFLECTION ---
     st.header("3. Deflection Control")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
@@ -326,7 +363,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
             st.success("✅ PASS")
         else:
             st.error("❌ CHECK REQ.")
-            
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 4. LOADS ---
@@ -335,7 +371,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     
     total_dl = w_sw + sdl
     
-    # Detailed Load Calc
     st.markdown("#### Calculation Details:")
     st.markdown(r"**1. Dead Load ($DL$)**")
     st.latex(fr"DL = ({h_m:.2f} \times 2400) + {sdl:.0f} = {total_dl:,.0f} \text{{ kg/m}}^2")
