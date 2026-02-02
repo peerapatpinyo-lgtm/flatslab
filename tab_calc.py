@@ -61,6 +61,8 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 def render_step_header(number, text):
+    # แก้ไข: ใช้ HTML ล้วนสำหรับส่วนหัว เพื่อป้องกัน $ หลุด
+    # หากต้องการสัญลักษณ์คณิตศาสตร์ใน Header ให้ใช้ตัวแปรภาษาอังกฤษปกติ หรือ Unicode
     st.markdown(f'<div class="step-title"><div class="step-icon">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
@@ -100,7 +102,8 @@ def render_punching_detailed(res, mat_props, label):
     # --- Step 2: Nominal Capacity ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        render_step_header(2, "Nominal Shear Strength ($V_c$)")
+        # แก้ไขจุดที่ 1: ตัด $ ออกจาก Header ($V_c$ -> Vc)
+        render_step_header(2, "Nominal Shear Strength (Vc)")
         st.write("Calculated based on ACI 318 (Minimum of 3 equations):")
         
         eq1, eq2, eq3 = st.columns(3)
@@ -111,7 +114,6 @@ def render_punching_detailed(res, mat_props, label):
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
             term_beta = 1 + (2/beta)
             val_vc1 = 0.53 * term_beta * math.sqrt(fc) * b0 * d
-            # Format nicely
             vc1_str = f"{val_vc1:,.0f}"
             st.markdown(f"> $V_{{c1}} =$ **{vc1_str}** kg")
 
@@ -151,7 +153,6 @@ def render_punching_detailed(res, mat_props, label):
         color_vu = "black" if passed else "red"
         operator = r"\geq" if passed else "<"
         
-        # Format strings first to avoid f-string nesting issues
         vn_str = f"{phi_vn:,.0f}"
         vu_str = f"{vu:,.0f}"
         vc_min_str = f"{vc_min:,.0f}"
@@ -163,15 +164,12 @@ def render_punching_detailed(res, mat_props, label):
             
             st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
             
-            # Construct LaTeX string safely
             latex_compare = f"{vn_str} \\quad {operator} \\quad \\textcolor{{{color_vu}}}{{{vu_str}}}"
             st.latex(latex_compare)
             
             st.markdown("---")
             st.markdown(f"- Nominal Capacity ($V_c$): **{vc_min_str}** kg")
             st.markdown(f"- Design Capacity ($\phi V_n$): **{vn_str}** kg")
-            
-            # HTML color span is safer for Markdown mixed content
             st.markdown(f"- Factored Demand ($V_u$): <b style='color:{color_vu}'>{vu_str}</b> kg", unsafe_allow_html=True)
         
         with c_right:
@@ -221,28 +219,26 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     phi_vc = phi * vc_nominal_calc
     vu_one = v_oneway_res.get('Vu', 0)
     
-    # Pre-format numbers
     phi_vc_str = f"{phi_vc:,.0f}"
     vu_one_str = f"{vu_one:,.0f}"
     
     c_cap, c_dem = st.columns(2)
     
     with c_cap:
-        render_step_header("A", "Capacity ($\phi V_c$)")
+        # แก้ไขจุดที่ 2: ตัด $ ออกจาก Header และใช้ Unicode φ แทน
+        render_step_header("A", "Capacity (φVc)")
         st.markdown(r"Unit strip $b_w = 100$ cm")
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
         st.latex(f"V_c = 0.53 ({math.sqrt(fc):.2f}) (100) ({d_slab:.2f})")
         st.markdown(f"Design $\phi V_c$ = **{phi_vc_str}** kg/m")
 
     with c_dem:
-        render_step_header("B", "Demand ($V_u$)")
+        # แก้ไขจุดที่ 3: ตัด $ ออกจาก Header ($V_u$ -> Vu)
+        render_step_header("B", "Demand (Vu)")
         st.markdown(r"At distance $d$ from support:")
         st.latex(r"V_u = w_u (L_n/2 - d)")
         
-        # Color logic
         color_vu_one = "black" if vu_one <= phi_vc else "red"
-        
-        # Safe LaTeX construction
         latex_vu_one = f"V_u = \\textcolor{{{color_vu_one}}}{{\\mathbf{{{vu_one_str}}}}} \\text{{ kg/m}}"
         st.latex(latex_vu_one)
     
@@ -293,7 +289,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     sdl = loads['SDL']
     ll = loads['LL']
     
-    # Create nice DataFrame
     data = [
         {"Type": "Dead (Self-Weight)", "Service Load": w_sw, "Factor": 1.2, "Factored": w_sw*1.2},
         {"Type": "Dead (SDL)",         "Service Load": sdl,  "Factor": 1.2, "Factored": sdl*1.2},
@@ -309,9 +304,11 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     }))
     
     wu_str = f"{wu_total:,.0f}"
+    
+    # แก้ไขจุดที่ 4: ตัด $ ออกจาก HTML string ($w_u$ -> wu)
     st.markdown(f"""
     <div style="text-align:right; padding:15px; background-color:#e1f5fe; border-radius:5px;">
-        <span style="margin-right:20px; font-weight:bold; color:#455a64;">Total Design Load ($w_u$):</span>
+        <span style="margin-right:20px; font-weight:bold; color:#455a64;">Total Design Load (wu):</span>
         <span style="font-size:1.5rem; font-weight:800; color:#0277bd;">{wu_str} kg/m²</span>
     </div>
     """, unsafe_allow_html=True)
