@@ -369,3 +369,57 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.latex(rf"A_s = {As:.2f} \, cm^2")
             st.success(f"**Use {num}-DB{d_bar}**")
             st.pyplot(draw_section_detail(b_ms*100, h_slab, num, d_bar, "MS Bot"))
+
+    
+# เพิ่มต่อท้ายในไฟล์ calculations.py
+def check_punching_shear(Vu_kg, fc, h_slab, c1_cm, c2_cm, cover, d_bar_mm):
+    """
+    ตรวจสอบแรงเฉือนทะลุ (Punching Shear) ตามมาตรฐาน ACI 318
+    Vu_kg: แรงเฉือนประลัย (kg)
+    fc: กำลังคอนกรีต (ksc)
+    """
+    # 1. Geometry
+    d_bar = d_bar_mm / 10.0 # cm
+    d_avg = h_slab - cover - d_bar # Effective depth average (cm)
+    
+    # 2. Critical Section Perimeter (bo) at d/2
+    c1_d = c1_cm + d_avg
+    c2_d = c2_cm + d_avg
+    bo = 2 * (c1_d + c2_d) # รอบรูปวิกฤต (cm)
+    
+    # 3. Parameters
+    beta = max(c1_cm, c2_cm) / min(c1_cm, c2_cm)
+    alpha_s = 40 # สำหรับเสาภายใน (Interior Column)
+    
+    # 4. Shear Capacity (Vc) - ACI 318 (3 formulas)
+    # สูตรหน่วย Metric (kg/cm2) โดยประมาณ: 0.27, 0.53, 1.06 * sqrt(fc)
+    # ใช้สูตรมาตรฐาน SDM ไทย (Equivalent to ACI):
+    
+    # Eq 1: Basic
+    Vc1 = 1.06 * np.sqrt(fc) * bo * d_avg
+    
+    # Eq 2: Rectangularity effect
+    Vc2 = 0.27 * (2 + 4/beta) * np.sqrt(fc) * bo * d_avg
+    
+    # Eq 3: Size effect
+    Vc3 = 0.27 * (2 + (alpha_s * d_avg)/bo) * np.sqrt(fc) * bo * d_avg
+    
+    Vc_nominal = min(Vc1, Vc2, Vc3)
+    phi = 0.85 # Strength reduction factor for shear
+    phi_Vc = phi * Vc_nominal
+    
+    # 5. Ratio
+    ratio = Vu_kg / phi_Vc
+    status = "OK" if ratio <= 1.0 else "FAIL"
+    
+    return {
+        "d_avg": d_avg,
+        "bo": bo,
+        "Vc_formulas": [Vc1, Vc2, Vc3],
+        "Vc_nominal": Vc_nominal,
+        "phi_Vc": phi_Vc,
+        "Vu": Vu_kg,
+        "ratio": ratio,
+        "status": status,
+        "critical_rect": (c1_d, c2_d) # For plotting
+    }
