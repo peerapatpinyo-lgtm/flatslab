@@ -8,8 +8,6 @@ import math
 def calculate_section_properties(c1, c2, d, col_type):
     """
     Helper to calculate Ac, Jc, and gamma_v for Moment Transfer.
-    c1: dimension parallel to moment
-    c2: dimension perpendicular to moment
     """
     # Critical section dimensions
     b1 = c1 + d  # Width parallel to moment
@@ -22,30 +20,21 @@ def calculate_section_properties(c1, c2, d, col_type):
         b1 = c1 + d/2.0
         b2 = c2 + d/2.0
 
-    # 1. Area of concrete (Ac)
-    # Ac = Perimeter * d
+    # 1. Perimeter (bo) & Area (Ac)
     if col_type == "interior":
         bo = 2*(b1 + b2)
-        Ac = bo * d
     elif col_type == "edge":
         bo = 2*b1 + b2
-        Ac = bo * d
     else: # corner
         bo = b1 + b2
-        Ac = bo * d
-
-    # 2. Polar Moment of Inertia (Jc) - Simplified for Interior Case primarily
-    # Note: Exact Jc for Edge/Corner is complex geometrically. 
-    # We use ACI approximate formulation or conservative Interior model for Jc base.
-    # Jc = d * (b1^3/6 + b1*d^2/6) + (b1*d)*b2^2/2 ... (Simplified)
     
-    # Using Standard Interior Formula for robustness in this scope:
-    # Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
+    Ac = bo * d
+
+    # 2. Polar Moment of Inertia (Jc)
+    # Using Standard Interior Formula for robustness in this scope
     Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
 
     # 3. Fraction of Moment Transferred by Shear (gamma_v)
-    # gamma_f = 1 / (1 + (2/3) * sqrt(b1/b2))
-    # gamma_v = 1 - gamma_f
     gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
     gamma_v = 1 - gamma_f
     
@@ -67,7 +56,6 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
     Ac, Jc, gamma_v, c_AB, bo = calculate_section_properties(c1, c2, d, col_type)
 
     # 2. Determine Shear Stress (vu_max)
-    # vu = (Vu / Ac) + (gamma_v * Munbal * c_AB) / Jc
     # Convert Munbal from kg-m to kg-cm
     Munbal_cm = Munbal * 100.0
     
@@ -77,40 +65,53 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
     vu_max = stress_direct + stress_moment # ksc (kg/cm^2)
 
     # 3. Allowable Shear Stress (phi_vc)
-    # ACI 318: phi = 0.85 (for shear) * older codes or 0.75 newer. Using 0.85 for consistency.
     phi = 0.85 
     sqrt_fc = np.sqrt(fc)
     
     # Vc calculation (Stress units)
-    # min of (1.06, ...) * sqrt(fc)
-    # Let's use the governing equation for most slabs: 1.06 * sqrt(fc) (ksc units approx 0.33sqrt(fc') MPa)
-    # Or conservative 0.53 (shear) ? Punching is usually 1.06 (4*sqrt(fc') psi)
     vc_stress_nominal = 1.06 * sqrt_fc 
     
     # Refine Vc based on rectangularity (beta)
     beta = max(c1, c2) / min(c1, c2)
     vc_beta = 0.27 * (2 + 4/beta) * sqrt_fc
     
-    vc_final = min(vc_stress_nominal, vc_beta)
-    
-    phi_vc_stress = phi * vc_final
+    # Vc based on size effect (alpha_s)
+    if col_type == "interior": alpha_s = 40
+    elif col_type == "edge": alpha_s = 30
+    else: alpha_s = 20
+    vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
+
+    vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
+    phi_vc_stress = phi * vc_final_stress
 
     # 4. Check
-    ratio = vu_max / phi_vc_stress
+    if phi_vc_stress > 0:
+        ratio = vu_max / phi_vc_stress
+    else:
+        ratio = 999.0
+        
     status = "OK" if ratio <= 1.0 else "FAIL"
 
+    # 5. Return with Compatibility Keys (b0, phi_Vc) for tab_calc.py
     return {
         "Vu": Vu,
         "Munbal": Munbal,
         "d": d,
-        "bo": bo,
+        "d_avg": d,
+        "bo": bo,          # New key
+        "b0": bo,          # !!! CRITICAL FIX: Alias for legacy tab_calc.py !!!
         "Ac": Ac,
+        "beta": beta,      # Added for legacy support
+        "alpha_s": alpha_s, # Added for legacy support
         "gamma_v": gamma_v,
         "stress_actual": vu_max,
         "stress_allow": phi_vc_stress,
+        "phi_Vc": phi_vc_stress * Ac, # Approx Force Capacity for legacy display
+        "Vc_nominal": vc_final_stress * Ac, # Approx Nominal Force
         "ratio": ratio,
         "status": status,
-        "note": f"Incl. Moment: {Munbal:,.0f} kg-m"
+        "note": f"Incl. Moment: {Munbal:,.0f} kg-m",
+        "check_type": "stress" # Flag to tell UI this is stress-based
     }
 
 # ==========================================
@@ -119,17 +120,23 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
 def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0):
     # Case 1: Inner (Drop Depth)
     # Load inside critical section is neglected, but simplified to full area for safety or use (Lx*Ly - Ac)
-    Vu1 = w_u * (Lx * Ly) * 0.95 # Approx reduction for critical area
+    # Conservative approximation:
+    Vu1 = w_u * (Lx * Ly) * 0.95 
     res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal)
+    res1["case"] = "Inside Drop (d_drop)" # Label for UI
     
-    # Case 2: Outer (Slab Depth) - Moment transfers less to the outer perimeter, assume Munbal decays or is taken by Drop.
-    # Conservative: Use same Munbal or 50%
+    # Case 2: Outer (Slab Depth)
+    # Moment transfers less to the outer perimeter, assume Munbal decays or is taken by Drop.
     Vu2 = w_u * (Lx * Ly) * 0.90 
     res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5)
+    res2["case"] = "Outside Drop (d_slab)" # Label for UI
     
+    # Return the worst case
     if res1['ratio'] > res2['ratio']:
+        res1['is_dual'] = True
         return res1
     else:
+        res2['is_dual'] = True
         return res2
 
 # ==========================================
@@ -152,57 +159,31 @@ def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
 def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     """
     Estimate Long-Term Deflection including Creep & Shrinkage.
-    Using ACI Multiplier Method.
-    Parameters:
-    - w_service: Service Load (SDL + LL) kg/m2
-    - L: Span length (m)
-    - h: Slab thickness (cm)
-    - As_provided: Area of steel in tension zone (cm2) (Approximate)
     """
     # 1. Material Properties
     Ec = 15100 * np.sqrt(fc) # ksc
     
     # 2. Immediate Deflection (Elastic)
-    # Using simplified coefficient for Flat Plate (Approx 5/384 factor equivalent or FEM based)
-    # Delta_i = k * w * L^4 / (E * I)
-    # For Flat Plate interior span, k is approx 0.065 (Coefficient Method)
-    # Let's use a standard approximation for fixed-fixed/continuous strip
-    
     L_cm = L * 100.0
     w_line_kg_cm = (w_service * (b/100.0)) / 100.0 # kg/cm per strip
     
     Ig = b * (h**3) / 12.0
     
-    # Effective Moment of Inertia (Ie)
-    # For service loads, slab is likely cracked. Assume Ie = 0.35 * Ig to 0.5 * Ig (R-Value equivalent)
-    # ACI 318-19 Table 6.6.3.1.1(a) suggests 0.25Ig for Flat Plates in analysis, 
-    # but for deflection we can be slightly more optimistic or use Branson.
-    # Let's use I_effective = 0.4 * Ig for a balanced estimation.
-    Ie = 0.4 * Ig
+    # Effective Moment of Inertia (Ie) - Cracked Section approximation
+    Ie = 0.4 * Ig # Avg constant for cracked flat plate
     
-    # Deflection Formula (Continuous Beam Approx): 1/384 is too stiff, 5/384 is pinned.
-    # Continuous span midspan deflection coeff is roughly 1/150 to 1/200 range
-    # Standard approx: Delta = (w L^4) / (384 EI) * coeff
-    # Let's use: Delta = (w L^4) / (48 * EI) * (1/10) roughly -> 0.002
-    # More accurate for Flat Slab: Delta_max approx L/360 to L/480 range check.
-    # Let's use the classic calculation: Delta = (5 * w * L^4) / (384 * E * Ie) * 0.4 (continuity factor)
-    
+    # Deflection Formula (Continuous Beam Approx coeff ~1/200 range)
+    # Using coefficient 5/384 * 0.5 (Continuity)
     Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
     
     # 3. Long Term Multiplier (Lambda)
-    # Lambda = Xi / (1 + 50*rho')
-    # Xi (Time factor) > 5 years = 2.0
-    # rho' (Compression steel) = 0 for typical slab
     Lambda_LT = 2.0
     
     Delta_LT = Delta_immediate * Lambda_LT
     Delta_Total = Delta_immediate + Delta_LT
     
-    # 4. Allowable (L/240 or L/480)
-    # L/240 for roof/floor not supporting non-structural elements likely to be damaged
-    # L/480 for sensitive partitions
+    # 4. Allowable
     Limit_240 = L_cm / 240.0
-    Limit_480 = L_cm / 480.0
     
     status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
     
@@ -211,13 +192,12 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
         "Delta_LongTerm": Delta_LT,
         "Delta_Total": Delta_Total,
         "Limit_240": Limit_240,
-        "Limit_480": Limit_480,
         "status": status,
         "I_effective": Ie
     }
 
 # ==========================================
-# 4. EFM STIFFNESS (Unchanged but ensuring imports)
+# 4. EFM STIFFNESS
 # ==========================================
 def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
     # Ensure floats
@@ -267,7 +247,7 @@ def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
     x_crit = (L_span / 2.0) - (c_support / 100.0 / 2.0) - (d_eff / 100.0)
     if x_crit < 0: x_crit = 0
     
-    Vu_oneway = w_u * x_crit * L_width # Load on the strip width (L_width)
+    Vu_oneway = w_u * x_crit * L_width 
     
     phi = 0.85 
     Vc_stress = 0.53 * np.sqrt(fc) # ksc
