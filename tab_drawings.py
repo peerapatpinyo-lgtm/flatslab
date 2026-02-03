@@ -63,34 +63,39 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
             fontsize=9, color=txt_col, fontweight='bold',
             bbox=dict(facecolor=bg_col, edgecolor='none', alpha=0.8, pad=3, boxstyle="round,pad=0.3"))
 
+
 def draw_revision_cloud(ax, x, y, width, height):
     """
-    Draws a sketchy 'hand-drawn' cloud around the target column.
-    Simulates the orange marker in the reference image.
+    Draws a 'Cloud' style loop around the target column.
+    Improved parameters to look more like a hand-drawn marker loop.
     """
-    # Create an irregular ellipse-like shape using FancyBboxPatch
-    # boxstyle="round,pad=..." creates rounded corners
+    # 1. Use 'round4' style which is more "bloated" (convex sides) than standard round
+    # This helps mimic the cloud shape better than a rectangle
     cloud = patches.FancyBboxPatch(
         (x - width/2, y - height/2), width, height,
-        boxstyle="round,pad=0.4,rounding_size=0.5",
-        ec='#ff9800', # Orange color like the image
+        boxstyle="round4,pad=0.5,rounding_size=0.6", # round4 makes it look bubbly
+        ec='#ff9800', # Orange
         fc='none',    # No fill
-        lw=2.5,       # Thicker line
-        ls='-',
-        zorder=15     # On top of slabs/grids
+        lw=2.0,       # Line width
+        zorder=15
     )
     
-    # THE MAGIC: Apply sketch parameters to make it look hand-drawn
-    # scale: amplitude of the wiggle
-    # length: length of the wiggle
-    # randomness: random factor
-    cloud.set_sketch_params(scale=5.0, length=20.0, randomness=10.0)
+    # 2. TUNED SKETCH PARAMETERS for "Cloud/Marker" look
+    # scale: Amplitude of the wiggle (Lower = less jagged)
+    # length: Length of the wiggle (Higher = smoother, longer waves)
+    # randomness: Random variation
+    
+    # Old (Hairy): scale=5.0, length=20.0
+    # New (Cloudy): scale=1.5, length=60.0 -> Makes it wavy, not hairy
+    cloud.set_sketch_params(scale=1.5, length=60.0, randomness=15.0)
     
     ax.add_patch(cloud)
     
-    # Add a small text label "DESIGN"
+    # Label
     ax.text(x - width/2 - 0.2, y + height/2 + 0.2, "DESIGN COL.", 
-            color='#ef6c00', fontsize=8, fontweight='bold', ha='right')
+            color='#ef6c00', fontsize=8, fontweight='bold', ha='right',
+            fontfamily='Comic Sans MS') # Optional: Comic font for hand-drawn feel
+    
 
 # ==========================================
 # 3. HELPER: HTML TABLE
