@@ -313,7 +313,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     op_one = r"\leq" if passed_one else ">"
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
-    st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 3. DEFLECTION ---
