@@ -96,16 +96,22 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     d = res['d']
     b0 = res['b0']
     beta = res.get('beta', 2.0)
-    alpha_s = res.get('alpha_s', 40) # This comes from the main calculation logic
+    alpha_s = res.get('alpha_s', 40)
     sqrt_fc = math.sqrt(fc)
     
-    # Identify Column Position Text for Display
+    # Identify Column Position for Display
     if alpha_s >= 40:
-        pos_text = "Interior Column"
+        pos_text = "Interior Column (4 Sides)"
+        # สูตร 4 ด้าน
+        b0_latex = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
     elif alpha_s >= 30:
-        pos_text = "Edge Column"
+        pos_text = "Edge Column (3 Sides)"
+        # สูตร 3 ด้าน (โดยประมาณ รูปแบบทั่วไป)
+        b0_latex = r"b_0 = 2(c_{edge} + d/2) + (c_{face} + d)"
     else:
-        pos_text = "Corner Column"
+        pos_text = "Corner Column (2 Sides)"
+        # สูตร 2 ด้าน
+        b0_latex = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
     
     # --- Step 1: Geometry & Parameters ---
     with st.container():
@@ -125,12 +131,14 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         with c2:
             st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
-            st.write("Perimeter at distance $d/2$ from support face:")
-            st.latex(r"b_0 = 2(c_1 + d) + 2(c_2 + d)")
+            st.markdown(f"Condition: **{pos_text}**")
+            st.write("Perimeter at distance $d/2$ from support:")
+            
+            # แสดงสูตร b0 ที่ถูกต้องตาม alpha_s
+            st.latex(b0_latex)
             st.latex(fr"b_0 = \mathbf{{{b0:.2f}}} \text{{ cm}}")
             
             st.markdown('<div class="sub-header">D. Parameters (Alpha s)</div>', unsafe_allow_html=True)
-            st.markdown(f"Selected Position: **{pos_text}**")
             st.latex(fr"\alpha_s = \mathbf{{{alpha_s}}}")
             st.latex(fr"\beta (\text{{Aspect Ratio}}) = {beta:.2f}")
             
@@ -158,11 +166,10 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.markdown("**Case 2: Perimeter**")
             st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
             
-            # Show the substitution explicitly with alpha_s
+            # Show substitution
             term_peri_val = (alpha_s * d / b0) + 2
             val_vc2 = 0.53 * term_peri_val * sqrt_fc * b0 * d
             
-            # This line links the input to the formula display:
             st.latex(fr"= 0.53 \left(\frac{{{alpha_s} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result'>= {val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
@@ -229,7 +236,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
-            # Fixed ightarrow by using double backslash
+            # Fixed ightarrow
             st.latex(fr"{phi_vn:,.0f} \quad {operator} \quad \textcolor{{{color_vu}}}{{{vu:,.0f}}}")
 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -312,7 +319,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
     
-    # Fixed ightarrow
     st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
