@@ -64,10 +64,11 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
             bbox=dict(facecolor=bg_col, edgecolor='none', alpha=0.8, pad=3, boxstyle="round,pad=0.3"))
 
 
+
 def draw_revision_cloud(ax, x, y, width, height):
     """
     Draws a single, circular, bubbly 'Cloud' style loop around the target column.
-    Label is placed to the RIGHT side of the cloud.
+    Label is placed to the LEFT side of the cloud.
     """
     # 1. Create a base shape that is a simple Ellipse (Circle/Oval)
     cloud = patches.Ellipse(
@@ -79,16 +80,16 @@ def draw_revision_cloud(ax, x, y, width, height):
     )
     
     # 2. TUNED SKETCH PARAMETERS (Bubbly Look)
-    # scale=3.0 (Bubble height), length=15.0 (Bubble width/frequency)
     cloud.set_sketch_params(scale=3.0, length=15.0, randomness=5.0)
     
     ax.add_patch(cloud)
     
-    # 3. Label Position (MOVED TO THE RIGHT SIDE)
-    # x + width/2 + offset ensures it starts just outside the circle's right edge
-    ax.text(x + width/2 + 0.2, y, "← DESIGN COL.", 
+    # 3. Label Position (MOVED TO THE LEFT SIDE)
+    # x - width/2 - offset ensures it ends just outside the circle's left edge
+    # Change arrow direction to point right
+    ax.text(x - width/2 - 0.2, y, "DESIGN COL. →", 
             color='#ef6c00', fontsize=9, fontweight='bold', 
-            ha='left', va='center', # Left align so text flows away from the circle
+            ha='right', va='center', # Right align so text flows away to the left
             fontfamily='Comic Sans MS')
 
 # ==========================================
