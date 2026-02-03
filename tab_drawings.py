@@ -1,8 +1,8 @@
-# tab_drawings.py
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import pandas as pd
+import numpy as np
 
 # ==========================================
 # 1. HELPER: DIMENSIONS
@@ -48,11 +48,10 @@ def draw_dim(ax, p1, p2, text, offset=0, color='#000000', is_vert=False, font_si
             bbox=dict(facecolor='white', alpha=1.0, edgecolor='none', pad=2.0))
 
 # ==========================================
-# 2. HELPER: BOUNDARY CONTEXT LABEL
+# 2. HELPER: VISUAL ANNOTATIONS (NEW)
 # ==========================================
 def draw_boundary_label(ax, x, y, text, rotation=0):
     """Draws a tag indicating if the side is Continuous or Edge."""
-    # Color logic: Grey for Continuous, Red-ish for Edge
     if "EDGE" in text:
         bg_col = "#ffebee" # Light Red
         txt_col = "#c62828"
@@ -63,6 +62,35 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
     ax.text(x, y, text, ha='center', va='center', rotation=rotation,
             fontsize=9, color=txt_col, fontweight='bold',
             bbox=dict(facecolor=bg_col, edgecolor='none', alpha=0.8, pad=3, boxstyle="round,pad=0.3"))
+
+def draw_revision_cloud(ax, x, y, width, height):
+    """
+    Draws a sketchy 'hand-drawn' cloud around the target column.
+    Simulates the orange marker in the reference image.
+    """
+    # Create an irregular ellipse-like shape using FancyBboxPatch
+    # boxstyle="round,pad=..." creates rounded corners
+    cloud = patches.FancyBboxPatch(
+        (x - width/2, y - height/2), width, height,
+        boxstyle="round,pad=0.4,rounding_size=0.5",
+        ec='#ff9800', # Orange color like the image
+        fc='none',    # No fill
+        lw=2.5,       # Thicker line
+        ls='-',
+        zorder=15     # On top of slabs/grids
+    )
+    
+    # THE MAGIC: Apply sketch parameters to make it look hand-drawn
+    # scale: amplitude of the wiggle
+    # length: length of the wiggle
+    # randomness: random factor
+    cloud.set_sketch_params(scale=5.0, length=20.0, randomness=10.0)
+    
+    ax.add_patch(cloud)
+    
+    # Add a small text label "DESIGN"
+    ax.text(x - width/2 - 0.2, y + height/2 + 0.2, "DESIGN COL.", 
+            color='#ef6c00', fontsize=8, fontweight='bold', ha='right')
 
 # ==========================================
 # 3. HELPER: HTML TABLE
@@ -91,7 +119,7 @@ def get_row_html(label, value, unit, is_header=False, is_highlight=False):
 def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
            drop_data=None, moment_vals=None, 
            mat_props=None, loads=None, 
-           col_type="interior"): # <--- รับค่า col_type เข้ามาแล้ว
+           col_type="interior"):
     
     # --- 4.1 Data Prep ---
     if drop_data is None: drop_data = {'has_drop': False, 'width': 0, 'length': 0, 'depth': 0}
@@ -147,27 +175,32 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # ------------------------------------
         # A. PLAN VIEW
         # ------------------------------------
-        # Dynamic Header based on col_type
         icon_map = {"interior": "⬜", "edge": "uFE0F", "corner": "📐"} 
         st.markdown(f"##### 📐 PLAN VIEW: {col_type.upper()} PANEL")
         
         fig, ax = plt.subplots(figsize=(10, 8.5))
         
-        # 1. Logic for Boundary Labels
-        # Default = Interior (All Continuous)
+        # 1. Logic for Boundary & Cloud Position
         lbl_top = "CONTINUOUS"
         lbl_bot = "CONTINUOUS"
         lbl_left = "CONTINUOUS"
         lbl_right = "CONTINUOUS"
         
-        # Adjust based on selection
+        # Determine Target Column for the Cloud (Default Top-Left (0, L2))
+        target_cloud_pos = (0, L2) 
+        
         if col_type == 'edge':
-            # Assume Left Side is Exterior
             lbl_left = "BUILDING EDGE" 
+            # For Edge, highlight the Edge Column (Left side)
+            target_cloud_pos = (0, L2) 
         elif col_type == 'corner':
-            # Assume Top-Left is Corner
             lbl_left = "BUILDING EDGE"
             lbl_top = "BUILDING EDGE"
+            # For Corner, highlight the Corner Column (Top-Left)
+            target_cloud_pos = (0, L2)
+        else: # Interior
+            # For Interior, highlight Top-Left as representative
+             target_cloud_pos = (0, L2)
 
         # 2. Grid Lines & Slab
         ax.plot([-1, L1+1], [L2/2, L2/2], color='#cfd8dc', ls='-.', lw=1.0)
@@ -185,19 +218,23 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
                                            fc='#37474f', ec='black', zorder=5))
 
-        # 4. Draw Context Labels (The "Link" Logic)
-        # Position them slightly outside the dimensions
+        # 4. DRAW THE REVISION CLOUD (NEW!!)
+        # Draw around the target column coordinate
+        # Cloud size roughly 2x column size
+        cloud_w = max(c1_m * 2.5, 0.8) 
+        cloud_h = max(c2_m * 2.5, 0.8)
+        draw_revision_cloud(ax, target_cloud_pos[0], target_cloud_pos[1], cloud_w, cloud_h)
+
+        # 5. Draw Context Labels
         draw_boundary_label(ax, L1/2, L2 + 1.8, lbl_top)       # Top
         draw_boundary_label(ax, L1/2, -1.8, lbl_bot)           # Bottom
         draw_boundary_label(ax, -1.8, L2/2, lbl_left, rotation=90)  # Left
         draw_boundary_label(ax, L1 + 1.8, L2/2, lbl_right, rotation=90) # Right
 
-        # 5. Dimensions
-        # Outer (C-C)
+        # 6. Dimensions
         draw_dim(ax, (0, L2), (L1, L2), f"Lx = {L1:.2f} m", offset=1.0, is_vert=False, font_size=11)
         draw_dim(ax, (L1, 0), (L1, L2), f"Ly = {L2:.2f} m", offset=1.0, is_vert=True, font_size=11)
         
-        # Inner (Clear Span)
         draw_dim(ax, (c1_m/2, 0), (L1 - c1_m/2, 0), f"Ln = {Ln_x:.2f} m", 
                  offset=-1.0, is_vert=False, color='#2e7d32', font_size=11, style='clear')
         draw_dim(ax, (0, c2_m/2), (0, L2 - c2_m/2), f"Ln = {Ln_y:.2f} m", 
@@ -213,7 +250,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         ax.text(L1/2, L2/2 - 0.4, "S-01", ha='center', fontsize=18, fontweight='bold', color='#263238',
                 bbox=dict(boxstyle="circle,pad=0.4", fc="white", ec="#263238", lw=1.5, zorder=10))
 
-        margin = 2.0 # Increased margin for labels
+        margin = 2.2 
         ax.set_aspect('equal')
         ax.axis('off')
         ax.set_xlim(-margin, L1+margin)
@@ -292,7 +329,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         <div class="sheet-footer">
             <b>📝 ENGINEER NOTES:</b><br>
             • Panel Type: <b>{col_type.upper()}</b>.<br>
-            • Observe boundary labels on Plan View.<br>
+            • <span style="color:#ef6c00; font-weight:bold;">Orange Cloud</span> indicates Design Column.<br>
             • Date: {now_str}
         </div>
         """
