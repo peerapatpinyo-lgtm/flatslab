@@ -63,39 +63,36 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
             fontsize=9, color=txt_col, fontweight='bold',
             bbox=dict(facecolor=bg_col, edgecolor='none', alpha=0.8, pad=3, boxstyle="round,pad=0.3"))
 
-
 def draw_revision_cloud(ax, x, y, width, height):
     """
-    Draws a 'Cloud' style loop around the target column.
-    Improved parameters to look more like a hand-drawn marker loop.
+    Draws a circular, bubbly 'Cloud' style loop around the target column.
     """
-    # 1. Use 'round4' style which is more "bloated" (convex sides) than standard round
-    # This helps mimic the cloud shape better than a rectangle
+    # 1. Create a base shape that is very round (elliptical/circular)
+    # A large rounding_size ensures it looks like a circle/ellipse.
+    # We use a slightly larger pad to give space for the bubbles.
     cloud = patches.FancyBboxPatch(
         (x - width/2, y - height/2), width, height,
-        boxstyle="round4,pad=0.5,rounding_size=0.6", # round4 makes it look bubbly
+        boxstyle="round,pad=0.6,rounding_size=3.0", 
         ec='#ff9800', # Orange
         fc='none',    # No fill
         lw=2.0,       # Line width
         zorder=15
     )
     
-    # 2. TUNED SKETCH PARAMETERS for "Cloud/Marker" look
-    # scale: Amplitude of the wiggle (Lower = less jagged)
-    # length: Length of the wiggle (Higher = smoother, longer waves)
-    # randomness: Random variation
+    # 2. TUNED SKETCH PARAMETERS for "Bubbly Cloud" look
+    # scale: Amplitude of the bubbles (Higher = bigger bubbles)
+    # length: Length of each bubble arc (Shorter = more, tighter bubbles)
+    # randomness: Variation in bubble size
     
-    # Old (Hairy): scale=5.0, length=20.0
-    # New (Cloudy): scale=1.5, length=60.0 -> Makes it wavy, not hairy
-    cloud.set_sketch_params(scale=1.5, length=60.0, randomness=15.0)
+    # These params create a tighter, more frequent looping pattern
+    cloud.set_sketch_params(scale=3.5, length=12.0, randomness=8.0)
     
     ax.add_patch(cloud)
     
-    # Label
-    ax.text(x - width/2 - 0.2, y + height/2 + 0.2, "DESIGN COL.", 
-            color='#ef6c00', fontsize=8, fontweight='bold', ha='right',
-            fontfamily='Comic Sans MS') # Optional: Comic font for hand-drawn feel
-    
+    # Label (Centered above the cloud)
+    ax.text(x, y + height/2 + 0.6, "DESIGN COL.", 
+            color='#ef6c00', fontsize=8, fontweight='bold', ha='center', va='bottom',
+            fontfamily='Comic Sans MS')
 
 # ==========================================
 # 3. HELPER: HTML TABLE
@@ -180,7 +177,6 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # ------------------------------------
         # A. PLAN VIEW
         # ------------------------------------
-        icon_map = {"interior": "⬜", "edge": "uFE0F", "corner": "📐"} 
         st.markdown(f"##### 📐 PLAN VIEW: {col_type.upper()} PANEL")
         
         fig, ax = plt.subplots(figsize=(10, 8.5))
@@ -223,11 +219,11 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
                                            fc='#37474f', ec='black', zorder=5))
 
-        # 4. DRAW THE REVISION CLOUD (NEW!!)
+        # 4. DRAW THE REVISION CLOUD (UPDATED for Bubbly/Circular look)
         # Draw around the target column coordinate
-        # Cloud size roughly 2x column size
-        cloud_w = max(c1_m * 2.5, 0.8) 
-        cloud_h = max(c2_m * 2.5, 0.8)
+        # Cloud size roughly 2.5x column size
+        cloud_w = max(c1_m * 2.5, 1.0) 
+        cloud_h = max(c2_m * 2.5, 1.0)
         draw_revision_cloud(ax, target_cloud_pos[0], target_cloud_pos[1], cloud_w, cloud_h)
 
         # 5. Draw Context Labels
