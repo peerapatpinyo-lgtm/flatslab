@@ -11,7 +11,7 @@ def inject_custom_css():
     <style>
         .report-container { font-family: 'Segoe UI', Tahoma, sans-serif; }
         
-        /* Main Container for each step */
+        /* Main Container */
         .step-container {
             background-color: #ffffff;
             border-radius: 8px;
@@ -21,7 +21,7 @@ def inject_custom_css():
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
         
-        /* Headers for steps */
+        /* Headers */
         .step-title {
             font-size: 1.15rem;
             font-weight: 700;
@@ -33,7 +33,6 @@ def inject_custom_css():
             align-items: center;
         }
         
-        /* Number circle */
         .step-num {
             background-color: #0277bd;
             color: white;
@@ -46,7 +45,6 @@ def inject_custom_css():
             margin-right: 12px;
         }
         
-        /* Sub-headers */
         .sub-header {
             font-weight: 600;
             color: #546e7a;
@@ -56,14 +54,12 @@ def inject_custom_css():
             text-decoration-color: #cfd8dc;
         }
 
-        /* Result Highlighting */
         .calc-result {
             font-weight: bold;
             color: #0d47a1;
             padding: 5px 0;
         }
         
-        /* Verdict Box (Pass/Fail) */
         .verdict-box {
             padding: 20px;
             border-radius: 8px;
@@ -87,8 +83,7 @@ def render_step_header(number, text):
 
 def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
-    Render detailed punching shear calculation for a specific critical section.
-    Includes: Geometry, 3 ACI Equations, and Design Check with Vu derivation.
+    Render detailed punching shear calculation.
     """
     st.markdown(f"#### 📍 Critical Section: {label}")
     
@@ -101,8 +96,16 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     d = res['d']
     b0 = res['b0']
     beta = res.get('beta', 2.0)
-    alpha_s = res.get('alpha_s', 40)
+    alpha_s = res.get('alpha_s', 40) # This comes from the main calculation logic
     sqrt_fc = math.sqrt(fc)
+    
+    # Identify Column Position Text for Display
+    if alpha_s >= 40:
+        pos_text = "Interior Column"
+    elif alpha_s >= 30:
+        pos_text = "Edge Column"
+    else:
+        pos_text = "Corner Column"
     
     # --- Step 1: Geometry & Parameters ---
     with st.container():
@@ -126,9 +129,10 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.latex(r"b_0 = 2(c_1 + d) + 2(c_2 + d)")
             st.latex(fr"b_0 = \mathbf{{{b0:.2f}}} \text{{ cm}}")
             
-            st.markdown('<div class="sub-header">D. Parameters</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sub-header">D. Parameters (Alpha s)</div>', unsafe_allow_html=True)
+            st.markdown(f"Selected Position: **{pos_text}**")
+            st.latex(fr"\alpha_s = \mathbf{{{alpha_s}}}")
             st.latex(fr"\beta (\text{{Aspect Ratio}}) = {beta:.2f}")
-            st.latex(fr"\alpha_s (\text{{Position}}) = {alpha_s}")
             
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -149,13 +153,17 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.latex(fr"= 0.53 ({term_beta:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result'>= {val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 2 ---
+        # --- Eq 2 (UPDATED TO SHOW ALPHA_S) ---
         with eq2:
             st.markdown("**Case 2: Perimeter**")
             st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
-            term_peri = (alpha_s * d / b0) + 2
-            val_vc2 = 0.53 * term_peri * sqrt_fc * b0 * d
-            st.latex(fr"= 0.53 ({term_peri:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
+            
+            # Show the substitution explicitly with alpha_s
+            term_peri_val = (alpha_s * d / b0) + 2
+            val_vc2 = 0.53 * term_peri_val * sqrt_fc * b0 * d
+            
+            # This line links the input to the formula display:
+            st.latex(fr"= 0.53 \left(\frac{{{alpha_s} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result'>= {val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
         # --- Eq 3 ---
@@ -173,14 +181,12 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # 1. Calculate wu for display
         h_m = h_slab / 100.0
         w_sw = h_m * 2400
         sdl = loads['SDL']
         ll = loads['LL']
         wu_val = (1.2 * (w_sw + sdl)) + (1.6 * ll)
         
-        # 2. Get Result Values
         vu = res['Vu']
         vc_min = min(val_vc1, val_vc2, val_vc3)
         phi = 0.85
@@ -189,11 +195,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         col_L, col_R = st.columns([1.8, 1])
         
         with col_L:
-            # --- SHOW SOURCE OF Vu ---
             st.markdown('<div class="sub-header">A. Factored Shear Demand (Vu)</div>', unsafe_allow_html=True)
             st.write("Derived from Factored Load ($w_u$) acting on Tributary Area ($A_{trib}$):")
             
-            # Show formulas
             st.latex(r"V_u \approx w_u \times (A_{trib} - A_{critical})")
             st.latex(fr"w_u = \mathbf{{{wu_val:,.0f}}} \text{{ kg/m}}^2")
             st.latex(fr"A_{{trib}} = L_x \times L_y = {Lx:.2f} \times {Ly:.2f} = \mathbf{{{Lx*Ly:.2f}}} \text{{ m}}^2")
@@ -203,13 +207,11 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             
             st.markdown("---")
             
-            # --- SHOW CHECK ---
             st.markdown('<div class="sub-header">B. Design Capacity Check</div>', unsafe_allow_html=True)
             st.latex(r"\phi V_n = 0.85 \times V_{c,min}")
             st.latex(fr"= 0.85 \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
 
         with col_R:
-            # Verdict Box
             passed = phi_vn >= vu
             status_text = "PASS" if passed else "FAIL"
             color_vu = "black" if passed else "red"
@@ -227,6 +229,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.latex(r"\phi V_n \quad \text{vs} \quad V_u")
+            # Fixed ightarrow by using double backslash
             st.latex(fr"{phi_vn:,.0f} \quad {operator} \quad \textcolor{{{color_vu}}}{{{vu:,.0f}}}")
 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -245,7 +248,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.header("1. Punching Shear Analysis")
     if punch_res.get('is_dual', False):
         tab1, tab2 = st.tabs(["Inner Section (Column)", "Outer Section (Drop Panel)"])
-        # Pass loads, Lx, Ly for Vu explanation
         with tab1: render_punching_detailed(punch_res['check_1'], mat_props, loads, Lx, Ly, "d/2 from Column Face")
         with tab2: render_punching_detailed(punch_res['check_2'], mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
@@ -255,7 +257,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.header("2. One-Way Shear Analysis")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
-    # --- Logic for Controlling Axis ---
     if Lx >= Ly:
         ln_select = Lx
         axis_name = "X-Direction (Lx)"
@@ -275,7 +276,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     phi_vc = 0.85 * vc_nominal
     vu_one = v_oneway_res.get('Vu', 0)
     
-    # Calculate wu for display
     h_m = mat_props['h_slab'] / 100.0
     w_sw = h_m * 2400
     sdl = loads['SDL']
@@ -299,20 +299,20 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         st.markdown(r"Shear at distance $d$ from support:")
         st.latex(r"V_u = w_u (L_{span}/2 - d)")
         
-        # Show substitution using the SELECTED Span
         st.latex(fr"w_u = {wu_val:,.0f} \text{{ kg/m}}^2, \quad L_{{span}} = {ln_select:.2f} \text{{ m}}")
         st.latex(fr"V_u = {wu_val:,.0f} ({ln_select:.2f}/2 - {d_slab/100:.2f})")
         
-        # Result
         color_vu_one = "black" if vu_one <= phi_vc else "red"
         st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one:,.0f}}}}} \text{{ kg/m}}")
     
     st.markdown("---")
-    # Conclusion One-Way
+    
     passed_one = vu_one <= phi_vc
     op_one = r"\leq" if passed_one else ">"
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
+    
+    # Fixed ightarrow
     st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -321,24 +321,21 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
     max_span = max(Lx, Ly)
-    h_provided = mat_props['h_slab'] # Value from inputs
+    h_provided = mat_props['h_slab']
     
     col_def_1, col_def_2 = st.columns([1.5, 1])
     
     with col_def_1:
         render_step_header(1, "Minimum Thickness Calculation")
         
-        # Explain Span Selection
         st.markdown("**1. Identify Critical Span ($L_{max}$)**")
         st.write("Deflection is controlled by the longest clear span:")
         st.latex(fr"L_{{max}} = \max({Lx}, {Ly}) = \mathbf{{{max_span:.2f}}} \text{{ m}}")
         
-        # Explain Formula (ACI Table)
         st.markdown("**2. ACI 318 Criteria (Table 8.3.1.1)**")
         st.write("For Flat Plate/Slab without interior beams (Exterior Panel):")
         st.latex(r"h_{min} = \frac{L}{33}")
         
-        # Explain Calculation
         st.markdown("**3. Required Thickness**")
         val_h_min = (max_span * 100) / 33
         st.latex(fr"h_{{min}} = \frac{{{max_span:.2f} \times 100}}{{33}} = \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
@@ -346,14 +343,12 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     with col_def_2:
         render_step_header(2, "Design Check")
         
-        # Explain Source of Provided h
         st.markdown("**A. Provided Thickness ($h_{prov}$)**")
         st.caption("Value from Material Input (User Settings):")
         st.latex(fr"h_{{prov}} = \mathbf{{{h_provided:.0f}}} \text{{ cm}}")
         
         st.markdown("---")
         
-        # Comparison & Verdict
         st.markdown("**B. Conclusion**")
         passed_def = h_provided >= val_h_min
         status_def = "PASS" if passed_def else "CHECK REQ."
@@ -377,7 +372,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     
     total_dl = w_sw + sdl
     
-    # Detailed Load Calc
     st.markdown("#### Calculation Details:")
     st.markdown(r"**1. Dead Load ($DL$)**")
     st.latex(fr"DL = ({h_m:.2f} \times 2400) + {sdl:.0f} = {total_dl:,.0f} \text{{ kg/m}}^2")
