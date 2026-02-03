@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================
-# 1. HELPER: DIMENSIONS
+# 1. HELPER: DIMENSIONS (No changes here)
 # ==========================================
 def draw_dim(ax, p1, p2, text, offset=0, color='#000000', is_vert=False, font_size=10, style='standard'):
     """Render architectural dimensions."""
@@ -48,7 +48,7 @@ def draw_dim(ax, p1, p2, text, offset=0, color='#000000', is_vert=False, font_si
             bbox=dict(facecolor='white', alpha=1.0, edgecolor='none', pad=2.0))
 
 # ==========================================
-# 2. HELPER: VISUAL ANNOTATIONS (NEW)
+# 2. HELPER: VISUAL ANNOTATIONS
 # ==========================================
 def draw_boundary_label(ax, x, y, text, rotation=0):
     """Draws a tag indicating if the side is Continuous or Edge."""
@@ -65,27 +65,27 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
 
 def draw_revision_cloud(ax, x, y, width, height):
     """
-    Draws a circular, bubbly 'Cloud' style loop around the target column.
+    Draws a single, circular, bubbly 'Cloud' style loop around the target column.
     """
-    # 1. Create a base shape that is very round (elliptical/circular)
-    # A large rounding_size ensures it looks like a circle/ellipse.
-    # We use a slightly larger pad to give space for the bubbles.
-    cloud = patches.FancyBboxPatch(
-        (x - width/2, y - height/2), width, height,
-        boxstyle="round,pad=0.6,rounding_size=3.0", 
+    # 1. Create a base shape that is a simple Ellipse.
+    # This ensures a perfectly round/oval base without any complex corners.
+    cloud = patches.Ellipse(
+        (x, y), width, height,
         ec='#ff9800', # Orange
         fc='none',    # No fill
         lw=2.0,       # Line width
         zorder=15
     )
     
-    # 2. TUNED SKETCH PARAMETERS for "Bubbly Cloud" look
+    # 2. TUNED SKETCH PARAMETERS for "Bubbly Cloud" look on an ellipse
     # scale: Amplitude of the bubbles (Higher = bigger bubbles)
     # length: Length of each bubble arc (Shorter = more, tighter bubbles)
     # randomness: Variation in bubble size
     
-    # These params create a tighter, more frequent looping pattern
-    cloud.set_sketch_params(scale=3.5, length=12.0, randomness=8.0)
+    # These params create a tight, frequent looping pattern along the ellipse path.
+    # scale=3.0 gives good bubble height.
+    # length=15.0 creates frequent, short arcs.
+    cloud.set_sketch_params(scale=3.0, length=15.0, randomness=5.0)
     
     ax.add_patch(cloud)
     
@@ -95,7 +95,7 @@ def draw_revision_cloud(ax, x, y, width, height):
             fontfamily='Comic Sans MS')
 
 # ==========================================
-# 3. HELPER: HTML TABLE
+# 3. HELPER: HTML TABLE (No changes here)
 # ==========================================
 def get_row_html(label, value, unit, is_header=False, is_highlight=False):
     if is_header:
@@ -116,7 +116,7 @@ def get_row_html(label, value, unit, is_header=False, is_highlight=False):
     </tr>"""
 
 # ==========================================
-# 4. MAIN RENDERER
+# 4. MAIN RENDERER (No changes to logic, just calling the updated function)
 # ==========================================
 def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
            drop_data=None, moment_vals=None, 
@@ -219,12 +219,14 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
                                            fc='#37474f', ec='black', zorder=5))
 
-        # 4. DRAW THE REVISION CLOUD (UPDATED for Bubbly/Circular look)
+        # 4. DRAW THE REVISION CLOUD (UPDATED)
         # Draw around the target column coordinate
-        # Cloud size roughly 2.5x column size
-        cloud_w = max(c1_m * 2.5, 1.0) 
-        cloud_h = max(c2_m * 2.5, 1.0)
-        draw_revision_cloud(ax, target_cloud_pos[0], target_cloud_pos[1], cloud_w, cloud_h)
+        # Cloud size roughly 3x column size for a good clear circle
+        cloud_w = max(c1_m * 3.0, 1.2) 
+        cloud_h = max(c2_m * 3.0, 1.2)
+        # Use a square aspect ratio for the cloud to make it circular
+        cloud_size = max(cloud_w, cloud_h)
+        draw_revision_cloud(ax, target_cloud_pos[0], target_cloud_pos[1], cloud_size, cloud_size)
 
         # 5. Draw Context Labels
         draw_boundary_label(ax, L1/2, L2 + 1.8, lbl_top)       # Top
