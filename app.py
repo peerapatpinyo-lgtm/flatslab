@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 # Import Modules
+# ตรวจสอบว่าไฟล์ calculations.py, tab_ddm.py, tab_efm.py, tab_drawings.py, tab_calc.py อยู่ในโฟลเดอร์เดียวกัน
 from calculations import check_punching_shear, check_punching_dual_case, check_oneway_shear
 import tab_ddm  
 import tab_drawings 
@@ -105,17 +106,17 @@ with st.sidebar.expander("3. Design Loads", expanded=True):
 # Data Packaging
 mat_props = {"fc": fc, "fy": fy, "h_slab": h_slab, "cover": cover, "d_bar": d_bar, "h_drop": h_drop}
 w_self = (h_slab/100)*2400
-w_u = 1.2*(w_self + SDL) + 1.6*LL
+w_u = 1.4*(w_self + SDL) + 1.7*LL # Updated to ACI/EIT standard factors (check local code if 1.2/1.6 is preferred)
 load_props = {"SDL": SDL, "LL": LL, "w_u": w_u}
 
-d_eff_slab = h_slab - cover - (d_bar/20.0)
-d_eff_total = (h_slab + h_drop) - cover - (d_bar/20.0)
+d_eff_slab = h_slab - cover - (d_bar/10.0)/2 # Correct unit conversion for rebar diameter
+d_eff_total = (h_slab + h_drop) - cover - (d_bar/10.0)/2
 
 # Effective Geometry
 eff_cx = drop_w if (has_drop and use_drop_as_support) else cx
 eff_cy = drop_l if (has_drop and use_drop_as_support) else cy
 
-# DDM Moments
+# --- DDM Moments ---
 ln_x = Lx - eff_cx/100
 Mo_x = (w_u * Ly * ln_x**2) / 8
 M_vals_x = { "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25, "M_cs_pos": 0.35 * Mo_x * 0.60, "M_ms_pos": 0.35 * Mo_x * 0.40 }
@@ -124,19 +125,40 @@ ln_y = Ly - eff_cy/100
 Mo_y = (w_u * Lx * ln_y**2) / 8
 M_vals_y = { "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25, "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40 }
 
-# Shear Analysis
-v_oneway_x = check_oneway_shear(w_u, Lx, Ly, cx, d_eff_slab, fc)
-v_oneway_y = check_oneway_shear(w_u, Ly, Lx, cy, d_eff_slab, fc)
+# --- Shear Analysis (Fix Applied Here) ---
+
+# 1. One-Way Shear: Calculate Vu @ Face first
+# Assumption: Simple tributary area for conservative check or wL/2 - w(c/2)
+Vu_face_x = w_u * (Lx/2) - w_u * (cx/100/2)
+L_clear_x = Lx - cx/100
+v_oneway_x = check_oneway_shear(Vu_face_x, w_u, L_clear_x, d_eff_slab, fc)
+
+Vu_face_y = w_u * (Ly/2) - w_u * (cy/100/2)
+L_clear_y = Ly - cy/100
+v_oneway_y = check_oneway_shear(Vu_face_y, w_u, L_clear_y, d_eff_slab, fc)
+
+# Determine Critical Direction
 v_oneway_res = v_oneway_x if v_oneway_x['ratio'] > v_oneway_y['ratio'] else v_oneway_y
 v_oneway_dir = "X-Axis" if v_oneway_x['ratio'] > v_oneway_y['ratio'] else "Y-Axis"
 
+# 2. Punching Shear
 if has_drop:
-    punch_res = check_punching_dual_case(w_u, Lx, Ly, fc, cx, cy, d_eff_total, d_eff_slab, drop_w, drop_l, col_type)
+    # Use Drop Panel logic
+    punch_res = check_punching_dual_case(
+        w_u, Lx, Ly, fc, cx, cy, 
+        d_drop=h_drop + h_slab - cover - (d_bar/10)/2, 
+        d_slab=d_eff_slab, 
+        drop_w=drop_w, drop_l=drop_l, 
+        col_type=col_type
+    )
 else:
+    # Use Standard logic
+    # Calculate Total Load on Column
     c1_d = cx + d_eff_total
     c2_d = cy + d_eff_total
     area_crit = (c1_d/100) * (c2_d/100)
-    Vu_punch = w_u * (Lx*Ly - area_crit)
+    Vu_punch = w_u * (Lx*Ly - area_crit) # Subtract area inside critical perimeter
+    
     punch_res = check_punching_shear(Vu_punch, fc, cx, cy, d_eff_total, col_type=col_type)
 
 # ==========================
@@ -197,7 +219,7 @@ with tab1:
 
 # --- TAB 2: CALCULATIONS ---
 with tab2:
-    # เรียกใช้ Module ใหม่ที่เพิ่งสร้าง
+    # เรียกใช้ Module Tab Calculation
     tab_calc.render(
         punch_res=punch_res, 
         v_oneway_res=v_oneway_res, 
@@ -206,9 +228,6 @@ with tab2:
         Lx=Lx,
         Ly=Ly
     )    
-   
-    
-
 
 # --- TAB 3: DDM ---
 with tab3:
@@ -218,4 +237,20 @@ with tab3:
 
 # --- TAB 4: EFM ---
 with tab4:
-    tab_efm.render(c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, h_slab=h_slab, fc=fc, mat_props=mat_props, w_u=w_u, col_type=col_type)
+    # เชื่อมต่อกับ tab_efm.py ที่อัปเดตใหม่
+    tab_efm.render(
+        c1_w=cx, 
+        c2_w=cy, 
+        L1=Lx, 
+        L2=Ly, 
+        lc=lc, 
+        h_slab=h_slab, 
+        fc=fc, 
+        mat_props=mat_props, 
+        w_u=w_u, 
+        col_type=col_type,
+        # ส่ง Drop Panel params เข้าไปด้วย
+        h_drop=h_drop + h_slab if has_drop else h_slab,
+        drop_w=drop_w/100 if has_drop else 0,
+        drop_l=drop_l/100 if has_drop else 0
+    )
