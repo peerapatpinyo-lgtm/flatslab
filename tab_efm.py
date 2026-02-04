@@ -249,8 +249,8 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         if h_drop > h_slab and drop_w > 0:
             st.warning(f"Drop Panel Active\n(h={h_drop}cm, w={drop_w}m)")
 
-    # --- C. DETAILED TABS ---
-    tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design", "🛡️ Step 4: Shear Check"])
+    # --- C. DETAILED TABS (Reduced to 3 Steps) ---
+    tab1, tab2, tab3 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design"])
 
     # === TAB 1: STIFFNESS ===
     with tab1:
@@ -326,73 +326,3 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.write(f"**Moment (60%):** {Mu_ms:,.0f} kg-m")
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
             st.pyplot(draw_section_detail(b_ms*100, h_slab, num, d_bar, "MS Bot"))
-
-    # === TAB 4: SHEAR CHECK (UPDATED) ===
-    with tab4:
-        st.markdown("### 🛡️ Shear Design Verification")
-        
-        # Prepare Common Vars
-        d_bar_mm = mat_props.get('d_bar', 12)
-        d_eff_cm = h_slab - 2.5 - (d_bar_mm/10)/2 # d approx
-        
-        # -------------------------------------------
-        # Section 1: One-Way Shear (Beam Action)
-        # -------------------------------------------
-        st.subheader("1. One-Way Shear (Beam Action)")
-        st.caption("Check at distance $d$ from support face (Consider 1.0 m strip)")
-        
-        # [Unit Consistency Update]
-        # Vu_frame is for the whole frame width (L2). 
-        # Convert to Vu per meter for checking.
-        Vu_per_m = Vu_frame / L2
-        
-        try:
-            res_oneway = calc.check_oneway_shear(Vu_per_m, w_u, L1 - (c1_w/100), d_eff_cm, fc)
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("Vu @ face (per m)", f"{res_oneway['Vu_face']:,.0f} kg")
-                st.metric("Vu @ d (Critical)", f"{res_oneway['Vu_critical']:,.0f} kg", help=f"Distance d = {res_oneway['dist_d']:.2f} m")
-            with c2:
-                st.metric("Capacity ($\phi V_c$)", f"{res_oneway['phi_Vc']:,.0f} kg")
-                st.caption(f"Based on 1.0 m strip")
-            with c3:
-                if res_oneway['status'] == "OK" or res_oneway['status'] == "PASS":
-                    st.success(f"✅ PASS (Ratio: {res_oneway['ratio']:.2f})")
-                else:
-                    st.error(f"❌ FAIL (Ratio: {res_oneway['ratio']:.2f})")
-        except AttributeError:
-             st.error("Function check_oneway_shear not found in calculations.py")
-
-        st.divider()
-
-        # -------------------------------------------
-        # Section 2: Two-Way Shear (Punching Shear)
-        # -------------------------------------------
-        st.subheader("2. Two-Way Shear (Punching)")
-        st.caption("Check at distance $d/2$ from support face (Critical Perimeter)")
-        
-        # [Load Calculation Update]
-        # Rx_col (Total) = w_u * L1 * L2 (Conservative estimate assuming interior col)
-        Rx_col = w_u * L1 * L2 
-        
-        Munbal_est = 0.0 
-        
-        try:
-            # Use Total Load (Rx_col) for Punching Check
-            res_punch = calc.check_punching_shear(Rx_col, fc, c1_w, c2_w, d_eff_cm, col_type, Munbal=Munbal_est)
-            
-            p1, p2 = st.columns(2)
-            with p1:
-                st.metric("Ultimate Load ($P_u$)", f"{res_punch['Vu']:,.0f} kg")
-                st.metric("Capacity ($\phi V_c$)", f"{res_punch['phi_Vc']:,.0f} kg")
-                st.caption(f"Based on Trib Area: {L1}x{L2} m")
-            with p2:
-                if res_punch['status'] == "OK" or res_punch['status'] == "PASS":
-                    st.success(f"✅ PASS (Ratio: {res_punch['ratio']:.2f})")
-                else:
-                    st.error(f"❌ FAIL (Ratio: {res_punch['ratio']:.2f})")
-                st.write(f"Perimeter $b_o = {res_punch['bo']:.0f}$ cm")
-                
-        except AttributeError:
-             st.error("Function check_punching_shear not found in calculations.py")
