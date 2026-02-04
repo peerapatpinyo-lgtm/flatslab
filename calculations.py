@@ -8,15 +8,18 @@ import math
 def calculate_section_properties(c1, c2, d, col_type):
     """
     Helper to calculate Ac, Jc, and gamma_v for Moment Transfer.
+    Geometry is based on ACI 318 Critical Section at d/2 from face.
     """
     # Critical section dimensions
-    b1 = c1 + d  # Width parallel to moment
-    b2 = c2 + d  # Width perpendicular to moment (Interior)
+    b1 = c1 + d  # Width parallel to moment (c1 direction)
+    b2 = c2 + d  # Width perpendicular to moment (c2 direction)
 
-    # Adjust based on column type (Approximate for rectangular sections)
+    # Adjust based on column type (Approximate geometry)
     if col_type == "edge":
+        # Assume Edge parallel to moment (3 sides)
         b2 = c2 + d/2.0
     elif col_type == "corner":
+        # Corner (2 sides)
         b1 = c1 + d/2.0
         b2 = c2 + d/2.0
 
@@ -31,14 +34,18 @@ def calculate_section_properties(c1, c2, d, col_type):
     Ac = bo * d
 
     # 2. Polar Moment of Inertia (Jc)
-    # Using Standard Interior Formula for robustness in this scope
+    # Using Standard Interior Formula (Box Section)
+    # Note: For strict edge/corner, the centroid shifts, making Jc complex.
+    # We use the interior formula as a conservative baseline for this tool scope.
     Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
 
     # 3. Fraction of Moment Transferred by Shear (gamma_v)
+    # gamma_f = 1 / (1 + (2/3)*sqrt(b1/b2))
     gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
     gamma_v = 1 - gamma_f
     
     # Distance from centroid to edge (c_AB)
+    # Assuming symmetry for c_AB is roughly b1/2
     c_AB = b1 / 2.0
 
     return Ac, Jc, gamma_v, c_AB, bo
@@ -46,6 +53,7 @@ def calculate_section_properties(c1, c2, d, col_type):
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
     """
     Check punching shear considering Direct Shear (Vu) + Unbalanced Moment (Munbal).
+    Returns a dictionary with Stress-Based results but compatible with Legacy UI.
     """
     try:
         Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
@@ -59,32 +67,38 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
     # Convert Munbal from kg-m to kg-cm
     Munbal_cm = Munbal * 100.0
     
+    # Stress from Gravity Load
     stress_direct = Vu / Ac
-    stress_moment = (gamma_v * Munbal_cm * c_AB) / Jc
     
+    # Stress from Unbalanced Moment
+    stress_moment = (gamma_v * abs(Munbal_cm) * c_AB) / Jc
+    
+    # Total Stress
     vu_max = stress_direct + stress_moment # ksc (kg/cm^2)
 
     # 3. Allowable Shear Stress (phi_vc)
     phi = 0.85 
     sqrt_fc = np.sqrt(fc)
     
-    # Vc calculation (Stress units)
+    # Vc calculation (Stress units - kg/cm^2)
+    # 3.1 Basic
     vc_stress_nominal = 1.06 * sqrt_fc 
     
-    # Refine Vc based on rectangularity (beta)
+    # 3.2 Rectangularity effect (beta)
     beta = max(c1, c2) / min(c1, c2)
     vc_beta = 0.27 * (2 + 4/beta) * sqrt_fc
     
-    # Vc based on size effect (alpha_s)
+    # 3.3 Size effect (alpha_s)
     if col_type == "interior": alpha_s = 40
     elif col_type == "edge": alpha_s = 30
     else: alpha_s = 20
     vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
 
+    # Governing Vc
     vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
     phi_vc_stress = phi * vc_final_stress
 
-    # 4. Check
+    # 4. Check Ratio
     if phi_vc_stress > 0:
         ratio = vu_max / phi_vc_stress
     else:
@@ -92,22 +106,31 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
         
     status = "OK" if ratio <= 1.0 else "FAIL"
 
-    # 5. Return with Compatibility Keys (b0, phi_Vc) for tab_calc.py
+    # 5. Return (With Legacy Keys for UI Compatibility)
     return {
         "Vu": Vu,
         "Munbal": Munbal,
         "d": d,
         "d_avg": d,
+        
+        # Geometry
         "bo": bo,          # New key
-        "b0": bo,          # !!! CRITICAL FIX: Alias for legacy tab_calc.py !!!
+        "b0": bo,          # !!! COMPATIBILITY FIX: Alias for legacy tab_calc.py !!!
         "Ac": Ac,
-        "beta": beta,      # Added for legacy support
-        "alpha_s": alpha_s, # Added for legacy support
+        "beta": beta,      
+        "alpha_s": alpha_s, 
+        
+        # Analysis
         "gamma_v": gamma_v,
-        "stress_actual": vu_max,
-        "stress_allow": phi_vc_stress,
-        "phi_Vc": phi_vc_stress * Ac, # Approx Force Capacity for legacy display
-        "Vc_nominal": vc_final_stress * Ac, # Approx Nominal Force
+        "Jc": Jc,
+        "stress_actual": vu_max,       # v_u (combined)
+        "stress_allow": phi_vc_stress, # phi*v_c
+        
+        # Force Equivalents (For Legacy UI Display)
+        "phi_Vc": phi_vc_stress * Ac, # Equivalent Capacity Force
+        "Vc_nominal": vc_final_stress * Ac, 
+        
+        # Result
         "ratio": ratio,
         "status": status,
         "note": f"Incl. Moment: {Munbal:,.0f} kg-m",
@@ -118,25 +141,33 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
 # 2. DUAL CASE PUNCHING (DROP PANEL)
 # ==========================================
 def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0):
+    """
+    Checks two critical sections:
+    1. Inside Drop Panel (using d_drop)
+    2. Outside Drop Panel (using d_slab)
+    """
     # Case 1: Inner (Drop Depth)
-    # Load inside critical section is neglected, but simplified to full area for safety or use (Lx*Ly - Ac)
-    # Conservative approximation:
+    # Load inside critical section is neglected approx. factor 0.95
     Vu1 = w_u * (Lx * Ly) * 0.95 
     res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal)
-    res1["case"] = "Inside Drop (d_drop)" # Label for UI
+    res1["case"] = "Inside Drop (d_drop)" 
     
     # Case 2: Outer (Slab Depth)
-    # Moment transfers less to the outer perimeter, assume Munbal decays or is taken by Drop.
+    # Critical section is around the Drop Panel
+    # Moment transfer decays at outer section, assume 50% effective or full for conservative
     Vu2 = w_u * (Lx * Ly) * 0.90 
+    # Use drop_w, drop_l as the "column" dimensions for the outer check
     res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5)
-    res2["case"] = "Outside Drop (d_slab)" # Label for UI
+    res2["case"] = "Outside Drop (d_slab)" 
     
-    # Return the worst case
+    # Return the governing (worst) case
     if res1['ratio'] > res2['ratio']:
         res1['is_dual'] = True
+        res1['other_case'] = res2 # Store other case for detail viewing
         return res1
     else:
         res2['is_dual'] = True
+        res2['other_case'] = res1
         return res2
 
 # ==========================================
@@ -170,10 +201,10 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     Ig = b * (h**3) / 12.0
     
     # Effective Moment of Inertia (Ie) - Cracked Section approximation
-    Ie = 0.4 * Ig # Avg constant for cracked flat plate
+    Ie = 0.4 * Ig # Avg constant for cracked flat plate (Simplified ACI)
     
     # Deflection Formula (Continuous Beam Approx coeff ~1/200 range)
-    # Using coefficient 5/384 * 0.5 (Continuity)
+    # Using coefficient 5/384 * 0.5 (Continuity Factor)
     Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
     
     # 3. Long Term Multiplier (Lambda)
@@ -244,6 +275,7 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
 def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
     w_u = float(w_u); L_span = float(L_span); c_support = float(c_support); d_eff = float(d_eff); fc = float(fc)
 
+    # Critical section at d from support face
     x_crit = (L_span / 2.0) - (c_support / 100.0 / 2.0) - (d_eff / 100.0)
     if x_crit < 0: x_crit = 0
     
