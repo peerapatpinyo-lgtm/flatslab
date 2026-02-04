@@ -54,6 +54,12 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
     """
     Check punching shear considering Direct Shear (Vu) + Unbalanced Moment (Munbal).
     Returns a dictionary with Stress-Based results but compatible with Legacy UI.
+    
+    Vu: Total Ultimate Shear Force (kg) - Reaction at column
+    fc: Concrete Strength (ksc)
+    c1, c2: Column dimensions (cm)
+    d: Effective depth (cm)
+    Munbal: Unbalanced Moment (kg-m)
     """
     try:
         Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
@@ -262,7 +268,6 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
     # 2. Slab Stiffness (Ks)
     # ==============================
     # Simplified: Assuming gross section of slab
-    # (Refinement: Could use variable inertia Is_drop near column, but usually minor effect compared to Kt)
     Is = (L2*100.0) * (h_slab**3) / 12.0
     L1_cm = L1 * 100.0
     Ks = 4 * E_c * Is / L1_cm
@@ -285,18 +290,17 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
         
         # Calculate Effective C using Harmonic Mean (Series assumption along the transverse span L2)
         # The Torsional member length is L2/2 on each side.
-        # Length of Drop part approx = drop_w / 2 (from center)
-        # Length of Slab part = (L2 - drop_w) / 2
-        
         len_total = L2 * 100.0
-        len_drop = min(drop_w, len_total) # Drop width in cm
+        len_drop = min(drop_w * 100.0, len_total) # Drop width in cm
         len_slab = max(0, len_total - len_drop)
         
         # Inverse weighted average (1/C_eff = sum(L_i/C_i) / L_total)
-        term_drop = len_drop / C_drop
-        term_slab = len_slab / C_slab
-        
-        C_eff = len_total / (term_drop + term_slab)
+        if C_drop > 0 and C_slab > 0:
+            term_drop = len_drop / C_drop
+            term_slab = len_slab / C_slab
+            C_eff = len_total / (term_drop + term_slab)
+        else:
+            C_eff = C_slab
     else:
         C_eff = C_slab
         
@@ -308,17 +312,7 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
     
     if denom > 0:
         Kt = 2 * 9 * E_c * C_eff / denom 
-        # Note: "2 *" because typically there are torsional members on both sides of an interior column?
-        # ACI Eq usually gives Kt for one side.
-        # However, for an interior joint, we sum Kt_left + Kt_right.
-        # If L2 is the full transverse width, the formula usually accounts for the full L2.
-        # But standard EFM (MacGregor) formula: Kt = sum( 9EC / (L2(1-c2/L2)^3) )
-        # If the input L2 is the full bay width, we calculate Kt for the "transverse strip".
-        # Let's stick to the standard implementation: Kt here represents the total torsional stiffness of the joint.
-        # Usually, Kt = 2 * (Kt_one_side) for interior. 
-        # The standard formula Kt = 9EC/... uses L2 as the span of the torsional member (transverse span).
-        # We will assume Kt is calculated for the full joint action.
-        pass
+        # Note: Multiplied by 2 for both sides of the joint
     else:
         Kt = 0
     
@@ -333,34 +327,53 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
     return Ks, Sum_Kc, Kt, Kec
 
 # ==========================================
-# 5. ONE-WAY SHEAR
+# 5. ONE-WAY SHEAR (UPDATED FOR UNIT CONSISTENCY)
 # ==========================================
-def check_oneway_shear(w_u, L_span, L_width, c_support, d_eff, fc):
-    w_u = float(w_u); L_span = float(L_span); c_support = float(c_support); d_eff = float(d_eff); fc = float(fc)
-
-    # Critical section at d from support face
-    x_crit = (L_span / 2.0) - (c_support / 100.0 / 2.0) - (d_eff / 100.0)
-    if x_crit < 0: x_crit = 0
+def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc):
+    """
+    ตรวจสอบแรงเฉือนแบบคาน (One-Way Shear)
+    Standard: พิจารณาต่อความกว้าง 1 เมตร (1.0 m Strip)
     
-    Vu_oneway = w_u * x_crit * L_width 
+    Parameters:
+    - Vu_face_kg: แรงเฉือนที่ผิวเสา (kg) **ต่อแถบกว้าง 1 เมตร**
+    - w_u_area: น้ำหนักบรรทุกประลัย (kg/m^2)
+    - L_clear_m: ความยาวช่วงคานสุทธิ (m)
+    - d_eff_cm: ความลึกประสิทธิผล (cm)
+    - fc: กำลังคอนกรีต (ksc)
+    """
+    # 1. แปลงหน่วยและเตรียมตัวแปร (คิดต่อแถบกว้าง 1 เมตร)
+    d_m = d_eff_cm / 100.0  # แปลง d เป็นเมตร
     
-    phi = 0.85 
-    Vc_stress = 0.53 * np.sqrt(fc) # ksc
-    bw = L_width * 100.0 # Width in cm
-    Vc = Vc_stress * bw * d_eff 
+    # 2. คำนวณ Vu ที่ระยะ d จากผิวเสา (Critical Section)
+    # Vu@d = Vu_face - (w_u_load_on_strip * d)
+    # Load on 1m strip = w_u_area (kg/m2) * 1.0 m = kg/m
+    w_line_strip = w_u_area * 1.0 
+    
+    Vu_critical = Vu_face_kg - (w_line_strip * d_m)
+    if Vu_critical < 0: Vu_critical = 0
+    
+    # 3. คำนวณกำลังรับแรงเฉือนของคอนกรีต (Vc)
+    # Vc = 0.53 * sqrt(fc) * b * d
+    # b = 100 cm (คิดแถบ 1 เมตร)
+    Vc = 0.53 * np.sqrt(fc) * 100.0 * d_eff_cm
+    
+    # 4. ตรวจสอบ
+    phi = 0.85
     phi_Vc = phi * Vc
     
     if phi_Vc > 0:
-        ratio = Vu_oneway / phi_Vc
+        ratio = Vu_critical / phi_Vc
     else:
         ratio = 999.0
         
-    status = "PASS" if ratio <= 1.0 else "FAIL"
+    status = "OK" if ratio <= 1.0 else "FAIL"
     
     return {
-        "Vu": Vu_oneway,
+        "Vu_face": Vu_face_kg,
+        "dist_d": d_m,
+        "Vu_critical": Vu_critical,
+        "Vc": Vc,
         "phi_Vc": phi_Vc,
         "ratio": ratio,
-        "status": status,
-        "x_crit": x_crit
+        "status": status
     }
