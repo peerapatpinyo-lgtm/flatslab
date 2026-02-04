@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 
 # Import Modules
-# ตรวจสอบว่าไฟล์ calculations.py อยู่ในโฟลเดอร์เดียวกัน
-import calculations as calc 
+# เราจะเปลี่ยนวิธีเรียกใช้ calculations เล็กน้อยในขั้นตอนถัดไป
+from calculations import FlatSlabDesign 
 import tab_ddm  
 import tab_drawings 
 import tab_efm
@@ -38,14 +38,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================
-# 2. SIDEBAR: PROJECT PARAMS
+# 2. SIDEBAR: PROJECT PARAMS (VIEW / INPUT)
 # ==========================
 st.sidebar.markdown("### ⚙️ Design Parameters")
 
 # --- Group 1: Material ---
 with st.sidebar.expander("1. Material Properties", expanded=True):
     c1, c2 = st.columns(2)
-    # FIX: ใช้ keyword argument 'value=' เพื่อป้องกัน TypeError
     fc = c1.number_input("f'c (ksc)", value=240.0, step=10.0, min_value=1.0)
     fy = c2.number_input("fy (ksc)", value=4000.0, step=100.0)
     h_slab = st.number_input("Slab Thickness (cm)", value=20.0, step=1.0, min_value=5.0)
@@ -88,76 +87,31 @@ with st.sidebar.expander("3. Design Loads", expanded=True):
     LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
 # ==========================
-# 3. PRE-CALCULATION SETUP
-# ==========================
-mat_props = {"fc": fc, "fy": fy, "h_slab": h_slab, "cover": cover, "d_bar": d_bar, "h_drop": h_drop}
-w_self = (h_slab/100)*2400
-w_u = 1.4*(w_self + SDL) + 1.7*LL 
-load_props = {"SDL": SDL, "LL": LL, "w_u": w_u}
-
-# Effective Depths
-d_eff_slab = h_slab - cover - (d_bar/10.0)/2 
-d_eff_total = (h_slab + h_drop) - cover - (d_bar/10.0)/2
-
-# Effective Geometry for DDM
-eff_cx = drop_w if (has_drop and use_drop_as_support) else cx
-eff_cy = drop_l if (has_drop and use_drop_as_support) else cy
-
-# ==========================
-# 4. CORE LOGIC (Using calculations.py)
+# 3. CONTROLLER LOGIC (Connect UI to Model)
 # ==========================
 
-# --- A. One-Way Shear ---
-# 1. X-Direction (Load per 1m strip)
-Vu_face_x = w_u * (Lx/2.0) - w_u * (cx/100.0/2.0) 
-v_oneway_x = calc.check_oneway_shear(Vu_face_x, w_u, Lx - cx/100.0, d_eff_slab, fc)
+# 3.1 Pack Inputs: รวบรวมค่าจากหน้าจอใส่กล่องเดียว
+user_inputs = {
+    "fc": fc, "fy": fy,
+    "h_slab": h_slab, "cover": cover, "d_bar": d_bar,
+    "Lx": Lx, "Ly": Ly,
+    "cx": cx, "cy": cy,
+    "lc": lc, "col_type": col_type,
+    "has_drop": has_drop,
+    "h_drop": h_drop, "drop_w": drop_w, "drop_l": drop_l,
+    "use_drop_as_support": use_drop_as_support,
+    "SDL": SDL, "LL": LL
+}
 
-# 2. Y-Direction
-Vu_face_y = w_u * (Ly/2.0) - w_u * (cy/100.0/2.0)
-v_oneway_y = calc.check_oneway_shear(Vu_face_y, w_u, Ly - cy/100.0, d_eff_slab, fc)
+# 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ
+# (Class นี้จะถูกสร้างใน calculations.py รอบหน้า)
+model = FlatSlabDesign(user_inputs)
 
-# Critical Direction
-if v_oneway_x['ratio'] > v_oneway_y['ratio']:
-    v_oneway_res = v_oneway_x
-    v_oneway_dir = "X-Axis"
-else:
-    v_oneway_res = v_oneway_y
-    v_oneway_dir = "Y-Axis"
-
-# --- B. Punching Shear ---
-if has_drop:
-    # เรียก Dual Case Function
-    punch_res = calc.check_punching_dual_case(
-        w_u=w_u, Lx=Lx, Ly=Ly, fc=fc,
-        c1=cx, c2=cy,
-        d_drop=d_eff_total,
-        d_slab=d_eff_slab,
-        drop_w=drop_w, drop_l=drop_l,
-        col_type=col_type
-    )
-else:
-    # Standard Case
-    c1_d = cx + d_eff_total
-    c2_d = cy + d_eff_total
-    area_crit = (c1_d/100.0) * (c2_d/100.0)
-    Vu_punch = w_u * (Lx*Ly - area_crit)
-    
-    punch_res = calc.check_punching_shear(
-        Vu=Vu_punch, fc=fc, c1=cx, c2=cy, d=d_eff_total, col_type=col_type
-    )
-
-# --- C. Moments (DDM) ---
-ln_x = Lx - eff_cx/100
-Mo_x = (w_u * Ly * ln_x**2) / 8
-M_vals_x = { "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25, "M_cs_pos": 0.35 * Mo_x * 0.60, "M_ms_pos": 0.35 * Mo_x * 0.40 }
-
-ln_y = Ly - eff_cy/100
-Mo_y = (w_u * Lx * ln_y**2) / 8
-M_vals_y = { "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25, "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40 }
-
+# 3.3 Execute: สั่งคำนวณทุกอย่าง
+results = model.run_full_analysis()
 
 # ==========================
-# 5. DASHBOARD HEADER
+# 4. DASHBOARD DISPLAY (VIEW)
 # ==========================
 st.markdown("## 🏗️ ProFlat: Structural Analysis Dashboard")
 st.markdown("---")
@@ -178,76 +132,85 @@ def metric_card(label, value, status, subtext=""):
     </div>
     """, unsafe_allow_html=True)
 
+# Unpack results for Header Dashboard
+# เราจะดึงค่าจาก results Dictionary ที่ Class ส่งกลับมา
+loads_res = results['loads']
+geo_res = results['geometry']
+shear_res = results['shear_oneway']
+punch_res = results['shear_punching']
+check_res = results['checks']
+
 col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 
 with col_kpi1:
     status = punch_res.get('status', 'ERROR')
     ratio = punch_res.get('ratio', 0)
-    note = "Inside Drop" if punch_res.get('case') == "Inside Drop (d_drop)" else "Control Case"
-    metric_card("Punching Shear", f"{ratio:.2f}", status, note)
+    metric_card("Punching Shear", f"{ratio:.2f}", status, punch_res.get('note', ''))
 
 with col_kpi2:
-    status = v_oneway_res['status']
-    metric_card("One-Way Shear", f"{v_oneway_res['ratio']:.2f}", status, f"Critical at {v_oneway_dir}")
+    status = shear_res['status']
+    metric_card("One-Way Shear", f"{shear_res['ratio']:.2f}", status, f"Critical at {shear_res['critical_dir']}")
 
 with col_kpi3:
-    h_min = max(Lx, Ly)*100 / 33.0
+    h_min = check_res['h_min']
     status_def = "PASS" if h_slab >= h_min else "CHECK"
     metric_card("Deflection Control", f"L/33", status_def, f"Min: {h_min:.1f} cm | Actual: {h_slab:.0f} cm")
 
 with col_kpi4:
-    metric_card("Factored Load (Wu)", f"{w_u:,.0f}", "INFO", "kg/m² (ULS)")
+    metric_card("Factored Load (Wu)", f"{loads_res['w_u']:,.0f}", "INFO", "kg/m² (ULS)")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================
-# 6. CONTENT TABS
+# 5. CONTENT TABS
 # ==========================
 tab1, tab2, tab3, tab4 = st.tabs(["📐 Engineering Drawings", "📊 Calculation Sheet", "📝 DDM Analysis", "🏗️ EFM Stiffness"])
+
+# Note: ผมลบ try-except ออกเพื่อให้เห็น Bug ชัดเจนตอนพัฒนา
+# เมื่อขึ้น Production แล้วค่อยใส่กลับเข้ามาได้ครับ
 
 # --- TAB 1: DRAWINGS ---
 with tab1:
     drop_data = {"has_drop": has_drop, "width": drop_w, "length": drop_l, "depth": h_drop}
-    try:
-        tab_drawings.render(
-            L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, 
-            d_eff=d_eff_slab, drop_data=drop_data, moment_vals=M_vals_x,
-            mat_props=mat_props, loads=load_props, col_type=col_type  
-        )
-    except Exception as e:
-        st.warning(f"Drawing module waiting for update: {e}")
+    # ส่งค่าที่ Clean แล้วจาก Model ไปให้ module วาดรูป
+    tab_drawings.render(
+        L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, 
+        d_eff=geo_res['d_slab'], # ใช้ค่า d จากที่คำนวณมาแล้ว
+        drop_data=drop_data, 
+        moment_vals=results['ddm']['x']['M_vals'], # ดึง Moment X มาแสดงเป็น Default
+        mat_props=user_inputs, # ส่ง raw inputs ไปเผื่อใช้
+        loads=loads_res, 
+        col_type=col_type  
+    )
 
 # --- TAB 2: CALCULATIONS ---
 with tab2:
-    try:
-        tab_calc.render(
-            punch_res=punch_res, 
-            v_oneway_res=v_oneway_res, 
-            mat_props=mat_props, 
-            loads=load_props,
-            Lx=Lx, Ly=Ly
-        )    
-    except Exception as e:
-        st.warning(f"Calculation Sheet waiting for update: {e}")
+    tab_calc.render(
+        punch_res=punch_res, 
+        v_oneway_res=shear_res, 
+        mat_props=user_inputs, 
+        loads=loads_res,
+        Lx=Lx, Ly=Ly
+    )    
 
 # --- TAB 3: DDM ---
 with tab3:
-    try:
-        data_x = {"L_span": Lx, "L_width": Ly, "c_para": cx, "ln": ln_x, "Mo": Mo_x, "M_vals": M_vals_x}
-        data_y = {"L_span": Ly, "L_width": Lx, "c_para": cy, "ln": ln_y, "Mo": Mo_y, "M_vals": M_vals_y}
-        tab_ddm.render_dual(data_x, data_y, mat_props, w_u)
-    except Exception as e:
-        st.warning(f"DDM module waiting for update: {e}")
+    # ข้อมูลถูกคำนวณมาเสร็จแล้วใน Model ดึงมาแสดงได้เลย
+    tab_ddm.render_dual(
+        data_x=results['ddm']['x'], 
+        data_y=results['ddm']['y'], 
+        mat_props=user_inputs, 
+        w_u=loads_res['w_u']
+    )
 
 # --- TAB 4: EFM ---
 with tab4:
-    try:
-        tab_efm.render(
-            c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, h_slab=h_slab, fc=fc, 
-            mat_props=mat_props, w_u=w_u, col_type=col_type,
-            h_drop=h_drop + h_slab if has_drop else h_slab,
-            drop_w=drop_w/100 if has_drop else 0,
-            drop_l=drop_l/100 if has_drop else 0
-        )
-    except Exception as e:
-        st.warning(f"EFM module waiting for update: {e}")
+    tab_efm.render(
+        c1_w=cx, c2_w=cy, L1=Lx, L2=Ly, lc=lc, h_slab=h_slab, fc=fc, 
+        mat_props=user_inputs, 
+        w_u=loads_res['w_u'], 
+        col_type=col_type,
+        h_drop=h_drop + h_slab if has_drop else h_slab,
+        drop_w=drop_w/100 if has_drop else 0,
+        drop_l=drop_l/100 if has_drop else 0
+    )
