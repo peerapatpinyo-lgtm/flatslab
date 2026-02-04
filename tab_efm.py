@@ -254,7 +254,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
 
     # === TAB 1: STIFFNESS ===
     with tab1:
-        
         st.markdown("#### 1.1 Column Stiffness ($K_c$)")
         Ic_cm4 = (c2_w * c1_w**3) / 12
         Ic_m4 = Ic_cm4 / (100**4)
@@ -285,10 +284,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.dataframe(df_iter.style.format({"Joint A": "{:,.0f}", "Joint B": "{:,.0f}"}), use_container_width=True)
 
         st.markdown("#### 2.3 Design Moment Envelope")
-        
-
-[Image of bending moment diagram for continuous beam]
-
         st.write("Face Correction Moment:")
         st.latex(rf"M_{{design}} = {abs(M_final_L):,.0f} - {M_red:,.0f} = \mathbf{{{M_neg_design:,.0f}}} \, kg\cdot m")
         st.pyplot(plot_moment_envelope(L1, -M_neg_design, -M_neg_design, M_pos_design, c1_w))
@@ -321,10 +316,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             Rn, rho, As, num = calc_rebar_show(Mu_cs, b_cs)
             st.write(f"**Moment (75%):** {Mu_cs:,.0f} kg-m")
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
-            
-
-[Image of reinforced concrete beam cross section detail]
-
             st.pyplot(draw_section_detail(b_cs*100, h_slab, num, d_bar, "CS Top"))
             
         with col_d2:
@@ -344,8 +335,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         d_bar_mm = mat_props.get('d_bar', 12)
         d_eff_cm = h_slab - 2.5 - (d_bar_mm/10)/2 # d approx
         
-        
-
         # -------------------------------------------
         # Section 1: One-Way Shear (Beam Action)
         # -------------------------------------------
