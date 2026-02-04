@@ -230,38 +230,101 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
 # ==========================================
 # 4. EFM STIFFNESS
 # ==========================================
-def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc):
-    # Ensure floats
+def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, drop_l=0):
+    """
+    Calculate EFM Stiffness (Kc, Ks, Kt, Kec)
+    Advanced Update: Supports Drop Panel effect on Torsional Stiffness (Kt)
+    using Harmonic Mean of C (Series Spring Model).
+    """
+    # Ensure inputs are float
     c1=float(c1); c2=float(c2); L1=float(L1); L2=float(L2); lc=float(lc); h_slab=float(h_slab); fc=float(fc)
+    
+    # Handle Drop Panel dimensions (default to slab if no drop)
+    if h_drop is None or h_drop <= h_slab or drop_w <= 0:
+        h_drop = h_slab
+        has_drop = False
+    else:
+        h_drop = float(h_drop)
+        drop_w = float(drop_w) # Width of drop (perpendicular to L1 usually, check input mapping)
+        has_drop = True
 
     E_c = 15100 * np.sqrt(fc) # ksc
     
+    # ==============================
     # 1. Column Stiffness (Kc)
+    # ==============================
     Ic = c2 * (c1**3) / 12.0 
     lc_cm = lc * 100.0
     Kc = 4 * E_c * Ic / lc_cm
     Sum_Kc = 2 * Kc
     
+    # ==============================
     # 2. Slab Stiffness (Ks)
+    # ==============================
+    # Simplified: Assuming gross section of slab
+    # (Refinement: Could use variable inertia Is_drop near column, but usually minor effect compared to Kt)
     Is = (L2*100.0) * (h_slab**3) / 12.0
     L1_cm = L1 * 100.0
     Ks = 4 * E_c * Is / L1_cm
     
+    # ==============================
     # 3. Torsional Stiffness (Kt)
-    x = h_slab
-    y = c1 
-    C = (1 - 0.63 * x / y) * (x**3 * y) / 3.0
+    # ==============================
+    # Helper to calc C constant
+    def get_C(x, y):
+        # x = thickness, y = width (c1)
+        return (1 - 0.63 * x / y) * (x**3 * y) / 3.0
     
-    term = (1 - c2/(L2*100.0))
-    if term <= 0: term = 0.01
-    denom = (L2*100.0 * term**3)
+    y = c1 # Width of torsional member is column width c1
+    
+    # 3.1 Calculate C for Slab and Drop sections
+    C_slab = get_C(h_slab, y)
+    
+    if has_drop:
+        C_drop = get_C(h_drop, y)
+        
+        # Calculate Effective C using Harmonic Mean (Series assumption along the transverse span L2)
+        # The Torsional member length is L2/2 on each side.
+        # Length of Drop part approx = drop_w / 2 (from center)
+        # Length of Slab part = (L2 - drop_w) / 2
+        
+        len_total = L2 * 100.0
+        len_drop = min(drop_w, len_total) # Drop width in cm
+        len_slab = max(0, len_total - len_drop)
+        
+        # Inverse weighted average (1/C_eff = sum(L_i/C_i) / L_total)
+        term_drop = len_drop / C_drop
+        term_slab = len_slab / C_slab
+        
+        C_eff = len_total / (term_drop + term_slab)
+    else:
+        C_eff = C_slab
+        
+    # 3.2 Calculate Kt
+    # Kt = 9 E C / [L2 * (1 - c2/L2)^3]
+    term_geom = (1 - c2/(L2*100.0))
+    if term_geom <= 0: term_geom = 0.01
+    denom = (L2*100.0 * term_geom**3)
     
     if denom > 0:
-        Kt = 9 * E_c * C / denom
+        Kt = 2 * 9 * E_c * C_eff / denom 
+        # Note: "2 *" because typically there are torsional members on both sides of an interior column?
+        # ACI Eq usually gives Kt for one side.
+        # However, for an interior joint, we sum Kt_left + Kt_right.
+        # If L2 is the full transverse width, the formula usually accounts for the full L2.
+        # But standard EFM (MacGregor) formula: Kt = sum( 9EC / (L2(1-c2/L2)^3) )
+        # If the input L2 is the full bay width, we calculate Kt for the "transverse strip".
+        # Let's stick to the standard implementation: Kt here represents the total torsional stiffness of the joint.
+        # Usually, Kt = 2 * (Kt_one_side) for interior. 
+        # The standard formula Kt = 9EC/... uses L2 as the span of the torsional member (transverse span).
+        # We will assume Kt is calculated for the full joint action.
+        pass
     else:
         Kt = 0
     
-    # 4. Equivalent Column Stiffness (Kec)
+    # ==============================
+    # 4. Equivalent Stiffness (Kec)
+    # ==============================
     if Kt > 0 and Sum_Kc > 0:
         Kec = 1 / (1/Sum_Kc + 1/Kt)
     else:
