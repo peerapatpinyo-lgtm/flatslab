@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import calculations as calc  # จำเป็นต้องมีไฟล์ calculations.py ที่มีฟังก์ชัน check_punching_shear
+import calculations as calc  # จำเป็นต้องมีไฟล์ calculations.py ที่อัปเดตแล้ว
 
 # --- Settings for Professional Plots ---
 plt.rcParams.update({
@@ -230,9 +230,9 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
     # Face Correction
     # Reduce moment from centerline to face of support
-    Vu = w_line * L1 / 2
+    Vu_frame = w_line * L1 / 2 # Total shear on the frame width L2 (conceptually)
     c1_m = c1_w / 100
-    M_red = Vu * (c1_m/2) - w_line*(c1_m/2)**2 / 2
+    M_red = Vu_frame * (c1_m/2) - w_line*(c1_m/2)**2 / 2
     
     M_neg_design = abs(M_final_L) - M_red
     
@@ -256,8 +256,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.warning(f"Drop Panel Active\n(h={h_drop}cm, w={drop_w}m)")
 
     # --- C. DETAILED TABS ---
-    # เพิ่ม Tab 4 สำหรับ Punching Shear
-    tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design", "4️⃣ Step 4: Punching Shear"])
+    tab1, tab2, tab3, tab4 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design", "🛡️ Step 4: Shear Check"])
 
     # === TAB 1: STIFFNESS ===
     with tab1:
@@ -334,40 +333,79 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
             st.pyplot(draw_section_detail(b_ms*100, h_slab, num, d_bar, "MS Bot"))
 
-    # === TAB 4: PUNCHING SHEAR (เพิ่มใหม่ครบถ้วน) ===
+    # === TAB 4: SHEAR CHECK (UPDATED) ===
     with tab4:
-        st.markdown("### 💥 Punching Shear Check")
-        # 
-        st.info("ตรวจสอบแรงเฉือนทะลุที่ระยะ $d/2$ จากขอบเสา")
+        st.markdown("### 🛡️ Shear Design Verification")
         
-        # Prepare inputs for calculation
-        cover = 2.5
+        # เตรียมค่าตัวแปร Common
         d_bar_mm = mat_props.get('d_bar', 12)
-        Vu_kg = Vu # Reaction at support (approx wL/2)
+        d_eff_cm = h_slab - 2.5 - (d_bar_mm/10)/2 # d approx
         
-        # Call function from calculations.py
+        # -------------------------------------------
+        # ส่วนที่ 1: One-Way Shear (Beam Action)
+        # -------------------------------------------
+        st.subheader("1. One-Way Shear (Beam Action)")
+        st.caption("ตรวจสอบที่ระยะ $d$ จากผิวเสา (พิจารณาแถบกว้าง 1 เมตร)")
+        
+        # [Unit Consistency Update]
+        # Vu_frame (จาก Tab 2) คือแรงเฉือนของทั้งแถบกว้าง L2 (kg)
+        # เราต้องแปลงเป็น Vu ต่อความกว้าง 1 เมตร เพื่อเข้าฟังก์ชัน check_oneway_shear
+        # Vu_per_m = Vu_frame / L2
+        Vu_per_m = Vu_frame / L2
+        
         try:
-            res_punch = calc.check_punching_shear(Vu_kg, fc, h_slab, c1_w, c2_w, cover, d_bar_mm)
+            res_oneway = calc.check_oneway_shear(Vu_per_m, w_u, L1 - (c1_w/100), d_eff_cm, fc)
             
-            # Display Results
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.metric("Ultimate Shear ($V_u$)", f"{res_punch['Vu']:,.0f} kg")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Vu @ face (per m)", f"{res_oneway['Vu_face']:,.0f} kg")
+                st.metric("Vu @ d (Critical)", f"{res_oneway['Vu_critical']:,.0f} kg", help=f"Distance d = {res_oneway['dist_d']:.2f} m")
+            with c2:
+                st.metric("Capacity ($\phi V_c$)", f"{res_oneway['phi_Vc']:,.0f} kg")
+                st.caption(f"Based on 1.0 m strip")
+            with c3:
+                if res_oneway['status'] == "OK":
+                    st.success(f"✅ PASS (Ratio: {res_oneway['ratio']:.2f})")
+                else:
+                    st.error(f"❌ FAIL (Ratio: {res_oneway['ratio']:.2f})")
+        except AttributeError:
+             st.error("Function check_oneway_shear not found in calculations.py")
+
+        st.divider()
+
+        # -------------------------------------------
+        # ส่วนที่ 2: Two-Way Shear (Punching Shear)
+        # -------------------------------------------
+        st.subheader("2. Two-Way Shear (Punching)")
+        st.caption("ตรวจสอบที่ระยะ $d/2$ รอบหัวเสา")
+        
+        # [Load Calculation Update]
+        # Punching Shear ต้องพิจารณา Reaction รวมที่ลงเสาต้นนั้น (Total Load)
+        # Vu_frame ที่คำนวณใน Tab 2 เป็นเพียง Reaction ของคานช่วงเดียว (wL/2)
+        # หากเป็นเสาภายใน (Interior) โดยทั่วไปจะรับ Load จาก 2 ฝั่ง (Trib Area ~ L1 x L2)
+        # ดังนั้น Rx_col (Total) = w_u * L1 * L2
+        
+        Rx_col = w_u * L1 * L2 # Total Load ลงเสาต้นนี้ (สมมติรับเต็ม Area L1xL2)
+        
+        # Note: Munbal (Unbalanced Moment) ในที่นี้สมมติเป็น 0 หรือใช้ค่าจาก Frame Analysis
+        # เพื่อความปลอดภัยและง่ายต่อการแสดงผลเบื้องต้น จะใช้ Munbal = 0 หรือค่าเล็กน้อยหากไม่มีข้อมูลช่วงต่อเนื่อง
+        Munbal_est = 0.0 
+        
+        try:
+            # ใช้ Rx_col (Total Load) ในการเช็ค Punching
+            res_punch = calc.check_punching_shear(Rx_col, fc, c1_w, c2_w, d_eff_cm, col_type, Munbal=Munbal_est)
+            
+            p1, p2 = st.columns(2)
+            with p1:
+                st.metric("Ultimate Load ($P_u$)", f"{res_punch['Vu']:,.0f} kg")
                 st.metric("Capacity ($\phi V_c$)", f"{res_punch['phi_Vc']:,.0f} kg")
-                
+                st.caption(f"Based on Trib Area: {L1}x{L2} m")
+            with p2:
                 if res_punch['status'] == "OK":
                     st.success(f"✅ PASS (Ratio: {res_punch['ratio']:.2f})")
                 else:
                     st.error(f"❌ FAIL (Ratio: {res_punch['ratio']:.2f})")
-            
-            with col_p2:
-                st.markdown("**Calculation Details:**")
-                st.write(f"- $d_{{avg}}$: {res_punch['d_avg']:.2f} cm")
-                st.write(f"- Perimeter ($b_o$): {res_punch['bo']:.0f} cm")
-                st.write(f"- $V_{{c,nom}}$: {res_punch['Vc_nominal']:,.0f} kg")
+                st.write(f"Perimeter $b_o = {res_punch['bo']:.0f}$ cm")
                 
         except AttributeError:
-            st.error("ไม่พบฟังก์ชัน 'check_punching_shear' ในไฟล์ calculations.py")
-            st.warning("กรุณาเพิ่มฟังก์ชัน check_punching_shear ลงใน calculations.py ตามที่คุณได้ระบุไว้")
-        except Exception as e:
-            st.error(f"Error calculating Punching Shear: {e}")
+             st.error("Function check_punching_shear not found in calculations.py")
