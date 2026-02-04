@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import calculations as calc  # จำเป็นต้องมีไฟล์ calculations.py ที่อัปเดตแล้ว
+import calculations as calc  # จำเป็นต้องมีไฟล์ calculations.py
 
 # --- Settings for Professional Plots ---
 plt.rcParams.update({
@@ -20,7 +20,6 @@ plt.rcParams.update({
 def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
     """
     Draws the Equivalent Frame Model (Spring Model).
-    Visualizes how Column and Torsional member combine into Kec.
     """
     fig, ax = plt.subplots(figsize=(6, 2.5))
     
@@ -130,9 +129,7 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
 
 def run_moment_distribution(FEM, DF_slab, iterations=4):
     """
-    Simulate Hardy Cross Method:
-    - Assumes a simplified single-span equivalent frame for demonstration.
-    - Joint A (Left) & Joint B (Right) are interior joints.
+    Simulate Hardy Cross Method (Simplified for single span demo).
     """
     history = []
     
@@ -150,7 +147,6 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
 
     for i in range(iterations):
         # 2. Balance
-        # Moment to balance = - (Unbalanced * DF)
         bal_A = -1 * curr_unbal_A * DF_slab
         bal_B = -1 * curr_unbal_B * DF_slab
         
@@ -164,7 +160,6 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         total_B += bal_B
         
         # 3. Carry Over (CO)
-        # Carry over to opposite side (Factor 0.5)
         co_to_A = bal_B * 0.5
         co_to_B = bal_A * 0.5
         
@@ -204,14 +199,13 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     E_ksm = Ec * 10000  # Convert ksc to kg/m^2 for stiffness calculation
     
     # 1. Stiffness Calculations
-    # เรียกใช้ฟังก์ชันจาก calculations.py เพื่อคำนวณ Stiffness (รองรับ Drop Panel)
     try:
         Ks_val, Sum_Kc, Kt_val, Kec_val = calc.calculate_stiffness(
             c1_w, c2_w, L1, L2, lc, h_slab, fc, 
             h_drop=h_drop, drop_w=drop_w, drop_l=drop_l
         )
     except AttributeError:
-        st.error("ไม่พบฟังก์ชัน 'calculate_stiffness' ในไฟล์ calculations.py กรุณาตรวจสอบไฟล์")
+        st.error("Cannot find 'calculate_stiffness' in calculations.py. Please ensure the file is updated.")
         return
     
     # Distribution Factor (DF)
@@ -260,24 +254,25 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
 
     # === TAB 1: STIFFNESS ===
     with tab1:
+        
         st.markdown("#### 1.1 Column Stiffness ($K_c$)")
         Ic_cm4 = (c2_w * c1_w**3) / 12
         Ic_m4 = Ic_cm4 / (100**4)
-        st.write(f"โมเมนต์ความเฉื่อยของเสา $I_c = {Ic_cm4:,.0f} \, cm^4$")
+        st.write(f"Column Moment of Inertia $I_c = {Ic_cm4:,.0f} \, cm^4$")
         st.latex(rf"K_c = \frac{{4EI_c}}{{l_c}}")
         st.latex(rf"\Sigma K_c = {Sum_Kc/1e5:.2f} \times 10^5 \quad (Top + Bot)")
         
         st.divider()
         st.markdown("#### 1.2 Slab Stiffness ($K_s$)")
         Is_cm4 = (L2*100 * h_slab**3) / 12
-        st.write(f"โมเมนต์ความเฉื่อยของพื้น $I_s = {Is_cm4:,.0f} \, cm^4$")
+        st.write(f"Slab Moment of Inertia $I_s = {Is_cm4:,.0f} \, cm^4$")
         st.latex(rf"K_s = \frac{{4EI_s}}{{L_1}} = {Ks_val/1e5:.2f} \times 10^5")
 
         st.divider()
         st.markdown("#### 1.3 Equivalent Stiffness ($K_{ec}$)")
-        st.write("การคำนวณ $K_t$ (รวมผลของ Drop Panel ถ้ามี):")
+        st.write("Torsional Stiffness Calculation ($K_t$):")
         st.latex(rf"K_t = {Kt_val/1e5:.2f} \times 10^5")
-        st.write("ความแข็งสมมูล ($K_{ec}$):")
+        st.write("Equivalent Column Stiffness ($K_{ec}$):")
         st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{\Sigma K_c}} + \frac{{1}}{{K_t}} \Rightarrow K_{{ec}} = \mathbf{{{Kec_val/1e5:.2f} \times 10^5}}")
 
     # === TAB 2: MOMENT ===
@@ -290,6 +285,10 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.dataframe(df_iter.style.format({"Joint A": "{:,.0f}", "Joint B": "{:,.0f}"}), use_container_width=True)
 
         st.markdown("#### 2.3 Design Moment Envelope")
+        
+
+[Image of bending moment diagram for continuous beam]
+
         st.write("Face Correction Moment:")
         st.latex(rf"M_{{design}} = {abs(M_final_L):,.0f} - {M_red:,.0f} = \mathbf{{{M_neg_design:,.0f}}} \, kg\cdot m")
         st.pyplot(plot_moment_envelope(L1, -M_neg_design, -M_neg_design, M_pos_design, c1_w))
@@ -312,7 +311,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             num = int(np.ceil(As / (np.pi*(d_bar/20)**2/4)))
             return Rn, rho, As, num
 
-        st.write(f"**Design:** $f_c'={fc}, f_y={fy}, h={h_slab}cm$")
+        st.write(f"**Design Parameters:** $f_c'={fc}, f_y={fy}, h={h_slab}cm$")
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:
@@ -322,6 +321,10 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             Rn, rho, As, num = calc_rebar_show(Mu_cs, b_cs)
             st.write(f"**Moment (75%):** {Mu_cs:,.0f} kg-m")
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
+            
+
+[Image of reinforced concrete beam cross section detail]
+
             st.pyplot(draw_section_detail(b_cs*100, h_slab, num, d_bar, "CS Top"))
             
         with col_d2:
@@ -337,20 +340,21 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     with tab4:
         st.markdown("### 🛡️ Shear Design Verification")
         
-        # เตรียมค่าตัวแปร Common
+        # Prepare Common Vars
         d_bar_mm = mat_props.get('d_bar', 12)
         d_eff_cm = h_slab - 2.5 - (d_bar_mm/10)/2 # d approx
         
+        
+
         # -------------------------------------------
-        # ส่วนที่ 1: One-Way Shear (Beam Action)
+        # Section 1: One-Way Shear (Beam Action)
         # -------------------------------------------
         st.subheader("1. One-Way Shear (Beam Action)")
-        st.caption("ตรวจสอบที่ระยะ $d$ จากผิวเสา (พิจารณาแถบกว้าง 1 เมตร)")
+        st.caption("Check at distance $d$ from support face (Consider 1.0 m strip)")
         
         # [Unit Consistency Update]
-        # Vu_frame (จาก Tab 2) คือแรงเฉือนของทั้งแถบกว้าง L2 (kg)
-        # เราต้องแปลงเป็น Vu ต่อความกว้าง 1 เมตร เพื่อเข้าฟังก์ชัน check_oneway_shear
-        # Vu_per_m = Vu_frame / L2
+        # Vu_frame is for the whole frame width (L2). 
+        # Convert to Vu per meter for checking.
         Vu_per_m = Vu_frame / L2
         
         try:
@@ -364,7 +368,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
                 st.metric("Capacity ($\phi V_c$)", f"{res_oneway['phi_Vc']:,.0f} kg")
                 st.caption(f"Based on 1.0 m strip")
             with c3:
-                if res_oneway['status'] == "OK":
+                if res_oneway['status'] == "OK" or res_oneway['status'] == "PASS":
                     st.success(f"✅ PASS (Ratio: {res_oneway['ratio']:.2f})")
                 else:
                     st.error(f"❌ FAIL (Ratio: {res_oneway['ratio']:.2f})")
@@ -374,25 +378,19 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.divider()
 
         # -------------------------------------------
-        # ส่วนที่ 2: Two-Way Shear (Punching Shear)
+        # Section 2: Two-Way Shear (Punching Shear)
         # -------------------------------------------
         st.subheader("2. Two-Way Shear (Punching)")
-        st.caption("ตรวจสอบที่ระยะ $d/2$ รอบหัวเสา")
+        st.caption("Check at distance $d/2$ from support face (Critical Perimeter)")
         
         # [Load Calculation Update]
-        # Punching Shear ต้องพิจารณา Reaction รวมที่ลงเสาต้นนั้น (Total Load)
-        # Vu_frame ที่คำนวณใน Tab 2 เป็นเพียง Reaction ของคานช่วงเดียว (wL/2)
-        # หากเป็นเสาภายใน (Interior) โดยทั่วไปจะรับ Load จาก 2 ฝั่ง (Trib Area ~ L1 x L2)
-        # ดังนั้น Rx_col (Total) = w_u * L1 * L2
+        # Rx_col (Total) = w_u * L1 * L2 (Conservative estimate assuming interior col)
+        Rx_col = w_u * L1 * L2 
         
-        Rx_col = w_u * L1 * L2 # Total Load ลงเสาต้นนี้ (สมมติรับเต็ม Area L1xL2)
-        
-        # Note: Munbal (Unbalanced Moment) ในที่นี้สมมติเป็น 0 หรือใช้ค่าจาก Frame Analysis
-        # เพื่อความปลอดภัยและง่ายต่อการแสดงผลเบื้องต้น จะใช้ Munbal = 0 หรือค่าเล็กน้อยหากไม่มีข้อมูลช่วงต่อเนื่อง
         Munbal_est = 0.0 
         
         try:
-            # ใช้ Rx_col (Total Load) ในการเช็ค Punching
+            # Use Total Load (Rx_col) for Punching Check
             res_punch = calc.check_punching_shear(Rx_col, fc, c1_w, c2_w, d_eff_cm, col_type, Munbal=Munbal_est)
             
             p1, p2 = st.columns(2)
@@ -401,7 +399,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
                 st.metric("Capacity ($\phi V_c$)", f"{res_punch['phi_Vc']:,.0f} kg")
                 st.caption(f"Based on Trib Area: {L1}x{L2} m")
             with p2:
-                if res_punch['status'] == "OK":
+                if res_punch['status'] == "OK" or res_punch['status'] == "PASS":
                     st.success(f"✅ PASS (Ratio: {res_punch['ratio']:.2f})")
                 else:
                     st.error(f"❌ FAIL (Ratio: {res_punch['ratio']:.2f})")
