@@ -1,15 +1,18 @@
-# tab_ddm.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Try importing dependencies
+# ========================================================
+# 0. DEPENDENCY HANDLING
+# ========================================================
+# Try importing Plotting Module
 try:
     import ddm_plots 
     HAS_PLOTS = True
 except ImportError:
     HAS_PLOTS = False
 
+# Try importing Calculation Module
 try:
     import calculations as calc
     HAS_CALC = True
@@ -28,18 +31,25 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     Mu_kgcm = M_u * 100.0
     phi = 0.90 
 
-    # Effective Depth
+    # --- Effective Depth Logic (Improved) ---
     # Main Axis (Outer Layer): d = h - cover - db/2
-    # Minor Axis (Inner Layer): d = h - cover - db_main - db/2 (approx offset 1.6cm)
-    d_offset = 0.0 if is_main_dir else 1.6 
+    # Minor Axis (Inner Layer): d = h - cover - db_main - db/2
+    # Assumption: db_main approx equal to db_current (Dynamic Offset)
+    
+    if is_main_dir:
+        d_offset = 0.0
+    else:
+        # ใช้ขนาดเหล็กของตัวเองเป็นตัวแทนความหนาเหล็กชั้นนอก (ดีกว่าค่าคงที่ 1.6 cm)
+        d_offset = d_bar / 10.0 
+        
     d_eff = h_cm - cover - (d_bar/20.0) - d_offset
     
-    # Handle negligible moment
-    if M_u < 10:
+    # Handle negligible moment or invalid depth
+    if M_u < 10 or d_eff <= 0:
         return {
-            "d": d_eff, "Rn": 0, "rho_req": 0, "As_min": 0, "As_flex": 0, 
+            "d": max(d_eff, 0), "Rn": 0, "rho_req": 0, "As_min": 0, "As_flex": 0, 
             "As_req": 0, "As_prov": 0, "a": 0, "PhiMn": 0, "DC": 0, 
-            "Status": True, "Note": "M -> 0", "s_max": 45
+            "Status": True, "Note": "M -> 0" if M_u < 10 else "Depth Err", "s_max": 45
         }
 
     # Strength Design
@@ -104,8 +114,9 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
         
         st.markdown("**1.2 Effective Depth ($d$)**")
-        st.latex(r"d = h - C_{over} - \frac{d_b}{2}")
-        st.latex(f"d = {h} - {cover} - \\frac{{{db/10}}}{{2}} = \\mathbf{{{res['d']:.2f}}} \\; \\text{{cm}}")
+        if res['d'] < (h - cover - db/20.0):
+            st.info("Note: Inner layer calculation (Subtracting assumed main bar diameter)")
+        st.latex(r"d_{eff} = \mathbf{" + f"{res['d']:.2f}" + r"} \; \text{cm}")
 
     with step2:
         st.markdown("**2.1 Required Reinforcement ($A_{s,req}$)**")
@@ -185,7 +196,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
             """)
             st.write(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
-            st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Slab_effective_width.svg/300px-Slab_effective_width.svg.png", caption="Span Definitions (ACI)", use_container_width=True)
+            
 
         with col_calc:
             st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
@@ -209,10 +220,10 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         ]
         st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
-# ==========================================================
-    # 2️⃣ PUNCHING SHEAR CHECK (FIXED)
     # ==========================================================
-    if HAS_CALC and HAS_PLOTS:
+    # 2️⃣ PUNCHING SHEAR CHECK (Safe Dependency Handling)
+    # ==========================================================
+    if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
         
@@ -224,29 +235,31 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         Vu_approx = float(w_u) * load_area 
         
         # --- คำนวณค่า d (Effective Depth) ก่อนส่งเข้าฟังก์ชัน ---
-        # สมมติเหล็กแกน 12mm = 1.2 cm
         d_bar_val = 1.2 
         d_eff = float(h_slab) - float(cover) - d_bar_val
-        if d_eff <= 0: d_eff = 1.0 # กัน Error กรณีใส่เลขแปลกๆ
+        if d_eff <= 0: d_eff = 1.0 # กัน Error
 
-        # 2. Perform Check (แก้ไขชื่อตัวแปรให้ตรงกับ calculations.py ใหม่)
+        # 2. Perform Check
         ps_res = calc.check_punching_shear(
-            Vu=Vu_approx,        # แก้จาก Vu_kg เป็น Vu
+            Vu=Vu_approx,       
             fc=float(fc),
-            c1=c_col,            # แก้จาก c1_cm เป็น c1
-            c2=c_col,            # แก้จาก c2_cm เป็น c2
-            d=d_eff,             # ส่งค่า d ที่คำนวณแล้วไปตรงๆ
-            col_type="interior"  # ระบุประเภทเสา (DDM คิดเป็น Interior Strip)
+            c1=c_col,           
+            c2=c_col,           
+            d=d_eff,             
+            col_type="interior"  
         )
         
         # 3. Display Results
         col_p1, col_p2 = st.columns([1, 1.5])
         
         with col_p1:
-            # ส่งค่าเข้า Plot (ใช้ key 'bo' หรือ 'b0' ก็ได้ เพราะเราแก้ calc รองรับไว้แล้ว)
-            st.pyplot(ddm_plots.plot_punching_shear_geometry(
-                c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
-            ))
+            if HAS_PLOTS:
+                
+                st.pyplot(ddm_plots.plot_punching_shear_geometry(
+                    c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
+                ))
+            else:
+                st.info("ℹ️ Plotting module not available. Showing data only.")
         
         with col_p2:
             if ps_res['status'] == "OK":
@@ -261,8 +274,11 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
                 st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
                 
                 st.write("**2. Concrete Capacity ($V_c$):**")
-                # ใช้ key 'Vc_nominal' และ 'phi_Vc' ที่มีอยู่ใน calc ใหม่
-                st.latex(r"\phi V_c = 0.85 \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
+                # ใช้ key 'Vc_nominal' และ 'phi_Vc' ที่มีอยู่ใน calc
+                if 'Vc_nominal' in ps_res:
+                    st.latex(r"\phi V_c = 0.85 \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
+                else:
+                    st.latex(r"\phi V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
                 
                 st.write("**3. Check:**")
                 st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
@@ -271,9 +287,9 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
                 st.info(f"💡 **Tip:** Try increasing slab thickness or column size.")
 
     elif not HAS_CALC:
-        st.warning("⚠️ module 'calculations.py' not found.")
+        st.warning("⚠️ Module 'calculations.py' not found. Skipping Shear Check.")
 
-    # --- PART 3: INPUTS (Renumbered to 3) ---
+    # --- PART 3: REINFORCEMENT SELECTION ---
     st.markdown("---")
     st.markdown("### 3️⃣ Reinforcement Selection")
     
@@ -313,8 +329,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         d_msb = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_msb_{axis_id}", label_visibility="collapsed")
         s_msb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_msb_{axis_id}", label_visibility="collapsed")
 
-    # --- CALCULATION ---
-    # ⚠️ KEY MAPPING: กำหนด Key ให้ตรงกับที่ ddm_plots.py ต้องการ (CS_Top, CS_Bot, MS_Top, MS_Bot)
+    # --- CALCULATION LOOP ---
     calc_configs = [
         {"Label": "Col Strip - Top (-)", "PlotKey": "CS_Top", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
         {"Label": "Col Strip - Bot (+)", "PlotKey": "CS_Bot", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
@@ -325,7 +340,7 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     results = []
     for cfg in calc_configs:
         res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir)
-        res.update(cfg) # Merge config into result
+        res.update(cfg) 
         results.append(res)
 
     # --- PART 4: SUMMARY ---
@@ -361,7 +376,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         st.markdown("---")
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        # ⚠️ สร้าง Map โดยใช้ Key ที่ตรงกับ ddm_plots (CS_Top, CS_Bot, MS_Top, MS_Bot)
         rebar_map = {r['PlotKey']: f"DB{r['db']}@{r['s']:.0f}" for r in results}
         
         with t1:
@@ -371,7 +385,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
             st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
             
         with t3:
-            
             st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
 # ========================================================
@@ -389,4 +402,5 @@ def render_dual(data_x, data_y, mat_props, w_u):
         render_interactive_direction(data_x, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "X", w_u, True)
         
     with tab_y:
+        # Pass False to is_main_dir to trigger the d_offset logic
         render_interactive_direction(data_y, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "Y", w_u, False)
