@@ -37,6 +37,13 @@ class FlatSlabDesign:
         # Load Combination: 1.4DL + 1.7LL
         w_u = 1.4 * (w_self + self.inputs['SDL']) + 1.7 * self.inputs['LL']
         return w_u
+    
+    def _calculate_service_load(self):
+        """คำนวณ W (Service Load) สำหรับเช็ค Deflection"""
+        w_self = (self.h_slab / 100.0) * 2400
+        # Service Load: DL + LL
+        w_service = (w_self + self.inputs['SDL']) + self.inputs['LL']
+        return w_service
 
     def _analyze_oneway(self, w_u, d_slab):
         """Logic หา Critical One-way Shear"""
@@ -60,9 +67,6 @@ class FlatSlabDesign:
         """Logic คำนวณ DDM Moments"""
         # Determine Effective Column for Span
         use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
-        eff_cx = self.drop_w * 100 if use_drop else self.cx # Convert m to cm if drop is used logic needs check, usually inputs are mixed units. 
-        # Note: drop_w is usually in m, cx is in cm. Let's standardize to cm for this calculation logic block if needed, 
-        # but the inputs say: cx (cm), drop_w (m).
         
         # Let's fix unit consistency:
         # eff_cx should be in cm to match cx
@@ -100,8 +104,8 @@ class FlatSlabDesign:
                 "ln": ln_x, 
                 "Mo": Mo_x, 
                 "M_vals": M_vals_x,
-                "c_para": eff_cx/100.0, # FIXED: Added for View
-                "c_perp": eff_cy/100.0  # FIXED: Added for View
+                "c_para": eff_cx/100.0,
+                "c_perp": eff_cy/100.0
             },
             "y": {
                 "L_span": self.Ly, 
@@ -109,8 +113,8 @@ class FlatSlabDesign:
                 "ln": ln_y, 
                 "Mo": Mo_y, 
                 "M_vals": M_vals_y,
-                "c_para": eff_cy/100.0, # FIXED: Added for View
-                "c_perp": eff_cx/100.0  # FIXED: Added for View
+                "c_para": eff_cy/100.0,
+                "c_perp": eff_cx/100.0
             }
         }
 
@@ -168,6 +172,7 @@ class FlatSlabDesign:
         """Main entry point: สั่งคำนวณทุกอย่างรวดเดียว"""
         # 1. Prep Data
         w_u = self._calculate_loads()
+        w_service = self._calculate_service_load()
         d_slab = self._get_eff_depth(self.h_slab)
         d_total = self._get_eff_depth(self.h_slab + self.h_drop)
 
@@ -175,8 +180,6 @@ class FlatSlabDesign:
         shear_res = self._analyze_oneway(w_u, d_slab)
 
         # 3. Punching Analysis
-        # Use EFM Unbalanced Moment if available? 
-        # For now, let's keep it independent or user input, but we prepare for linkage.
         if self.has_drop:
             punch_res = check_punching_dual_case(
                 w_u, self.Lx, self.Ly, self.fc, 
@@ -195,6 +198,13 @@ class FlatSlabDesign:
         # 4. Check Requirements
         h_min = max(self.Lx, self.Ly)*100 / 33.0
         
+        # Check Deflection (Simplified)
+        # Note: As_provided is not yet known here, so we assume rho ~ 0.5% or just calculate immediate
+        # This part is usually done after steel selection, but here we do a preliminary check
+        deflection_res = check_long_term_deflection(
+            w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
+        )
+        
         # 5. DDM Analysis
         ddm_res = self._analyze_ddm_moments(w_u)
         
@@ -203,13 +213,13 @@ class FlatSlabDesign:
 
         # 7. Pack Results
         return {
-            "loads": {"w_u": w_u, "SDL": self.inputs['SDL'], "LL": self.inputs['LL']},
+            "loads": {"w_u": w_u, "w_service": w_service, "SDL": self.inputs['SDL'], "LL": self.inputs['LL']},
             "geometry": {"d_slab": d_slab, "d_total": d_total},
             "shear_oneway": shear_res,
             "shear_punching": punch_res,
             "ddm": ddm_res,
-            "efm": efm_res, # Included new EFM results
-            "checks": {"h_min": h_min}
+            "efm": efm_res,
+            "checks": {"h_min": h_min, "deflection": deflection_res}
         }
 
 # ==========================================
@@ -312,13 +322,19 @@ def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
     return {"rho_min": rho_min, "As_min": As_min, "note": "ACI 318 Temp/Shrinkage"}
 
 def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
+    """
+    Check Deflection based on ACI 318
+    w_service: Service Load (kg/m2)
+    L: Span (m)
+    h: Thickness (cm)
+    """
     Ec = 15100 * np.sqrt(fc) 
     L_cm = L * 100.0
     w_line_kg_cm = (w_service * (b/100.0)) / 100.0 
     
     Ig = b * (h**3) / 12.0
-    Ie = 0.4 * Ig 
-    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
+    Ie = 0.4 * Ig # Approximation for Cracked Moment of Inertia
+    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 # Factor 0.5 for continuity
     
     Lambda_LT = 2.0
     Delta_LT = Delta_immediate * Lambda_LT
@@ -327,7 +343,11 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
     
     return {
-        "Delta_Total": Delta_Total, "Limit_240": Limit_240, "status": status
+        "Delta_Immediate": Delta_immediate, # <--- FIXED: Added missing key
+        "Delta_LongTerm": Delta_LT,         # <--- Added for completeness
+        "Delta_Total": Delta_Total, 
+        "Limit_240": Limit_240, 
+        "status": status
     }
 
 # ==========================================
