@@ -1,9 +1,9 @@
+# app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
 
 # Import Modules
-# เราจะเปลี่ยนวิธีเรียกใช้ calculations เล็กน้อยในขั้นตอนถัดไป
 from calculations import FlatSlabDesign 
 import tab_ddm  
 import tab_drawings 
@@ -66,6 +66,7 @@ with st.sidebar.expander("2. Geometry & Span", expanded=True):
     lc = st.number_input("Storey Height (m)", value=3.0)
     col_type = st.selectbox("Column Position", ["interior", "edge", "corner"])
     
+    # --- Drop Panel ---
     st.markdown("---")
     has_drop = st.checkbox("Add Drop Panel")
     
@@ -78,8 +79,18 @@ with st.sidebar.expander("2. Geometry & Span", expanded=True):
         d1, d2 = st.columns(2)
         drop_w = d1.number_input("Drop Width (cm)", value=250.0)
         drop_l = d2.number_input("Drop Length (cm)", value=200.0)
-        st.markdown("---")
         use_drop_as_support = st.checkbox("Use Drop as Support?", value=False)
+        
+    # --- [NEW] Opening ---
+    st.markdown("---")
+    has_opening = st.checkbox("Add Opening near Column")
+    open_w, open_dist = 0.0, 0.0
+    
+    if has_opening:
+        st.caption("Opening affects Punching Shear Perimeter")
+        c_op1, c_op2 = st.columns(2)
+        open_w = c_op1.number_input("Opening Width (cm)", value=30.0, min_value=0.0)
+        open_dist = c_op2.number_input("Dist. from Face (cm)", value=5.0, min_value=0.0)
 
 # --- Group 3: Loads ---
 with st.sidebar.expander("3. Design Loads", expanded=True):
@@ -100,11 +111,13 @@ user_inputs = {
     "has_drop": has_drop,
     "h_drop": h_drop, "drop_w": drop_w, "drop_l": drop_l,
     "use_drop_as_support": use_drop_as_support,
-    "SDL": SDL, "LL": LL
+    "SDL": SDL, "LL": LL,
+    # [NEW] Opening Inputs
+    "open_w": open_w if has_opening else 0.0,
+    "open_dist": open_dist if has_opening else 0.0
 }
 
 # 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ
-# (Class นี้จะถูกสร้างใน calculations.py รอบหน้า)
 model = FlatSlabDesign(user_inputs)
 
 # 3.3 Execute: สั่งคำนวณทุกอย่าง
@@ -133,7 +146,6 @@ def metric_card(label, value, status, subtext=""):
     """, unsafe_allow_html=True)
 
 # Unpack results for Header Dashboard
-# เราจะดึงค่าจาก results Dictionary ที่ Class ส่งกลับมา
 loads_res = results['loads']
 geo_res = results['geometry']
 shear_res = results['shear_oneway']
@@ -145,7 +157,9 @@ col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 with col_kpi1:
     status = punch_res.get('status', 'ERROR')
     ratio = punch_res.get('ratio', 0)
-    metric_card("Punching Shear", f"{ratio:.2f}", status, punch_res.get('note', ''))
+    # Update Subtext to warn if Opening is used
+    note_txt = punch_res.get('note', '')
+    metric_card("Punching Shear", f"{ratio:.2f}", status, note_txt)
 
 with col_kpi2:
     status = shear_res['status']
@@ -166,19 +180,16 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ==========================
 tab1, tab2, tab3, tab4 = st.tabs(["📐 Engineering Drawings", "📊 Calculation Sheet", "📝 DDM Analysis", "🏗️ EFM Stiffness"])
 
-# Note: ผมลบ try-except ออกเพื่อให้เห็น Bug ชัดเจนตอนพัฒนา
-# เมื่อขึ้น Production แล้วค่อยใส่กลับเข้ามาได้ครับ
-
 # --- TAB 1: DRAWINGS ---
 with tab1:
     drop_data = {"has_drop": has_drop, "width": drop_w, "length": drop_l, "depth": h_drop}
     # ส่งค่าที่ Clean แล้วจาก Model ไปให้ module วาดรูป
     tab_drawings.render(
         L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, 
-        d_eff=geo_res['d_slab'], # ใช้ค่า d จากที่คำนวณมาแล้ว
+        d_eff=geo_res['d_slab'], 
         drop_data=drop_data, 
-        moment_vals=results['ddm']['x']['M_vals'], # ดึง Moment X มาแสดงเป็น Default
-        mat_props=user_inputs, # ส่ง raw inputs ไปเผื่อใช้
+        moment_vals=results['ddm']['x']['M_vals'], 
+        mat_props=user_inputs, 
         loads=loads_res, 
         col_type=col_type  
     )
@@ -195,7 +206,6 @@ with tab2:
 
 # --- TAB 3: DDM ---
 with tab3:
-    # ข้อมูลถูกคำนวณมาเสร็จแล้วใน Model ดึงมาแสดงได้เลย
     tab_ddm.render_dual(
         data_x=results['ddm']['x'], 
         data_y=results['ddm']['y'], 
