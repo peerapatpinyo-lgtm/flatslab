@@ -15,6 +15,9 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     if Mu_kgcm == 0:
         return {"As_req": 0, "rho": 0, "spacing": 0, "txt": "-"}
 
+    if d_cm <= 0:
+        return {"As_req": 999, "rho": 999, "spacing": 0, "txt": "Error (d<=0)", "status": "FAIL"}
+
     Rn = Mu_kgcm / (phi * b_cm * (d_cm**2))
     
     term = 1 - (2 * Rn) / (0.85 * fc)
@@ -27,7 +30,7 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term))
     As_req = rho_req * b_cm * d_cm
 
-    # Minimum Reinforcement
+    # Minimum Reinforcement (Temp & Shrinkage)
     As_min = 0.0018 * b_cm * h_cm
     As_design = max(As_req, As_min)
     
@@ -36,14 +39,15 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     
     if As_design > 0:
         spacing_theoretical_cm = (A_bar / As_design) * b_cm
+        # Max Spacing per ACI (2h or 45cm)
         s_max = min(2 * h_cm, 45.0)
         s_final = min(spacing_theoretical_cm, s_max)
         
-        # Round spacing down to nearest 5mm (0.5cm)
+        # Round spacing down to nearest 0.5cm (Practical for construction)
         s_show_m = math.floor(s_final * 2) / 2.0 / 100.0 
         
-        if s_show_m < 0.05:
-            txt = f"Need > As (DB{d_bar_mm}@{s_show_m:.2f})"
+        if s_show_m < 0.05: # < 5 cm is too tight
+            txt = f"Too Tight! (DB{d_bar_mm}@{s_show_m:.2f})"
         else:
             txt = f"DB{d_bar_mm} @ {s_show_m:.2f} m"
     else:
@@ -87,10 +91,13 @@ class FlatSlabDesign:
         self.drop_l = inputs.get('drop_l', 0.0)
 
     def _get_eff_depth(self, h_total):
-        return h_total - self.cover - (self.d_bar / 10.0) / 2.0
+        d = h_total - self.cover - (self.d_bar / 10.0) / 2.0
+        return max(d, 1.0) # Prevent zero or negative depth
 
     def _calculate_loads(self):
         w_self = (self.h_slab / 100.0) * 2400
+        # NOTE: Using 1.4D + 1.7L (EIT/Old ACI). 
+        # For ACI 318-19, change to: 1.2 * (w_self + SDL) + 1.6 * LL
         w_u = 1.4 * (w_self + self.inputs['SDL']) + 1.7 * self.inputs['LL']
         return w_u
     
@@ -225,7 +232,6 @@ class FlatSlabDesign:
         efm_res = self._analyze_efm(w_u)
         
         # Extract Munbal Logic:
-        # If Edge/Corner, the Exterior Joint Moment IS the Unbalanced Moment
         col_type = self.inputs['col_type']
         
         # X-Direction Munbal
@@ -239,13 +245,11 @@ class FlatSlabDesign:
              Munbal_y = efm_res['y']['moments']['M_neg_left']
 
         # Design Munbal (Max of X or Y)
-        # Note: In real 3D, we consider vector combination, but code simplified checks max direction
         Munbal_design = max(abs(Munbal_x), abs(Munbal_y))
 
         # ============================================================
         # 4. PUNCHING ANALYSIS (Updated with Openings & EFM Moment)
         # ============================================================
-        # Get Opening Data (Safe get in case not set)
         op_w = self.inputs.get('open_w', 0.0)
         op_dist = self.inputs.get('open_dist', 0.0)
 
@@ -254,7 +258,7 @@ class FlatSlabDesign:
                 w_u, self.Lx, self.Ly, self.fc, 
                 self.cx, self.cy, d_total, d_slab, 
                 self.drop_w, self.drop_l, self.inputs['col_type'],
-                Munbal=Munbal_design # <--- Auto-link EFM Moment
+                Munbal=Munbal_design 
             )
         else:
             c1_d = self.cx + d_slab
@@ -265,8 +269,8 @@ class FlatSlabDesign:
             punch_res = check_punching_shear(
                 Vu_punch, self.fc, self.cx, self.cy, d_slab, 
                 self.inputs['col_type'], 
-                Munbal=Munbal_design, # <--- Auto-link EFM Moment
-                open_w=op_w, open_dist=op_dist # <--- Pass Opening Data
+                Munbal=Munbal_design, 
+                open_w=op_w, open_dist=op_dist 
             )
 
         # 5. DDM Analysis
@@ -312,14 +316,10 @@ def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     else: base_bo = b1 + b2
     
     # 3. Handle Opening Deduction
-    # ACI 318: ถ้า Opening อยู่ใกล้เสา (ระยะ < 4h) ให้หักส่วนที่ถูกบังออก
     deduction = 0
     if open_w > 0:
-        # Check distance criteria (Approx 4*h ~ 4*d for simplified check)
         limit_dist = 4 * d
         if open_dist < limit_dist:
-            # Conservative Deduction: หักความกว้างช่องเปิดออกจาก bo
-            # Limit ไม่ให้หักเกิน 30% เพื่อป้องกัน error กรณีใส่ค่ามั่ว
             deduction = min(open_w, base_bo * 0.30)
     
     bo = base_bo - deduction
@@ -328,7 +328,6 @@ def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     Ac = bo * d
     
     # Jc (Polar Moment of Inertia)
-    # Note: ใช้ Jc เต็ม (Gross) แต่ลด Ac และ bo ถือว่า Conservative และไม่ซับซ้อนเกินไปสำหรับ Code นี้
     Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
 
     gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
@@ -338,15 +337,11 @@ def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     return Ac, Jc, gamma_v, c_AB, bo, deduction
 
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0):
-    """
-    Updated: รับ Parameter open_w (width), open_dist (distance from face)
-    """
     try:
         Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
     except ValueError:
         return {"status": "ERROR", "ratio": 999, "Note": "Invalid Input"}
 
-    # เรียกฟังก์ชัน Property ตัวใหม่
     Ac, Jc, gamma_v, c_AB, bo, deduc_len = calculate_section_properties(c1, c2, d, col_type, open_w, open_dist)
 
     if Ac <= 0: return {"status": "FAIL", "ratio": 999, "note": "Ac <= 0 (Opening too big?)"}
@@ -402,16 +397,13 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
 def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0):
     """
     Handle Drop Panel (Check 2 perimeters)
-    Note: Opening effect applied generally, though typically critical at column face.
     """
-    # Case 1: At Column Face (Inside Drop) - Use d_drop
-    # Note: Opening usually affects this zone mostly.
+    # Case 1: At Column Face (Inside Drop)
     Vu1 = w_u * (Lx * Ly) * 0.95 
-    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal) # Opening data not passed here for simplicity, but can be added if crucial
+    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal) 
     res1["case"] = "Inside Drop (d_drop)" 
     
-    # Case 2: At Drop Panel Edge (Outside Drop) - Use d_slab
-    # Moment transfer at drop edge is less, assume 50% decay (Simple Approx)
+    # Case 2: At Drop Panel Edge (Outside Drop)
     Vu2 = w_u * (Lx * Ly) * 0.90 
     res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5)
     res2["case"] = "Outside Drop (d_slab)" 
@@ -443,6 +435,8 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     Lambda_LT = 2.0
     Delta_LT = Delta_immediate * Lambda_LT
     Delta_Total = Delta_immediate + Delta_LT
+    
+    # General limit L/240 (can be L/480 for sensitive partitions)
     Limit_240 = L_cm / 240.0
     status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
     
@@ -585,3 +579,36 @@ def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc):
         "Vu_face": Vu_face_kg, "dist_d": d_m, "Vu_critical": Vu_critical,
         "Vc": Vc, "phi_Vc": phi_Vc, "ratio": ratio, "status": status
     }
+
+# ==========================================
+# 6. DDM LIMITATIONS CHECK (NEW)
+# ==========================================
+def check_ddm_limitations(L1, L2, num_spans, L_adjacent):
+    """
+    ตรวจสอบเงื่อนไขบังคับของ DDM ตามมาตรฐาน ACI 318
+    Returns: (is_valid, warnings_list)
+    """
+    warnings = []
+    is_valid = True
+
+    # 1. ตรวจสอบจำนวนช่วงเสา (Must have at least 3 continuous spans)
+    if num_spans < 3:
+        warnings.append(f"❌ จำนวนช่วงเสาต่อเนื่อง ({num_spans}) น้อยกว่า 3 ช่วง (ACI ห้ามใช้ DDM)")
+        is_valid = False
+
+    # 2. ตรวจสอบอัตราส่วนความยาวด้านยาวต่อด้านสั้น (Aspect Ratio <= 2.0)
+    ratio = max(L1, L2) / min(L1, L2)
+    if ratio > 2.0:
+        warnings.append(f"❌ อัตราส่วนแผ่นพื้น {ratio:.2f} > 2.0 (ACI ห้ามใช้ DDM ให้ใช้ EFM)")
+        is_valid = False
+
+    # 3. ตรวจสอบความยาวช่วงที่ติดกัน (Adjacent Span Difference <= 1/3)
+    if L_adjacent > 0:
+        longer = max(L1, L_adjacent)
+        shorter = min(L1, L_adjacent)
+        diff_ratio = (longer - shorter) / longer
+        if diff_ratio > 0.333: # 1/3
+            warnings.append(f"❌ ความยาวช่วงเสาต่างกัน {diff_ratio*100:.1f}% (>33%) (ACI ห้ามใช้ DDM)")
+            is_valid = False
+
+    return is_valid, warnings
