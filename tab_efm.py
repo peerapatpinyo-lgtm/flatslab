@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import calculations as calc  # จำเป็นต้องมีไฟล์ calculations.py
+import calculations as calc  # เชื่อมต่อกับ The Brain V2.0
 
 # --- Settings for Professional Plots ---
 plt.rcParams.update({
@@ -70,8 +70,8 @@ def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     ax.fill_between(x, M_x, 0, where=(M_x<0), color='#E74C3C', alpha=0.2)
     ax.plot(x, M_x, color='#2C3E50', lw=2)
     
-    # Draw Supports
-    c1_m = c1_cm / 100
+    # Draw Supports (Columns)
+    c1_m = c1_cm / 100.0
     ax.axvspan(-c1_m/2, c1_m/2, color='gray', alpha=0.3)
     ax.axvspan(L1-c1_m/2, L1+c1_m/2, color='gray', alpha=0.3)
     ax.axhline(0, color='black', lw=0.8)
@@ -97,7 +97,7 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
     
     # Rebars
     cover = 2.5 
-    dia_cm = d_bar / 10
+    dia_cm = d_bar / 10.0
     
     # Determine Y position (Top or Bot)
     if "Top" in title:
@@ -124,7 +124,7 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
     return fig
 
 # ==========================================
-# 2. LOGIC: MOMENT DISTRIBUTION (CORE)
+# 2. LOGIC: MOMENT DISTRIBUTION (Simplified View Logic)
 # ==========================================
 
 def run_moment_distribution(FEM, DF_slab, iterations=4):
@@ -153,7 +153,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         history.append({
             "Step": f"Iter {i+1}: Balance", 
             "Joint A": bal_A, "Joint B": bal_B,
-            "Description": f"Bal = -M_unbal × {DF_slab:.3f}"
+            "Description": f"Bal = -M_unbal x {DF_slab:.3f}"
         })
         
         total_A += bal_A
@@ -166,7 +166,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         history.append({
             "Step": f"Iter {i+1}: Carry Over", 
             "Joint A": co_to_A, "Joint B": co_to_B,
-            "Description": "CO = M_bal × 0.5"
+            "Description": "CO = M_bal x 0.5"
         })
         
         total_A += co_to_A
@@ -196,7 +196,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     # --- A. PRE-CALCULATION ---
     # Material Properties
     Ec = 15100 * np.sqrt(fc) # ksc
-    E_ksm = Ec * 10000  # Convert ksc to kg/m^2 for stiffness calculation
     
     # 1. Stiffness Calculations
     try:
@@ -216,7 +215,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         DF_slab = 0
     
     # 2. Moment Analysis
-    w_line = w_u * L2 # Load per meter length of frame
+    w_line = w_u * L2 # Load per meter length of frame (kg/m)
     FEM = w_line * L1**2 / 12
     
     # Run Hardy Cross
@@ -224,17 +223,18 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
     # Face Correction
     # Reduce moment from centerline to face of support
-    Vu_frame = w_line * L1 / 2 # Total shear on the frame width L2 (conceptually)
-    c1_m = c1_w / 100
-    M_red = Vu_frame * (c1_m/2) - w_line*(c1_m/2)**2 / 2
+    Vu_frame = w_line * L1 / 2.0 # Total shear
+    c1_m = c1_w / 100.0
+    # M_face = M_center - V*c/2 + w*(c/2)^2/2
+    M_red = Vu_frame * (c1_m/2.0) - w_line*(c1_m/2.0)**2 / 2.0
     
     M_neg_design = abs(M_final_L) - M_red
     
     # Calculate Positive Moment (Statics)
     # Mo = wL^2/8
-    Mo = w_line * L1**2 / 8
+    Mo = w_line * L1**2 / 8.0
     # M_pos = Mo - (M_neg_L + M_neg_R)/2
-    M_pos_design = Mo - M_neg_design # assuming symmetry for this module
+    M_pos_design = Mo - M_neg_design # assuming symmetry for this module check
 
     # --- B. DASHBOARD SUMMARY ---
     col1, col2 = st.columns([1.5, 1])
@@ -249,14 +249,13 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         if h_drop > h_slab and drop_w > 0:
             st.warning(f"Drop Panel Active\n(h={h_drop}cm, w={drop_w}m)")
 
-    # --- C. DETAILED TABS (Reduced to 3 Steps) ---
+    # --- C. DETAILED TABS ---
     tab1, tab2, tab3 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design"])
 
     # === TAB 1: STIFFNESS ===
     with tab1:
         st.markdown("#### 1.1 Column Stiffness ($K_c$)")
         Ic_cm4 = (c2_w * c1_w**3) / 12
-        Ic_m4 = Ic_cm4 / (100**4)
         st.write(f"Column Moment of Inertia $I_c = {Ic_cm4:,.0f} \, cm^4$")
         st.latex(rf"K_c = \frac{{4EI_c}}{{l_c}}")
         st.latex(rf"\Sigma K_c = {Sum_Kc/1e5:.2f} \times 10^5 \quad (Top + Bot)")
@@ -292,37 +291,41 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     with tab3:
         fy = mat_props.get('fy', 4000)
         d_bar = mat_props.get('d_bar', 12)
-        d_eff = h_slab - 2.5 - d_bar/20
+        d_eff = h_slab - 2.5 - d_bar/20.0
         
         def calc_rebar_show(Mu_kgm, b_m):
             Mu = Mu_kgm * 100 # kg-cm
+            # Rn = Mu / (phi * b * d^2)
             Rn = Mu / (0.9 * (b_m*100) * d_eff**2)
             try:
+                # rho = (0.85fc/fy) * (1 - sqrt(1 - 2Rn/0.85fc))
                 rho = (0.85*fc/fy)*(1 - np.sqrt(max(0, 1 - 2*Rn/(0.85*fc))))
             except:
                 rho = 0.002
             rho = max(rho, 0.0018)
             As = rho * (b_m*100) * d_eff
-            num = int(np.ceil(As / (np.pi*(d_bar/20)**2/4)))
+            num = int(np.ceil(As / (np.pi*(d_bar/20.0)**2/4)))
             return Rn, rho, As, num
 
-        st.write(f"**Design Parameters:** $f_c'={fc}, f_y={fy}, h={h_slab}cm$")
+        st.write(f"**Design Parameters:** $f_c'={fc}, f_y={fy}, h={h_slab}cm, d={d_eff}cm$")
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             st.subheader("🔴 Column Strip (Top)")
+            st.markdown("*Use 75% of Neg Moment*")
             Mu_cs = M_neg_design * 0.75
-            b_cs = L2/2 
+            b_cs = L2/2.0 
             Rn, rho, As, num = calc_rebar_show(Mu_cs, b_cs)
-            st.write(f"**Moment (75%):** {Mu_cs:,.0f} kg-m")
+            st.write(f"**Moment:** {Mu_cs:,.0f} kg-m")
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
             st.pyplot(draw_section_detail(b_cs*100, h_slab, num, d_bar, "CS Top"))
             
         with col_d2:
             st.subheader("🔵 Middle Strip (Bot)")
+            st.markdown("*Use 60% of Pos Moment*")
             Mu_ms = M_pos_design * 0.60
-            b_ms = L2/2
+            b_ms = L2/2.0
             Rn, rho, As, num = calc_rebar_show(Mu_ms, b_ms)
-            st.write(f"**Moment (60%):** {Mu_ms:,.0f} kg-m")
+            st.write(f"**Moment:** {Mu_ms:,.0f} kg-m")
             st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
             st.pyplot(draw_section_detail(b_ms*100, h_slab, num, d_bar, "MS Bot"))
