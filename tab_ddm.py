@@ -6,14 +6,12 @@ import numpy as np
 # ========================================================
 # 0. DEPENDENCY HANDLING
 # ========================================================
-# Try importing Plotting Module
 try:
     import ddm_plots 
     HAS_PLOTS = True
 except ImportError:
     HAS_PLOTS = False
 
-# Try importing Calculation Module
 try:
     import calculations as calc
     HAS_CALC = True
@@ -32,7 +30,7 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     Mu_kgcm = M_u * 100.0
     phi = 0.90 
 
-    # --- Effective Depth Logic (Improved) ---
+    # --- Effective Depth Logic ---
     if is_main_dir:
         d_offset = 0.0
     else:
@@ -90,12 +88,67 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     }
 
 # ========================================================
-# 2. DETAILED CALCULATION RENDERER
+# 2. HELPER: DDM COEFFICIENT RECALCULATION
+# ========================================================
+def get_ddm_coeffs(span_type):
+    """
+    Return dictionaries of Moment Coefficients based on Span Type (ACI 318).
+    Returns: { 'neg_factor': float, 'pos_factor': float, 'name': str }
+    """
+    # NOTE: For End Spans, 'neg_factor' here represents the Governing Negative Moment 
+    # (usually at the First Interior Support) for safe top bar design.
+    
+    if span_type == "Interior Span (ช่วงพื้นภายใน)":
+        # Classic DDM: Neg 0.65, Pos 0.35
+        return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Interior: Neg 0.65, Pos 0.35' }
+    
+    elif span_type == "End Span - Edge Beam (ช่วงริมมีคานขอบ)":
+        # ACI: Int Neg 0.70, Pos 0.57, Ext Neg 0.16
+        # Design Top using 0.70 (Gov), Design Bot using 0.57
+        return { 'neg': 0.70, 'pos': 0.57, 'desc': 'End w/ Beam: IntNeg 0.70, Pos 0.57' }
+    
+    elif span_type == "End Span - No Beam (ช่วงริมไร้คาน)":
+        # ACI: Int Neg 0.70, Pos 0.52, Ext Neg 0.26
+        return { 'neg': 0.70, 'pos': 0.52, 'desc': 'End No Beam: IntNeg 0.70, Pos 0.52' }
+        
+    return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Default' }
+
+def update_moments_based_on_config(data_obj, span_type):
+    """
+    Recalculate M_vals in data_obj based on the selected span type.
+    """
+    Mo = data_obj['Mo']
+    coeffs = get_ddm_coeffs(span_type)
+    
+    # Total Static Moments
+    M_neg_total = coeffs['neg'] * Mo
+    M_pos_total = coeffs['pos'] * Mo
+    
+    # Distribution to Column Strip (CS) and Middle Strip (MS)
+    # Standard DDM Ratios:
+    # CS Neg: 75% of Total Neg | MS Neg: 25%
+    # CS Pos: 60% of Total Pos | MS Pos: 40%
+    
+    M_cs_neg = 0.75 * M_neg_total
+    M_ms_neg = 0.25 * M_neg_total
+    
+    M_cs_pos = 0.60 * M_pos_total
+    M_ms_pos = 0.40 * M_pos_total
+    
+    # Update the data object
+    data_obj['M_vals'] = {
+        'M_cs_neg': M_cs_neg,
+        'M_ms_neg': M_ms_neg,
+        'M_cs_pos': M_cs_pos,
+        'M_ms_pos': M_ms_pos
+    }
+    data_obj['coeffs_desc'] = coeffs['desc'] # For display
+    return data_obj
+
+# ========================================================
+# 3. DETAILED CALCULATION RENDERER
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
-    """
-    แสดงรายการคำนวณแบบละเอียดยิบ (Substitution Step-by-Step)
-    """
     Mu, b, h, cover, fc, fy, db, s = inputs
     
     st.markdown(f"#### 📐 รายการคำนวณออกแบบ: {zone_name}")
@@ -148,14 +201,11 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.markdown(f"**Verification:** Ratio = {dc:.2f} ... :{color}[{'✅ PASS' if dc <=1 else '❌ FAIL'}]")
 
 # ========================================================
-# 3. UI RENDERER
+# 4. UI RENDERER
 # ========================================================
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     """
     Render DDM analysis for one direction.
-    Args:
-        data: Analysis result for this axis (Mo, M_vals, etc.)
-        mat_props: Dictionary of material properties (including Opening info)
     """
     # Unpack Materials
     h_slab = mat_props['h_slab']
@@ -163,7 +213,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     fc = mat_props['fc']
     fy = mat_props['fy']
     
-    # [NEW] Unpack Opening Data
+    # Unpack Opening Data
     open_w = mat_props.get('open_w', 0.0)
     open_dist = mat_props.get('open_dist', 0.0)
     
@@ -172,9 +222,10 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     c_para = data['c_para']
     Mo = data['Mo']
     m_vals = data['M_vals']
+    coeff_desc = data.get('coeffs_desc', 'Standard')
     
     # -----------------------------------------------
-    # 🔹 DYNAMIC LABELING LOGIC (Lx/Ly Only)
+    # 🔹 DYNAMIC LABELING LOGIC
     # -----------------------------------------------
     if axis_id == "X":
         span_sym = "L_x"
@@ -200,6 +251,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         with col_diagram:
             st.info(f"**Definitions for {axis_id}-Axis:**")
             st.markdown(f"""
+            - **Span Type:** {coeff_desc}
             - **Span Length ({span_sym}):** {span_val:.2f} m
             - **Strip Width ({width_sym}):** {width_val:.2f} m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
@@ -226,38 +278,31 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
     # ==========================================================
-    # 2️⃣ PUNCHING SHEAR CHECK (Safe Dependency Handling)
+    # 2️⃣ PUNCHING SHEAR CHECK
     # ==========================================================
     if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
         
-        # 1. Prepare Data
         c_col = float(c_para)
-        
-        # Calculate Load
         load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
         Vu_approx = float(w_u) * load_area 
         
-        # d calculation
         d_bar_val = 1.6 # Avg assumption
         d_eff = float(h_slab) - float(cover) - d_bar_val
         if d_eff <= 0: d_eff = 1.0
 
-        # [NEW] 2. Perform Check with OPENING Parameters
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
             c1=c_col,            
             c2=c_col,            
-            d=d_eff,             
+            d=d_eff,              
             col_type="interior",  
-            # Send Opening params
             open_w=open_w,
             open_dist=open_dist
         )
         
-        # 3. Display Results
         col_p1, col_p2 = st.columns([1, 1.5])
         
         with col_p1:
@@ -268,7 +313,6 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             else:
                 st.info("ℹ️ Plotting module not available.")
             
-            # [NEW] Show Opening Alert if active
             if open_w > 0:
                 st.warning(f"⚠️ **Opening Detected:** {open_w:.0f}cm x {open_w:.0f}cm")
                 st.caption(f"Dist from face: {open_dist:.0f} cm")
@@ -283,20 +327,18 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
                 st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
                 
-                # [NEW] Show EFM Unbalanced Moment if available
                 if 'Munbal' in ps_res and ps_res['Munbal'] > 0:
                     st.info(f"ℹ️ **Combined Stress Check:** Includes $M_{{unbal}}$ from EFM")
                     st.latex(f"M_{{unbal}} = {ps_res['Munbal']:,.0f} \\; \\text{{kg-m}}")
                 
                 st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
                 
-                # [NEW] Highlight Perimeter Reduction
                 st.write("**2. Perimeter ($b_o$):**")
                 if open_w > 0:
-                     st.latex(r"b_o = b_{o,gross} - \Delta_{open} = " + f"\\mathbf{{{ps_res['bo']:.2f}}}" + " cm")
-                     st.caption("Note: $b_o$ reduced due to opening.")
+                      st.latex(r"b_o = b_{o,gross} - \Delta_{open} = " + f"\\mathbf{{{ps_res['bo']:.2f}}}" + " cm")
+                      st.caption("Note: $b_o$ reduced due to opening.")
                 else:
-                     st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
+                      st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
                 
                 st.write("**3. Concrete Capacity:**")
                 if 'Vc_nominal' in ps_res:
@@ -413,16 +455,46 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 # ========================================================
 def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ RC Slab Design (DDM Method)")
-    
+
+    # ------------------------------------------------------------------------
+    # NEW FEATURE: SPAN CONFIGURATION
+    # ------------------------------------------------------------------------
+    with st.expander("⚙️ Span & Continuity Settings (ตั้งค่าช่วงพาดและจุดรองรับ)", expanded=True):
+        st.info("💡 **Tips:** โปรแกรมจะปรับสัมประสิทธิ์โมเมนต์ (Moment Coefficients) ตามตำแหน่งช่วงพื้น (Interior vs Exterior) ให้โดยอัตโนมัติ")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**X-Direction ($L_x$ = {data_x['L_span']} m):**")
+            type_x = st.selectbox(
+                "ลักษณะช่วงพาดแกน X",
+                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
+                index=0,
+                key="span_type_x"
+            )
+            # Recalculate Momement for X
+            data_x = update_moments_based_on_config(data_x, type_x)
+
+        with c2:
+            st.markdown(f"**Y-Direction ($L_y$ = {data_y['L_span']} m):**")
+            type_y = st.selectbox(
+                "ลักษณะช่วงพาดแกน Y",
+                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
+                index=0,
+                key="span_type_y"
+            )
+            # Recalculate Momement for Y
+            data_y = update_moments_based_on_config(data_y, type_y)
+            
+    # ------------------------------------------------------------------------
+    # TABS RENDERING
+    # ------------------------------------------------------------------------
     tab_x, tab_y = st.tabs([
         f"➡️ X-Direction (Lx={data_x['L_span']}m)", 
         f"⬆️ Y-Direction (Ly={data_y['L_span']}m)"
     ])
     
     with tab_x:
-        # Pass full mat_props dictionary
         render_interactive_direction(data_x, mat_props, "X", w_u, True)
         
     with tab_y:
-        # Pass full mat_props dictionary
         render_interactive_direction(data_y, mat_props, "Y", w_u, False)
