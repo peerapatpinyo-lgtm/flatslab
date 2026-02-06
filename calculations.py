@@ -60,11 +60,23 @@ class FlatSlabDesign:
         """Logic คำนวณ DDM Moments"""
         # Determine Effective Column for Span
         use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
-        eff_cx = self.drop_w if use_drop else self.cx
-        eff_cy = self.drop_l if use_drop else self.cy
+        eff_cx = self.drop_w * 100 if use_drop else self.cx # Convert m to cm if drop is used logic needs check, usually inputs are mixed units. 
+        # Note: drop_w is usually in m, cx is in cm. Let's standardize to cm for this calculation logic block if needed, 
+        # but the inputs say: cx (cm), drop_w (m).
+        
+        # Let's fix unit consistency:
+        # eff_cx should be in cm to match cx
+        if use_drop:
+            eff_cx = self.drop_w * 100.0
+            eff_cy = self.drop_l * 100.0
+        else:
+            eff_cx = self.cx
+            eff_cy = self.cy
 
         # --- X-Direction ---
         ln_x = self.Lx - eff_cx/100.0
+        if ln_x < 0.65 * self.Lx: ln_x = 0.65 * self.Lx # ACI Limit
+        
         Mo_x = (w_u * self.Ly * ln_x**2) / 8
         M_vals_x = { 
             "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25, 
@@ -73,6 +85,8 @@ class FlatSlabDesign:
 
         # --- Y-Direction ---
         ln_y = self.Ly - eff_cy/100.0
+        if ln_y < 0.65 * self.Ly: ln_y = 0.65 * self.Ly
+        
         Mo_y = (w_u * self.Lx * ln_y**2) / 8
         M_vals_y = { 
             "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25, 
@@ -80,8 +94,24 @@ class FlatSlabDesign:
         }
 
         return {
-            "x": {"L_span": self.Lx, "L_width": self.Ly, "ln": ln_x, "Mo": Mo_x, "M_vals": M_vals_x},
-            "y": {"L_span": self.Ly, "L_width": self.Lx, "ln": ln_y, "Mo": Mo_y, "M_vals": M_vals_y}
+            "x": {
+                "L_span": self.Lx, 
+                "L_width": self.Ly, 
+                "ln": ln_x, 
+                "Mo": Mo_x, 
+                "M_vals": M_vals_x,
+                "c_para": eff_cx/100.0, # FIXED: Added for View
+                "c_perp": eff_cy/100.0  # FIXED: Added for View
+            },
+            "y": {
+                "L_span": self.Ly, 
+                "L_width": self.Lx, 
+                "ln": ln_y, 
+                "Mo": Mo_y, 
+                "M_vals": M_vals_y,
+                "c_para": eff_cy/100.0, # FIXED: Added for View
+                "c_perp": eff_cx/100.0  # FIXED: Added for View
+            }
         }
 
     def _analyze_efm(self, w_u):
