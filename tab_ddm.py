@@ -1,3 +1,4 @@
+# tab_ddm.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -32,14 +33,9 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     phi = 0.90 
 
     # --- Effective Depth Logic (Improved) ---
-    # Main Axis (Outer Layer): d = h - cover - db/2
-    # Minor Axis (Inner Layer): d = h - cover - db_main - db/2
-    # Assumption: db_main approx equal to db_current (Dynamic Offset)
-    
     if is_main_dir:
         d_offset = 0.0
     else:
-        # ใช้ขนาดเหล็กของตัวเองเป็นตัวแทนความหนาเหล็กชั้นนอก (ดีกว่าค่าคงที่ 1.6 cm)
         d_offset = d_bar / 10.0 
         
     d_eff = h_cm - cover - (d_bar/20.0) - d_offset
@@ -154,7 +150,23 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 # ========================================================
 # 3. UI RENDERER
 # ========================================================
-def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_main_dir):
+def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
+    """
+    Render DDM analysis for one direction.
+    Args:
+        data: Analysis result for this axis (Mo, M_vals, etc.)
+        mat_props: Dictionary of material properties (including Opening info)
+    """
+    # Unpack Materials
+    h_slab = mat_props['h_slab']
+    cover = mat_props['cover']
+    fc = mat_props['fc']
+    fy = mat_props['fy']
+    
+    # [NEW] Unpack Opening Data
+    open_w = mat_props.get('open_w', 0.0)
+    open_dist = mat_props.get('open_dist', 0.0)
+    
     L_span = data['L_span']
     L_width = data['L_width']
     c_para = data['c_para']
@@ -165,13 +177,11 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
     # 🔹 DYNAMIC LABELING LOGIC (Lx/Ly Only)
     # -----------------------------------------------
     if axis_id == "X":
-        # Tab X: Span is Lx, Strip Width is Ly
         span_sym = "L_x"
         width_sym = "L_y"
         span_val = L_span
         width_val = L_width
     else:
-        # Tab Y: Span is Ly, Strip Width is Lx
         span_sym = "L_y"
         width_sym = "L_x"
         span_val = L_span
@@ -188,7 +198,6 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         col_diagram, col_calc = st.columns([1, 1.5])
         
         with col_diagram:
-             # Contextual Diagram
             st.info(f"**Definitions for {axis_id}-Axis:**")
             st.markdown(f"""
             - **Span Length ({span_sym}):** {span_val:.2f} m
@@ -200,18 +209,14 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
 
         with col_calc:
             st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
-            st.latex(r"M_o = \frac{w_u \cdot (\text{Width}) \cdot (\text{Clear Span})^2}{8}")
-            # Dynamic LaTeX formula based on Axis
             st.latex(f"M_o = \\frac{{w_u {width_sym} ({span_sym} - c)^2}}{{8}}")
             st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {width_val:.2f} \\cdot ({ln_val:.2f})^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
         
         st.divider()
         st.markdown(f"#### Step 2: Distribution to $M_u$")
         
-        # Helper for % calculation
         def get_pct(val): return (val / Mo * 100) if Mo > 0 else 0
         
-        # Distribution Table
         dist_data = [
             {"Pos": "Top (-)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_neg']):.1f}%", "Mu": m_vals['M_cs_neg']},
             {"Pos": "Top (-)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_neg']):.1f}%", "Mu": m_vals['M_ms_neg']},
@@ -234,19 +239,22 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
         Vu_approx = float(w_u) * load_area 
         
-        # --- คำนวณค่า d (Effective Depth) ก่อนส่งเข้าฟังก์ชัน ---
-        d_bar_val = 1.2 
+        # d calculation
+        d_bar_val = 1.6 # Avg assumption
         d_eff = float(h_slab) - float(cover) - d_bar_val
-        if d_eff <= 0: d_eff = 1.0 # กัน Error
+        if d_eff <= 0: d_eff = 1.0
 
-        # 2. Perform Check
+        # [NEW] 2. Perform Check with OPENING Parameters
         ps_res = calc.check_punching_shear(
-            Vu=Vu_approx,       
+            Vu=Vu_approx,        
             fc=float(fc),
-            c1=c_col,           
-            c2=c_col,           
+            c1=c_col,            
+            c2=c_col,            
             d=d_eff,             
-            col_type="interior"  
+            col_type="interior",  
+            # Send Opening params
+            open_w=open_w,
+            open_dist=open_dist
         )
         
         # 3. Display Results
@@ -254,12 +262,16 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
         
         with col_p1:
             if HAS_PLOTS:
-                
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
                     c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
                 ))
             else:
-                st.info("ℹ️ Plotting module not available. Showing data only.")
+                st.info("ℹ️ Plotting module not available.")
+            
+            # [NEW] Show Opening Alert if active
+            if open_w > 0:
+                st.warning(f"⚠️ **Opening Detected:** {open_w:.0f}cm x {open_w:.0f}cm")
+                st.caption(f"Dist from face: {open_dist:.0f} cm")
         
         with col_p2:
             if ps_res['status'] == "OK":
@@ -270,21 +282,30 @@ def render_interactive_direction(data, h_slab, cover, fc, fy, axis_id, w_u, is_m
             
             with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
                 st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
-                st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
-                st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
                 
-                st.write("**2. Concrete Capacity ($V_c$):**")
-                # ใช้ key 'Vc_nominal' และ 'phi_Vc' ที่มีอยู่ใน calc
+                # [NEW] Show EFM Unbalanced Moment if available
+                if 'Munbal' in ps_res and ps_res['Munbal'] > 0:
+                    st.info(f"ℹ️ **Combined Stress Check:** Includes $M_{{unbal}}$ from EFM")
+                    st.latex(f"M_{{unbal}} = {ps_res['Munbal']:,.0f} \\; \\text{{kg-m}}")
+                
+                st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
+                
+                # [NEW] Highlight Perimeter Reduction
+                st.write("**2. Perimeter ($b_o$):**")
+                if open_w > 0:
+                     st.latex(r"b_o = b_{o,gross} - \Delta_{open} = " + f"\\mathbf{{{ps_res['bo']:.2f}}}" + " cm")
+                     st.caption("Note: $b_o$ reduced due to opening.")
+                else:
+                     st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
+                
+                st.write("**3. Concrete Capacity:**")
                 if 'Vc_nominal' in ps_res:
                     st.latex(r"\phi V_c = 0.85 \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
                 else:
                     st.latex(r"\phi V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
                 
-                st.write("**3. Check:**")
+                st.write("**4. Check:**")
                 st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
-                
-            if ps_res['status'] == "FAIL":
-                st.info(f"💡 **Tip:** Try increasing slab thickness or column size.")
 
     elif not HAS_CALC:
         st.warning("⚠️ Module 'calculations.py' not found. Skipping Shear Check.")
@@ -399,8 +420,9 @@ def render_dual(data_x, data_y, mat_props, w_u):
     ])
     
     with tab_x:
-        render_interactive_direction(data_x, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "X", w_u, True)
+        # Pass full mat_props dictionary
+        render_interactive_direction(data_x, mat_props, "X", w_u, True)
         
     with tab_y:
-        # Pass False to is_main_dir to trigger the d_offset logic
-        render_interactive_direction(data_y, mat_props['h_slab'], mat_props['cover'], mat_props['fc'], mat_props['fy'], "Y", w_u, False)
+        # Pass full mat_props dictionary
+        render_interactive_direction(data_y, mat_props, "Y", w_u, False)
