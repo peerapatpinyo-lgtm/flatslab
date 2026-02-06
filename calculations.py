@@ -3,6 +3,85 @@ import numpy as np
 import math
 
 # ==========================================
+# HELPER: FLEXURAL DESIGN FUNCTION (NEW)
+# ==========================================
+def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
+    """
+    คำนวณปริมาณเหล็กเสริมรับแรงดัด (Slab Flexural Design)
+    Mu_kgm: Ultimate Moment (kg-m)
+    b_cm: Analysis strip width (cm)
+    d_cm: Effective depth (cm)
+    h_cm: Slab thickness (cm)
+    """
+    # 1. Convert Units
+    Mu_kgcm = abs(Mu_kgm) * 100.0 # Make positive for calc
+    phi = 0.90 # Tension controlled for slabs
+
+    # 2. Check Capacity (Rn)
+    # Mn = Mu / phi
+    # Rn = Mn / (b * d^2)
+    if Mu_kgcm == 0:
+        return {"As_req": 0, "rho": 0, "spacing": 0, "txt": "-"}
+
+    Rn = Mu_kgcm / (phi * b_cm * (d_cm**2))
+    
+    # Check if section is too small (over reinforced limit approx)
+    # rho_bal approx 0.85*beta1*fc/fy * (6120/(6120+fy)) -> simplified check
+    # Let's use direct formula for rho_req
+    
+    term = 1 - (2 * Rn) / (0.85 * fc)
+    if term < 0:
+        return {
+            "As_req": 999, "rho": 999, "spacing": 0, 
+            "txt": "Section Too Small (Fail)", "status": "FAIL"
+        }
+    
+    rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term))
+    As_req = rho_req * b_cm * d_cm
+
+    # 3. Minimum Reinforcement (Temp & Shrinkage for Slabs)
+    # ACI 318: 0.0018 * b * h
+    As_min = 0.0018 * b_cm * h_cm
+    
+    # Design As
+    As_design = max(As_req, As_min)
+    
+    # 4. Calculate Spacing
+    # Area of 1 bar (cm2)
+    A_bar = 3.1416 * (d_bar_mm/10.0)**2 / 4.0
+    
+    if As_design > 0:
+        spacing_theoretical_cm = (A_bar / As_design) * b_cm
+        # Round down to nearest 0.5 cm or 1 cm
+        # Practical max spacing = 2h or 45 cm
+        s_max = min(2 * h_cm, 45.0)
+        s_final = min(spacing_theoretical_cm, s_max)
+        
+        # Format Text (e.g., DB12 @ 0.20)
+        # Round spacing down to nearest 5mm (0.5cm) integer for text
+        s_show_m = math.floor(s_final * 2) / 2.0 / 100.0 
+        
+        # If spacing is too tight (< 5cm), warn
+        if s_show_m < 0.05:
+            txt = f"Need > As (DB{d_bar_mm}@{s_show_m:.2f})"
+        else:
+            txt = f"DB{d_bar_mm} @ {s_show_m:.2f} m"
+    else:
+        s_final = 45.0
+        txt = "Min"
+
+    return {
+        "Mu": Mu_kgm,
+        "As_calc": As_req,
+        "As_min": As_min,
+        "As_design": As_design,
+        "spacing_cm": s_final,
+        "txt": txt,
+        "rho_percent": (As_design / (b_cm*d_cm)) * 100
+    }
+
+
+# ==========================================
 # 0. THE "BRAIN" CLASS (MVC Controller Logic)
 # ==========================================
 class FlatSlabDesign:
@@ -22,6 +101,7 @@ class FlatSlabDesign:
         self.cover = inputs.get('cover', 2.5)
         self.d_bar = inputs.get('d_bar', 12)
         self.fc = inputs.get('fc', 240)
+        self.fy = inputs.get('fy', 4000) # Added fy here
         self.has_drop = inputs.get('has_drop', False)
         self.h_drop = inputs.get('h_drop', 0.0)
         self.drop_w = inputs.get('drop_w', 0.0)
@@ -64,57 +144,79 @@ class FlatSlabDesign:
             return res_y
 
     def _analyze_ddm_moments(self, w_u):
-        """Logic คำนวณ DDM Moments"""
+        """Logic คำนวณ DDM Moments และ Rebar Design"""
         # Determine Effective Column for Span
         use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
         
-        # Let's fix unit consistency:
-        # eff_cx should be in cm to match cx
         if use_drop:
             eff_cx = self.drop_w * 100.0
             eff_cy = self.drop_l * 100.0
+            d_neg = self._get_eff_depth(self.h_slab + self.h_drop) # d at support (drop)
         else:
             eff_cx = self.cx
             eff_cy = self.cy
+            d_neg = self._get_eff_depth(self.h_slab) # d at support (slab)
+            
+        d_pos = self._get_eff_depth(self.h_slab) # d at midspan is always slab thickness
+
+        # --- Helper for processing strip design ---
+        def process_strip(Mo, L_width_m, factor_cs_neg, factor_cs_pos, factor_ms_neg, factor_ms_pos):
+            # Column Strip Width (approx L/2 or L_width/2)
+            # Simplified: CS width = L_width / 2, MS width = L_width / 2
+            b_cs = (L_width_m * 100.0) / 2.0
+            b_ms = (L_width_m * 100.0) / 2.0
+            
+            # Moments
+            M_cs_neg = 0.65 * Mo * factor_cs_neg
+            M_cs_pos = 0.35 * Mo * factor_cs_pos
+            M_ms_neg = 0.65 * Mo * factor_ms_neg
+            M_ms_pos = 0.35 * Mo * factor_ms_pos
+            
+            # Design Steel
+            # Note: Negative moment at support uses d_neg (could be drop), Positive uses d_pos
+            h_neg = self.h_slab + self.h_drop if use_drop else self.h_slab
+            
+            des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar)
+            des_cs_pos = design_flexure_slab(M_cs_pos, b_cs, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
+            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar) # MS usually misses drop
+            des_ms_pos = design_flexure_slab(M_ms_pos, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
+            
+            return {
+                "M_cs_neg": M_cs_neg, "M_cs_pos": M_cs_pos,
+                "M_ms_neg": M_ms_neg, "M_ms_pos": M_ms_pos,
+                "design": {
+                    "cs_neg": des_cs_neg, "cs_pos": des_cs_pos,
+                    "ms_neg": des_ms_neg, "ms_pos": des_ms_pos
+                }
+            }
 
         # --- X-Direction ---
         ln_x = self.Lx - eff_cx/100.0
-        if ln_x < 0.65 * self.Lx: ln_x = 0.65 * self.Lx # ACI Limit
-        
+        if ln_x < 0.65 * self.Lx: ln_x = 0.65 * self.Lx
         Mo_x = (w_u * self.Ly * ln_x**2) / 8
-        M_vals_x = { 
-            "M_cs_neg": 0.65 * Mo_x * 0.75, "M_ms_neg": 0.65 * Mo_x * 0.25, 
-            "M_cs_pos": 0.35 * Mo_x * 0.60, "M_ms_pos": 0.35 * Mo_x * 0.40 
-        }
+        
+        # Factors (Interior Span defaults)
+        # CS Neg 0.75, CS Pos 0.60
+        # MS Neg 0.25, MS Pos 0.40
+        res_x = process_strip(Mo_x, self.Ly, 0.75, 0.60, 0.25, 0.40)
 
         # --- Y-Direction ---
         ln_y = self.Ly - eff_cy/100.0
         if ln_y < 0.65 * self.Ly: ln_y = 0.65 * self.Ly
-        
         Mo_y = (w_u * self.Lx * ln_y**2) / 8
-        M_vals_y = { 
-            "M_cs_neg": 0.65 * Mo_y * 0.75, "M_ms_neg": 0.65 * Mo_y * 0.25, 
-            "M_cs_pos": 0.35 * Mo_y * 0.60, "M_ms_pos": 0.35 * Mo_y * 0.40 
-        }
+        
+        res_y = process_strip(Mo_y, self.Lx, 0.75, 0.60, 0.25, 0.40)
 
         return {
             "x": {
-                "L_span": self.Lx, 
-                "L_width": self.Ly, 
-                "ln": ln_x, 
-                "Mo": Mo_x, 
-                "M_vals": M_vals_x,
-                "c_para": eff_cx/100.0,
-                "c_perp": eff_cy/100.0
+                "L_span": self.Lx, "L_width": self.Ly, "ln": ln_x, "Mo": Mo_x, 
+                "M_vals": res_x, # Contains Moments & Design
+                "c_para": eff_cx/100.0, "c_perp": eff_cy/100.0
             },
             "y": {
-                "L_span": self.Ly, 
-                "L_width": self.Lx, 
-                "ln": ln_y, 
-                "Mo": Mo_y, 
-                "M_vals": M_vals_y,
-                "c_para": eff_cy/100.0,
-                "c_perp": eff_cx/100.0
+                "L_span": self.Ly, "L_width": self.Lx, "ln": ln_y, "Mo": Mo_y, 
+                "M_vals": res_y, # Contains Moments & Design
+                "c_para": eff_cy/100.0, "c_perp": eff_cx/100.0
             }
         }
 
@@ -199,8 +301,6 @@ class FlatSlabDesign:
         h_min = max(self.Lx, self.Ly)*100 / 33.0
         
         # Check Deflection (Simplified)
-        # Note: As_provided is not yet known here, so we assume rho ~ 0.5% or just calculate immediate
-        # This part is usually done after steel selection, but here we do a preliminary check
         deflection_res = check_long_term_deflection(
             w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
         )
@@ -324,9 +424,6 @@ def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
 def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     """
     Check Deflection based on ACI 318
-    w_service: Service Load (kg/m2)
-    L: Span (m)
-    h: Thickness (cm)
     """
     Ec = 15100 * np.sqrt(fc) 
     L_cm = L * 100.0
@@ -343,8 +440,8 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
     
     return {
-        "Delta_Immediate": Delta_immediate, # <--- FIXED: Added missing key
-        "Delta_LongTerm": Delta_LT,         # <--- Added for completeness
+        "Delta_Immediate": Delta_immediate,
+        "Delta_LongTerm": Delta_LT,
         "Delta_Total": Delta_Total, 
         "Limit_240": Limit_240, 
         "status": status
@@ -415,15 +512,6 @@ def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
     """
     [NEW] Perform simplified Moment Distribution Method (Hardy Cross).
     Analyzes a single span frame substitute.
-    
-    Args:
-        Kec: Equivalent Column Stiffness
-        Ks: Slab Stiffness
-        w_u: Load (kg/m2)
-        L_span: Span length (m)
-        L_width: Width of frame (m)
-        is_edge_span: Boolean, if True assumes Left=Exterior, Right=Interior.
-                      if False assumes Interior (Symmetric).
     """
     # 1. Fixed End Moments (FEM)
     # Load on span W = w_u * L_width * L_span
