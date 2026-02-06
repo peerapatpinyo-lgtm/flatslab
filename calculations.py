@@ -3,31 +3,19 @@ import numpy as np
 import math
 
 # ==========================================
-# HELPER: FLEXURAL DESIGN FUNCTION (NEW)
+# HELPER: FLEXURAL DESIGN FUNCTION
 # ==========================================
 def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     """
     คำนวณปริมาณเหล็กเสริมรับแรงดัด (Slab Flexural Design)
-    Mu_kgm: Ultimate Moment (kg-m)
-    b_cm: Analysis strip width (cm)
-    d_cm: Effective depth (cm)
-    h_cm: Slab thickness (cm)
     """
-    # 1. Convert Units
-    Mu_kgcm = abs(Mu_kgm) * 100.0 # Make positive for calc
-    phi = 0.90 # Tension controlled for slabs
+    Mu_kgcm = abs(Mu_kgm) * 100.0 
+    phi = 0.90 
 
-    # 2. Check Capacity (Rn)
-    # Mn = Mu / phi
-    # Rn = Mn / (b * d^2)
     if Mu_kgcm == 0:
         return {"As_req": 0, "rho": 0, "spacing": 0, "txt": "-"}
 
     Rn = Mu_kgcm / (phi * b_cm * (d_cm**2))
-    
-    # Check if section is too small (over reinforced limit approx)
-    # rho_bal approx 0.85*beta1*fc/fy * (6120/(6120+fy)) -> simplified check
-    # Let's use direct formula for rho_req
     
     term = 1 - (2 * Rn) / (0.85 * fc)
     if term < 0:
@@ -39,29 +27,21 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term))
     As_req = rho_req * b_cm * d_cm
 
-    # 3. Minimum Reinforcement (Temp & Shrinkage for Slabs)
-    # ACI 318: 0.0018 * b * h
+    # Minimum Reinforcement
     As_min = 0.0018 * b_cm * h_cm
-    
-    # Design As
     As_design = max(As_req, As_min)
     
-    # 4. Calculate Spacing
-    # Area of 1 bar (cm2)
+    # Calculate Spacing
     A_bar = 3.1416 * (d_bar_mm/10.0)**2 / 4.0
     
     if As_design > 0:
         spacing_theoretical_cm = (A_bar / As_design) * b_cm
-        # Round down to nearest 0.5 cm or 1 cm
-        # Practical max spacing = 2h or 45 cm
         s_max = min(2 * h_cm, 45.0)
         s_final = min(spacing_theoretical_cm, s_max)
         
-        # Format Text (e.g., DB12 @ 0.20)
-        # Round spacing down to nearest 5mm (0.5cm) integer for text
+        # Round spacing down to nearest 5mm (0.5cm)
         s_show_m = math.floor(s_final * 2) / 2.0 / 100.0 
         
-        # If spacing is too tight (< 5cm), warn
         if s_show_m < 0.05:
             txt = f"Need > As (DB{d_bar_mm}@{s_show_m:.2f})"
         else:
@@ -87,46 +67,39 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
 class FlatSlabDesign:
     """
     Class นี้ทำหน้าที่เป็น 'Engineering Logic Controller'
-    รวบรวม Logic การคำนวณทั้งหมด รวมถึง DDM และ EFM (Updated)
+    รวบรวม Logic การคำนวณทั้งหมด
     """
     def __init__(self, inputs):
         self.inputs = inputs
-        # Unpack parameters commonly used
         self.Lx = inputs.get('Lx', 8.0)
         self.Ly = inputs.get('Ly', 6.0)
         self.cx = inputs.get('cx', 40.0)
         self.cy = inputs.get('cy', 40.0)
-        self.lc = inputs.get('lc', 3.0)  # Storey Height
+        self.lc = inputs.get('lc', 3.0) 
         self.h_slab = inputs.get('h_slab', 20.0)
         self.cover = inputs.get('cover', 2.5)
         self.d_bar = inputs.get('d_bar', 12)
         self.fc = inputs.get('fc', 240)
-        self.fy = inputs.get('fy', 4000) # Added fy here
+        self.fy = inputs.get('fy', 4000)
         self.has_drop = inputs.get('has_drop', False)
         self.h_drop = inputs.get('h_drop', 0.0)
         self.drop_w = inputs.get('drop_w', 0.0)
         self.drop_l = inputs.get('drop_l', 0.0)
 
     def _get_eff_depth(self, h_total):
-        """Internal helper: Calculate d (cm)"""
         return h_total - self.cover - (self.d_bar / 10.0) / 2.0
 
     def _calculate_loads(self):
-        """คำนวณ Wu (ULS)"""
         w_self = (self.h_slab / 100.0) * 2400
-        # Load Combination: 1.4DL + 1.7LL
         w_u = 1.4 * (w_self + self.inputs['SDL']) + 1.7 * self.inputs['LL']
         return w_u
     
     def _calculate_service_load(self):
-        """คำนวณ W (Service Load) สำหรับเช็ค Deflection"""
         w_self = (self.h_slab / 100.0) * 2400
-        # Service Load: DL + LL
         w_service = (w_self + self.inputs['SDL']) + self.inputs['LL']
         return w_service
 
     def _analyze_oneway(self, w_u, d_slab):
-        """Logic หา Critical One-way Shear"""
         # 1. X-Direction
         Vu_face_x = w_u * (self.Lx / 2.0) - w_u * (self.cx / 100.0 / 2.0)
         res_x = check_oneway_shear(Vu_face_x, w_u, self.Lx - self.cx/100.0, d_slab, self.fc)
@@ -144,41 +117,34 @@ class FlatSlabDesign:
             return res_y
 
     def _analyze_ddm_moments(self, w_u):
-        """Logic คำนวณ DDM Moments และ Rebar Design"""
-        # Determine Effective Column for Span
         use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
         
         if use_drop:
             eff_cx = self.drop_w * 100.0
             eff_cy = self.drop_l * 100.0
-            d_neg = self._get_eff_depth(self.h_slab + self.h_drop) # d at support (drop)
+            d_neg = self._get_eff_depth(self.h_slab + self.h_drop)
         else:
             eff_cx = self.cx
             eff_cy = self.cy
-            d_neg = self._get_eff_depth(self.h_slab) # d at support (slab)
+            d_neg = self._get_eff_depth(self.h_slab)
             
-        d_pos = self._get_eff_depth(self.h_slab) # d at midspan is always slab thickness
+        d_pos = self._get_eff_depth(self.h_slab)
 
         # --- Helper for processing strip design ---
         def process_strip(Mo, L_width_m, factor_cs_neg, factor_cs_pos, factor_ms_neg, factor_ms_pos):
-            # Column Strip Width (approx L/2 or L_width/2)
-            # Simplified: CS width = L_width / 2, MS width = L_width / 2
             b_cs = (L_width_m * 100.0) / 2.0
             b_ms = (L_width_m * 100.0) / 2.0
             
-            # Moments
             M_cs_neg = 0.65 * Mo * factor_cs_neg
             M_cs_pos = 0.35 * Mo * factor_cs_pos
             M_ms_neg = 0.65 * Mo * factor_ms_neg
             M_ms_pos = 0.35 * Mo * factor_ms_pos
             
-            # Design Steel
-            # Note: Negative moment at support uses d_neg (could be drop), Positive uses d_pos
             h_neg = self.h_slab + self.h_drop if use_drop else self.h_slab
             
             des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar)
             des_cs_pos = design_flexure_slab(M_cs_pos, b_cs, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
-            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar) # MS usually misses drop
+            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
             des_ms_pos = design_flexure_slab(M_ms_pos, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
             
             return {
@@ -194,61 +160,40 @@ class FlatSlabDesign:
         ln_x = self.Lx - eff_cx/100.0
         if ln_x < 0.65 * self.Lx: ln_x = 0.65 * self.Lx
         Mo_x = (w_u * self.Ly * ln_x**2) / 8
-        
-        # Factors (Interior Span defaults)
-        # CS Neg 0.75, CS Pos 0.60
-        # MS Neg 0.25, MS Pos 0.40
         res_x = process_strip(Mo_x, self.Ly, 0.75, 0.60, 0.25, 0.40)
 
         # --- Y-Direction ---
         ln_y = self.Ly - eff_cy/100.0
         if ln_y < 0.65 * self.Ly: ln_y = 0.65 * self.Ly
         Mo_y = (w_u * self.Lx * ln_y**2) / 8
-        
         res_y = process_strip(Mo_y, self.Lx, 0.75, 0.60, 0.25, 0.40)
 
         return {
             "x": {
                 "L_span": self.Lx, "L_width": self.Ly, "ln": ln_x, "Mo": Mo_x, 
-                "M_vals": res_x, # Contains Moments & Design
-                "c_para": eff_cx/100.0, "c_perp": eff_cy/100.0
+                "M_vals": res_x, "c_para": eff_cx/100.0, "c_perp": eff_cy/100.0
             },
             "y": {
                 "L_span": self.Ly, "L_width": self.Lx, "ln": ln_y, "Mo": Mo_y, 
-                "M_vals": res_y, # Contains Moments & Design
-                "c_para": eff_cy/100.0, "c_perp": eff_cx/100.0
+                "M_vals": res_y, "c_para": eff_cy/100.0, "c_perp": eff_cx/100.0
             }
         }
 
     def _analyze_efm(self, w_u):
-        """
-        [NEW] Perform Equivalent Frame Method Analysis (Moment Distribution).
-        Calculates Moments using Hardy Cross Method.
-        """
+        """Perform Equivalent Frame Method Analysis."""
         results = {}
-        col_type = self.inputs['col_type'] # interior, edge, corner
+        col_type = self.inputs['col_type'] 
 
         # --- X-Direction EFM ---
-        # Calculate Stiffness
         Ks_x, Sum_Kc_x, Kt_x, Kec_x = calculate_stiffness(
             c1=self.cx, c2=self.cy, L1=self.Lx, L2=self.Ly, 
             lc=self.lc, h_slab=self.h_slab, fc=self.fc,
             h_drop=self.h_slab+self.h_drop if self.has_drop else None,
             drop_w=self.drop_w if self.has_drop else 0
         )
-        
-        # Determine Frame Condition based on col_type
-        # If 'edge', we assume X direction is the critical edge span (Exterior -> Interior)
-        # If 'interior', we assume symmetric interior span
         is_edge_x = True if col_type in ['edge', 'corner'] else False
-        
-        # Run Distribution
         moments_x = solve_efm_distribution(Kec_x, Ks_x, w_u, self.Lx, self.Ly, is_edge_span=is_edge_x)
-        
-        results['x'] = {
-            'stiffness': {'Kec': Kec_x, 'Ks': Ks_x, 'Kt': Kt_x, 'Kc': Sum_Kc_x},
-            'moments': moments_x
-        }
+        results['x'] = {'stiffness': {'Kec': Kec_x}, 'moments': moments_x}
 
         # --- Y-Direction EFM ---
         Ks_y, Sum_Kc_y, Kt_y, Kec_y = calculate_stiffness(
@@ -257,61 +202,82 @@ class FlatSlabDesign:
             h_drop=self.h_slab+self.h_drop if self.has_drop else None,
             drop_w=self.drop_l if self.has_drop else 0
         )
-        
-        # If 'corner', Y is also edge. If 'edge', usually only one dir is edge (assume X).
         is_edge_y = True if col_type == 'corner' else False
-        
         moments_y = solve_efm_distribution(Kec_y, Ks_y, w_u, self.Ly, self.Lx, is_edge_span=is_edge_y)
-        
-        results['y'] = {
-            'stiffness': {'Kec': Kec_y, 'Ks': Ks_y, 'Kt': Kt_y, 'Kc': Sum_Kc_y},
-            'moments': moments_y
-        }
+        results['y'] = {'stiffness': {'Kec': Kec_y}, 'moments': moments_y}
         
         return results
 
     def run_full_analysis(self):
-        """Main entry point: สั่งคำนวณทุกอย่างรวดเดียว"""
+        """Main entry point: Updated Sequence to Link EFM Moment to Punching"""
         # 1. Prep Data
         w_u = self._calculate_loads()
         w_service = self._calculate_service_load()
         d_slab = self._get_eff_depth(self.h_slab)
         d_total = self._get_eff_depth(self.h_slab + self.h_drop)
 
-        # 2. Shear Analysis
+        # 2. Shear Analysis (One-way)
         shear_res = self._analyze_oneway(w_u, d_slab)
 
-        # 3. Punching Analysis
+        # ============================================================
+        # 3. RUN EFM FIRST (Move Up) -> To Get Unbalanced Moments
+        # ============================================================
+        efm_res = self._analyze_efm(w_u)
+        
+        # Extract Munbal Logic:
+        # If Edge/Corner, the Exterior Joint Moment IS the Unbalanced Moment
+        col_type = self.inputs['col_type']
+        
+        # X-Direction Munbal
+        Munbal_x = 0
+        if col_type in ['edge', 'corner']:
+             Munbal_x = efm_res['x']['moments']['M_neg_left'] # Left node is exterior
+        
+        # Y-Direction Munbal
+        Munbal_y = 0
+        if col_type == 'corner':
+             Munbal_y = efm_res['y']['moments']['M_neg_left']
+
+        # Design Munbal (Max of X or Y)
+        # Note: In real 3D, we consider vector combination, but code simplified checks max direction
+        Munbal_design = max(abs(Munbal_x), abs(Munbal_y))
+
+        # ============================================================
+        # 4. PUNCHING ANALYSIS (Updated with Openings & EFM Moment)
+        # ============================================================
+        # Get Opening Data (Safe get in case not set)
+        op_w = self.inputs.get('open_w', 0.0)
+        op_dist = self.inputs.get('open_dist', 0.0)
+
         if self.has_drop:
             punch_res = check_punching_dual_case(
                 w_u, self.Lx, self.Ly, self.fc, 
                 self.cx, self.cy, d_total, d_slab, 
-                self.drop_w, self.drop_l, self.inputs['col_type']
+                self.drop_w, self.drop_l, self.inputs['col_type'],
+                Munbal=Munbal_design # <--- Auto-link EFM Moment
             )
         else:
             c1_d = self.cx + d_slab
             c2_d = self.cy + d_slab
             area_crit = (c1_d/100.0) * (c2_d/100.0)
             Vu_punch = w_u * (self.Lx*self.Ly - area_crit)
+            
             punch_res = check_punching_shear(
-                Vu_punch, self.fc, self.cx, self.cy, d_slab, self.inputs['col_type']
+                Vu_punch, self.fc, self.cx, self.cy, d_slab, 
+                self.inputs['col_type'], 
+                Munbal=Munbal_design, # <--- Auto-link EFM Moment
+                open_w=op_w, open_dist=op_dist # <--- Pass Opening Data
             )
 
-        # 4. Check Requirements
-        h_min = max(self.Lx, self.Ly)*100 / 33.0
-        
-        # Check Deflection (Simplified)
-        deflection_res = check_long_term_deflection(
-            w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
-        )
-        
         # 5. DDM Analysis
         ddm_res = self._analyze_ddm_moments(w_u)
         
-        # 6. EFM Analysis (NEW)
-        efm_res = self._analyze_efm(w_u)
+        # 6. Serviceability
+        h_min = max(self.Lx, self.Ly)*100 / 33.0
+        deflection_res = check_long_term_deflection(
+            w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
+        )
 
-        # 7. Pack Results
         return {
             "loads": {"w_u": w_u, "w_service": w_service, "SDL": self.inputs['SDL'], "LL": self.inputs['LL']},
             "geometry": {"d_slab": d_slab, "d_total": d_total},
@@ -323,10 +289,14 @@ class FlatSlabDesign:
         }
 
 # ==========================================
-# 1. PUNCHING SHEAR 
+# 1. PUNCHING SHEAR (UPDATED WITH OPENINGS)
 # ==========================================
-def calculate_section_properties(c1, c2, d, col_type):
-    """Helper to calculate Ac, Jc, and gamma_v"""
+def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
+    """
+    Helper to calculate Ac, Jc, and gamma_v
+    Updated: รองรับการหัก Opening ออกจาก b0
+    """
+    # 1. Base Dimensions
     b1 = c1 + d 
     b2 = c2 + d 
 
@@ -336,33 +306,59 @@ def calculate_section_properties(c1, c2, d, col_type):
         b1 = c1 + d/2.0
         b2 = c2 + d/2.0
 
-    if col_type == "interior": bo = 2*(b1 + b2)
-    elif col_type == "edge": bo = 2*b1 + b2
-    else: bo = b1 + b2
+    # 2. Base Perimeter (bo)
+    if col_type == "interior": base_bo = 2*(b1 + b2)
+    elif col_type == "edge": base_bo = 2*b1 + b2
+    else: base_bo = b1 + b2
     
+    # 3. Handle Opening Deduction
+    # ACI 318: ถ้า Opening อยู่ใกล้เสา (ระยะ < 4h) ให้หักส่วนที่ถูกบังออก
+    deduction = 0
+    if open_w > 0:
+        # Check distance criteria (Approx 4*h ~ 4*d for simplified check)
+        limit_dist = 4 * d
+        if open_dist < limit_dist:
+            # Conservative Deduction: หักความกว้างช่องเปิดออกจาก bo
+            # Limit ไม่ให้หักเกิน 30% เพื่อป้องกัน error กรณีใส่ค่ามั่ว
+            deduction = min(open_w, base_bo * 0.30)
+    
+    bo = base_bo - deduction
+    
+    # 4. Properties
     Ac = bo * d
-    # Jc simplified approximation
+    
+    # Jc (Polar Moment of Inertia)
+    # Note: ใช้ Jc เต็ม (Gross) แต่ลด Ac และ bo ถือว่า Conservative และไม่ซับซ้อนเกินไปสำหรับ Code นี้
     Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
 
     gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
     gamma_v = 1 - gamma_f
     c_AB = b1 / 2.0
 
-    return Ac, Jc, gamma_v, c_AB, bo
+    return Ac, Jc, gamma_v, c_AB, bo, deduction
 
-def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
+def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0):
+    """
+    Updated: รับ Parameter open_w (width), open_dist (distance from face)
+    """
     try:
         Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
     except ValueError:
         return {"status": "ERROR", "ratio": 999, "Note": "Invalid Input"}
 
-    Ac, Jc, gamma_v, c_AB, bo = calculate_section_properties(c1, c2, d, col_type)
+    # เรียกฟังก์ชัน Property ตัวใหม่
+    Ac, Jc, gamma_v, c_AB, bo, deduc_len = calculate_section_properties(c1, c2, d, col_type, open_w, open_dist)
+
+    if Ac <= 0: return {"status": "FAIL", "ratio": 999, "note": "Ac <= 0 (Opening too big?)"}
 
     Munbal_cm = Munbal * 100.0
+    
+    # Stress Calc
     stress_direct = Vu / Ac
     stress_moment = (gamma_v * abs(Munbal_cm) * c_AB) / Jc
     vu_max = stress_direct + stress_moment 
 
+    # Capacity
     phi = 0.85 
     sqrt_fc = np.sqrt(fc)
     
@@ -384,24 +380,38 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0):
         ratio = 999.0
         
     status = "OK" if ratio <= 1.0 else "FAIL"
+    
+    # Create note string
+    note_txt = f"Munbal: {Munbal:,.0f} kg-m"
+    if deduc_len > 0:
+        note_txt += f" | Opening Deduct: {deduc_len:.1f} cm"
 
     return {
-        "Vu": Vu, "Munbal": Munbal, "d": d, "bo": bo, "b0": bo, "Ac": Ac,
+        "Vu": Vu, "Munbal": Munbal, "d": d, "bo": bo, "Ac": Ac,
+        "deduction": deduc_len,
         "gamma_v": gamma_v, "Jc": Jc,
         "stress_actual": vu_max, "stress_allow": phi_vc_stress,
         "phi_Vc": phi_vc_stress * Ac, "Vc_nominal": vc_final_stress * Ac, 
         "ratio": ratio, "status": status,
-        "note": f"Incl. Moment: {Munbal:,.0f} kg-m"
+        "note": note_txt
     }
 
 # ==========================================
 # 2. DUAL CASE PUNCHING
 # ==========================================
 def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0):
+    """
+    Handle Drop Panel (Check 2 perimeters)
+    Note: Opening effect applied generally, though typically critical at column face.
+    """
+    # Case 1: At Column Face (Inside Drop) - Use d_drop
+    # Note: Opening usually affects this zone mostly.
     Vu1 = w_u * (Lx * Ly) * 0.95 
-    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal)
+    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal) # Opening data not passed here for simplicity, but can be added if crucial
     res1["case"] = "Inside Drop (d_drop)" 
     
+    # Case 2: At Drop Panel Edge (Outside Drop) - Use d_slab
+    # Moment transfer at drop edge is less, assume 50% decay (Simple Approx)
     Vu2 = w_u * (Lx * Ly) * 0.90 
     res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5)
     res2["case"] = "Outside Drop (d_slab)" 
@@ -422,16 +432,13 @@ def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
     return {"rho_min": rho_min, "As_min": As_min, "note": "ACI 318 Temp/Shrinkage"}
 
 def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
-    """
-    Check Deflection based on ACI 318
-    """
     Ec = 15100 * np.sqrt(fc) 
     L_cm = L * 100.0
     w_line_kg_cm = (w_service * (b/100.0)) / 100.0 
     
     Ig = b * (h**3) / 12.0
-    Ie = 0.4 * Ig # Approximation for Cracked Moment of Inertia
-    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 # Factor 0.5 for continuity
+    Ie = 0.4 * Ig 
+    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
     
     Lambda_LT = 2.0
     Delta_LT = Delta_immediate * Lambda_LT
@@ -448,12 +455,9 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     }
 
 # ==========================================
-# 4. EFM STIFFNESS & ANALYSIS (UPDATED)
+# 4. EFM STIFFNESS & ANALYSIS
 # ==========================================
 def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, drop_l=0):
-    """
-    Calculate EFM Stiffness (Kc, Ks, Kt, Kec)
-    """
     c1=float(c1); c2=float(c2); L1=float(L1); L2=float(L2); lc=float(lc); h_slab=float(h_slab); fc=float(fc)
     
     if h_drop is None or h_drop <= h_slab or drop_w <= 0:
@@ -509,41 +513,26 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
     return Ks, Sum_Kc, Kt, Kec
 
 def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
-    """
-    [NEW] Perform simplified Moment Distribution Method (Hardy Cross).
-    Analyzes a single span frame substitute.
-    """
-    # 1. Fixed End Moments (FEM)
-    # Load on span W = w_u * L_width * L_span
-    # FEM = w * L^2 / 12
     W_total = w_u * L_width # kg/m
     FEM = (W_total * L_span**2) / 12.0 # kg-m
     
-    # 2. Distribution Factors (DF)
-    # Node Left (1) and Node Right (2)
-    
     if is_edge_span:
-        # CASE: Edge Span (Exterior Panel)
-        # Left Node (Exterior): Connects to Col (Kec) and Slab (Ks)
+        # Edge Span: Exterior node connects to Col (Kec) + Slab (Ks)
         sum_K1 = Kec + Ks
         DF1_slab = Ks / sum_K1
         
-        # Right Node (Interior): Connects to Slab (Ks), Slab Next (Ks), Col (Kec)
-        # Simplified: Assume symmetric next span -> 2*Ks + Kec
+        # Interior node: Slab + Slab(next) + Col
         sum_K2 = Kec + 2*Ks 
         DF2_slab = Ks / sum_K2
-        
     else:
-        # CASE: Interior Span (Symmetric)
-        # Left & Right Nodes are identical Interior Joints
+        # Interior Span: Symmetric
         sum_K = Kec + 2*Ks
         DF1_slab = Ks / sum_K
         DF2_slab = Ks / sum_K
     
-    # 3. Moment Distribution Loop (3 Cycles)
-    # Sign Convention: Clockwise +, Counter-Clockwise -
-    M12 = -FEM # Left End
-    M21 = +FEM # Right End
+    # Moment Distribution (3 Cycles)
+    M12 = -FEM 
+    M21 = +FEM 
     
     for i in range(3):
         # Balance
@@ -553,18 +542,16 @@ def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
         M12 += Bal1
         M21 += Bal2
         
-        # Carry Over (Factor = 0.5)
-        CO12 = Bal2 * 0.5 # Carry from 2 to 1
-        CO21 = Bal1 * 0.5 # Carry from 1 to 2
+        # Carry Over
+        CO12 = Bal2 * 0.5 
+        CO21 = Bal1 * 0.5 
         
         M12 += CO12
         M21 += CO21
         
-    # 4. Result Processing
     M_neg_left = abs(M12)
     M_neg_right = abs(M21)
     
-    # M_pos (Approximate by superimposing simple span moment)
     M_simple = (W_total * L_span**2) / 8.0
     M_pos = M_simple - (M_neg_left + M_neg_right)/2.0
     
