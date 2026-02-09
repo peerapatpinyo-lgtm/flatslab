@@ -413,4 +413,12 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         # Summary Table
         st.markdown("#### 📋 Summary Table")
         df_res = pd.DataFrame(results)[['Name', 'Mu', 'PhiMn', 'As_req', 'As_prov', 'Ratio']]
-        st.dataframe(df_res.style.format("{:,.2f}"), use_container_width=True)
+        
+        # Updated: Format specific columns only to avoid String error
+        st.dataframe(df_res.style.format({
+            'Mu': "{:,.2f}", 
+            'PhiMn': "{:,.2f}", 
+            'As_req': "{:,.2f}", 
+            'As_prov': "{:,.2f}", 
+            'Ratio': "{:,.2f}"
+        }), use_container_width=True)
