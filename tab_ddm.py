@@ -24,7 +24,7 @@ except ImportError:
 def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_dir, phi_factor=0.90):
     """
     Core Logic: คำนวณเหล็กเสริมตาม ACI 318
-    [UPDATED] รับค่า phi_factor มาจากการตั้งค่าผู้ใช้
+    [UPDATED] รับค่า phi_factor (Bending) มาจากการตั้งค่าผู้ใช้
     """
     b_cm = b_width * 100.0
     h_cm = float(h_slab)
@@ -47,7 +47,7 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
         }
 
     # Strength Design
-    # [UPDATED] ใช้ phi_factor ที่รับเข้ามา
+    # [UPDATED] ใช้ phi_factor (Bending) ที่รับเข้ามา
     Rn = Mu_kgcm / (phi_factor * b_cm * d_eff**2)
     
     # Check bounds for sqrt
@@ -72,7 +72,7 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     else:
         a_depth = (As_prov * fy) / (0.85 * fc * b_cm)
         Mn = As_prov * fy * (d_eff - a_depth/2.0)
-        # [UPDATED] ใช้ phi_factor ที่รับเข้ามา
+        # [UPDATED] ใช้ phi_factor (Bending) คำนวณ PhiMn
         PhiMn = phi_factor * Mn / 100.0
         dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
 
@@ -136,11 +136,11 @@ def update_moments_based_on_config(data_obj, span_type):
 # 3. DETAILED CALCULATION RENDERER
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
-    # [UPDATED] Unpack phi from inputs
-    Mu, b, h, cover, fc, fy, db, s, phi_used = inputs
+    # [UPDATED] Unpack phi (Bending) from inputs
+    Mu, b, h, cover, fc, fy, db, s, phi_bend = inputs
     
     st.markdown(f"#### 📐 รายการคำนวณออกแบบ: {zone_name}")
-    st.caption(f"Design Parameters: $f_c'={fc}$ ksc, $f_y={fy}$ ksc, $h={h}$ cm, $\\phi={phi_used}$")
+    st.caption(f"Design Parameters: $f_c'={fc}$ ksc, $f_y={fy}$ ksc, $h={h}$ cm, $\\phi_b={phi_bend}$")
 
     step1, step2, step3 = st.tabs(["1. Moment & Depth", "2. Steel Area", "3. Capacity Check"])
     
@@ -162,8 +162,8 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         
         # As flexure
         st.markdown("จากสมการกำลัง (Strength Design):")
-        # [UPDATED] Display Dynamic Phi
-        st.latex(f"R_n = \\frac{{M_u}}{{\\phi b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_used} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
+        # [UPDATED] Display Dynamic Phi Bending
+        st.latex(f"R_n = \\frac{{M_u}}{{\\phi_b b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
         
         if res['rho_req'] != 999:
             st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
@@ -185,9 +185,9 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.markdown("**3.2 Moment Capacity Check ($\\phi M_n$)**")
         st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
         
-        # [UPDATED] Display Dynamic Phi
-        st.latex(f"\\phi M_n = \\frac{{{phi_used} \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
-        st.latex(f"\\phi M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
+        # [UPDATED] Display Dynamic Phi Bending
+        st.latex(f"\\phi_b M_n = \\frac{{{phi_bend} \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
+        st.latex(f"\\phi_b M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
         
         dc = res['DC']
         color = "green" if dc <= 1.0 else "red"
@@ -205,8 +205,10 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     cover = mat_props['cover']
     fc = mat_props['fc']
     fy = mat_props['fy']
-    # [UPDATED] ดึงค่า Phi จาก mat_props (Default 0.90 ถ้าไม่มี)
-    phi_val = mat_props.get('phi', 0.90)
+    
+    # [UPDATED] ดึงค่า Phi 2 ตัวแยกกัน
+    phi_bend = mat_props.get('phi', 0.90)       # Key 'phi' ใน app.py คือ Bending
+    phi_shear = mat_props.get('phi_shear', 0.85) # Key 'phi_shear' คือ Punching/Shear
     
     # Unpack Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
@@ -303,16 +305,17 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         d_eff = float(h_slab) - float(cover) - d_bar_val
         if d_eff <= 0: d_eff = 1.0
 
+        # [UPDATED] ส่ง phi_shear ไปคำนวณ Punching
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
             c1=c_col,            
             c2=c_col,            
-            d=d_eff,              
+            d=d_eff,               
             col_type="interior",  
             open_w=open_w,
             open_dist=open_dist,
-            phi=phi_val # [UPDATED] Try Passing phi if supported, otherwise depends on calc implementation
+            phi=phi_shear 
         )
         
         col_p1, col_p2 = st.columns([1, 1.5])
@@ -354,11 +357,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                 
                 st.write("**3. Concrete Capacity:**")
                 # [UPDATED] Show Phi used in Punching
-                st.caption(f"Using Strength Reduction Factor $\phi = {phi_val}$")
+                st.caption(f"Using Strength Reduction Factor $\phi_v = {phi_shear}$ (Shear)")
                 if 'Vc_nominal' in ps_res:
-                    st.latex(rf"\phi V_c = {phi_val} \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
+                    st.latex(rf"\phi_v V_c = {phi_shear} \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
                 else:
-                    st.latex(r"\phi V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
+                    st.latex(r"\phi_v V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
                 
                 st.write("**4. Check:**")
                 st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
@@ -411,8 +414,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 
     results = []
     for cfg in calc_configs:
-        # [UPDATED] ส่ง phi_val ไปคำนวณ
-        res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_val)
+        # [UPDATED] ส่ง phi_bend (Moment) ไปคำนวณเหล็ก
+        res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_bend)
         res.update(cfg) 
         results.append(res)
 
@@ -437,8 +440,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     target = next(r for r in results if r['Label'] == sel_label)
     
     # Inputs for detailed renderer
-    # [UPDATED] เพิ่ม phi_val เข้าไปใน tuple
-    raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_val)
+    # [UPDATED] เพิ่ม phi_bend เข้าไปใน tuple แทน phi ตัวเดียว
+    raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_bend)
     
     with st.container(border=True):
         # Calculate % for display inside the calc sheet
