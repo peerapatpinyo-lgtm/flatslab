@@ -467,6 +467,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
 
     # === TAB 2: MOMENT DISTRIBUTION ===
+    # === TAB 2: MOMENT DISTRIBUTION ===
     with tab2:
         st.subheader("2. Moment Distribution Analysis (Hardy Cross Method)")
         st.caption("Methodology: Moment Distribution Method (Hardy Cross, 1930) applied to Equivalent Frame.")
@@ -475,6 +476,12 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("#### 2.1 Fixed End Moments (FEM)")
         st.markdown("**Reference:** Structural Analysis Theory (Prismatic Beam Formulas)")
         st.write("Calculate the moment at supports assuming the joints are strictly fixed (no rotation).")
+        
+        # [Image trigger for educational context]
+        # 
+
+[Image of fixed end moment beam formula]
+
 
         # 1. Load Calculation
         w_line_val = w_u * L2  # kg/m (Line load)
@@ -500,6 +507,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.write("The unbalanced moment at a joint is distributed to connected members based on their relative stiffness.")
 
         # Recalculate DFs for display clarity
+        # Ensure Ks_val and Kec_val are computed in previous steps/tabs
         df_slab = Ks_val / (Ks_val + Kec_val)
         df_col = Kec_val / (Ks_val + Kec_val)
 
@@ -522,7 +530,10 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** Cross, H. (1930). *Analysis of Continuous Frames.*")
         st.write("The distribution process follows these standard steps until convergence:")
         
-        st.markdown("""
+        # 
+        
+        # Corrected Markdown with \times
+        st.markdown(r"""
         1.  **Unbalanced Moment ($M_{unb}$):** Sum of moments at the joint.
         2.  **Balancing Moment ($M_{bal}$):** Apply equal and opposite moment to restore equilibrium.
             * $M_{bal} = -1 \times M_{unb}$
@@ -532,14 +543,9 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         4.  **Carry Over (CO):** Transfer 50% of the slab moment to the far end (if continuous).
             * $CO = 0.5 \times M_{dist, slab}$
         """)
-        
 
         # --- Generate Calculation Table Dynamically ---
-        # We simulate a 2-cycle distribution for demonstration (or use the one from main code)
-        # Structure: [FEM, Distribute, CarryOver, Distribute, Final]
-        
-        # Initial Setup (Assumption: Interior span with symmetry for simple illustration or actual values)
-        # Using variable 'fem_val' calculated above.
+        # Simulation of Cycle 1 for demonstration
         # Sign Convention: CCW (+), CW (-)
         
         m_fem_left = fem_val   # Joint A (Left)
@@ -555,6 +561,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown(f"**1. Fixed End Moment:** $+{m_fem_left:,.0f}$ kg-m")
         st.markdown(f"**2. Balancing Moment:** $-({m_fem_left:,.0f}) = {m_bal_A:,.0f}$ kg-m")
         st.markdown("**3. Distribute to Slab:**")
+        # Corrected LaTeX with \times
         st.latex(rf"M_{{dist,slab}} = {m_bal_A:,.0f} \times {df_slab:.3f} = \mathbf{{{m_dist_slab_A:,.0f}}} \, kg\cdot m")
         
         # Create Detailed Dataframe
@@ -585,6 +592,8 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** ACI 318-19 Section 8.11.6.1")
         st.write("Moments are reduced to the **face of the support** for design, not the centerline.")
         
+        # 
+
         # Shear and Correction Calc
         Vu = w_line_val * L1 / 2
         c1_m = c1_w / 100
@@ -596,7 +605,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.info(f"**Parameters:**\n- Shear ($V_u$): {Vu:,.0f} kg\n- Support Width ($c_1$): {c1_m:.2f} m")
         with c_cor2:
             st.markdown("**Correction Calculation:**")
-            st.latex(rf"M_{{face}} = M_{{cen}} - V_u(\frac{{c_1}}{{2}}) + \frac{{w_u (c_1/2)^2}}{{2}}")
+            st.latex(rf"M_{{face}} = M_{{cen}} - V_u \left(\frac{{c_1}}{{2}}\right) + \frac{{w_u (c_1/2)^2}}{{2}}")
             st.latex(rf"M_{{face}} = {abs(M_final_L):,.0f} - {M_red:,.0f} = \mathbf{{{M_face:,.0f}}} \, kg\cdot m")
 
         # Positive Moment
@@ -610,7 +619,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.latex(rf"M_{{pos}} = {Mo:,.0f} - {M_face:,.0f} = \mathbf{{{M_pos_final:,.0f}}} \, kg\cdot m")
         
         st.info(f"✅ **Final Design Moments:**\n- Negative ($M^{{-}}$): **{M_face:,.0f}** kg-m\n- Positive ($M^{{+}}$): **{M_pos_final:,.0f}** kg-m")
-   
+    
  
 
     # === TAB 3: DESIGN ===
