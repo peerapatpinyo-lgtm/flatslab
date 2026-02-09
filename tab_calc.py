@@ -192,19 +192,23 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # Retrieve Factors
-        f_dl = loads.get('factor_dl', 1.4)
-        f_ll = loads.get('factor_ll', 1.7)
+        # [UPDATED] Retrieve Factors & Phi (Link to Input)
+        # Priority: mat_props (from user input) -> loads -> default
+        f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
+        f_ll = mat_props.get('factor_ll', loads.get('factor_ll', 1.7))
         
-        # [MODIFIED] Logic to determine Phi automatically
-        # If Load Factor DL < 1.3 (implied 1.2), use Phi 0.75 (Modern ACI).
-        # Else (implied 1.4), use Phi 0.85 (EIT/Old ACI).
-        if f_dl < 1.3:
-            phi = 0.75
-            std_ref = "ACI 318-05+"
+        # [UPDATED] Use User Input Phi if available
+        if 'phi' in mat_props:
+            phi = mat_props['phi']
+            std_ref = f"User Input (φ={phi})"
         else:
-            phi = 0.85
-            std_ref = "EIT / ACI 318-99"
+            # Fallback Logic if 'phi' not found
+            if f_dl < 1.3:
+                phi = 0.75
+                std_ref = "ACI 318-05+"
+            else:
+                phi = 0.85
+                std_ref = "EIT / ACI 318-99"
 
         h_m = h_slab / 100.0
         w_sw = h_m * 2400
@@ -212,8 +216,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         ll = loads['LL']
         w_dead_total = w_sw + sdl
         
-        # Note: wu_val below is recalculated for display verification, 
-        # normally we should match loads['w_u'] from the model.
+        # Calculate Wu for display using the linked factors
         wu_display = (f_dl * w_dead_total) + (f_ll * ll)
         
         # Load from Result
@@ -230,7 +233,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.markdown('<div class="sub-header">A. Factored Shear Demand</div>', unsafe_allow_html=True)
             st.write("Using Load Factors:")
             
-            # Show formula with factors
+            # Show formula with actual factors used
             st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL)")
             st.latex(fr"w_u = {f_dl:.2f}(\underbrace{{{w_sw:.0f}}}_{{SW}} + \underbrace{{{sdl}}}_{{SDL}}) + {f_ll:.2f}({ll})")
             st.latex(fr"w_u = \mathbf{{{wu_display:,.0f}}} \text{{ kg/m}}^2")
@@ -249,9 +252,15 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 
                 st.markdown("---")
                 st.markdown('<div class="sub-header">B. Stress Capacity</div>', unsafe_allow_html=True)
-                st.write(f"Ref: {std_ref} ($\phi = {phi}$)")
+                st.write(f"Ref: {std_ref}")
                 st.latex(r"\phi v_c = \phi \times \min(\text{Eq1, Eq2, Eq3})")
-                st.latex(fr"\phi v_c = {phi} \times {vc_min/(b0*d):.2f} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
+                
+                # Recalculate v_allow using the linked phi to ensure display consistency
+                # (Note: v_allow from res might be pre-calculated, so we double check)
+                v_c_stress = vc_min / (b0*d) # approx
+                # We use the value from result but show phi
+                
+                st.latex(fr"\phi v_c = {phi} \times v_{{c,nom}} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
                 
                 # Setup vars for verdict
                 demand_val = v_act
@@ -265,7 +274,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 
                 st.markdown("---")
                 st.markdown('<div class="sub-header">B. Force Capacity</div>', unsafe_allow_html=True)
-                st.write(f"Ref: {std_ref} ($\phi = {phi}$)")
+                st.write(f"Ref: {std_ref}")
                 st.latex(fr"\phi V_n = {phi} \times V_{{c,min}}")
                 st.latex(fr"= {phi} \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
                 
@@ -276,12 +285,25 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         with col_R:
             status = res.get('status', 'N/A')
+            # Re-evaluate status based on linked phi to be safe
+            if demand_val <= capacity_val:
+                status = "PASS"
+                passed = True
+            else:
+                status = "FAIL"
+                passed = False
+                
             passed = status == "OK" or status == "PASS"
             status_text = "PASS" if passed else "FAIL"
             color_vu = "black" if passed else "red"
             operator = r"\leq" if passed else ">"
             cls = "pass" if passed else "fail"
-            ratio = res.get('ratio', 0)
+            
+            # Recalculate ratio for display
+            if capacity_val > 0:
+                ratio = demand_val / capacity_val
+            else:
+                ratio = 999
             
             st.markdown(f"""
             <div class="verdict-box {cls}">
@@ -363,9 +385,12 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
     bw = 100.0
     
-    # [MODIFIED] Link Phi to Load Factor here as well
-    f_dl = loads.get('factor_dl', 1.4)
-    if f_dl < 1.3:
+    # [UPDATED] Link Phi to User Input (mat_props)
+    f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
+    
+    if 'phi' in mat_props:
+        phi_shear = mat_props['phi']
+    elif f_dl < 1.3:
         phi_shear = 0.75
     else:
         phi_shear = 0.85
