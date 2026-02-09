@@ -93,7 +93,14 @@ with st.sidebar.expander("2. Geometry & Span", expanded=True):
         open_dist = c_op2.number_input("Dist. from Face (cm)", value=5.0, min_value=0.0)
 
 # --- Group 3: Loads ---
-with st.sidebar.expander("3. Design Loads", expanded=True):
+with st.sidebar.expander("3. Design Loads & Factors", expanded=True):
+    # [UPDATED] Load Factors Inputs
+    st.markdown("**Load Factors:**")
+    c_f1, c_f2 = st.columns(2)
+    factor_dl = c_f1.number_input("Factor DL", value=1.4, step=0.1, format="%.2f")
+    factor_ll = c_f2.number_input("Factor LL", value=1.7, step=0.1, format="%.2f")
+    
+    st.markdown("---")
     SDL = st.number_input("SDL (kg/m²)", value=150.0)
     LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
@@ -117,8 +124,14 @@ user_inputs = {
     "open_dist": open_dist if has_opening else 0.0
 }
 
-# 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ
-model = FlatSlabDesign(user_inputs)
+# 3.1.2 Pack Factors
+load_factors = {
+    'DL': factor_dl,
+    'LL': factor_ll
+}
+
+# 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ (พร้อม Factors)
+model = FlatSlabDesign(user_inputs, factors=load_factors)
 
 # 3.3 Execute: สั่งคำนวณทุกอย่าง
 results = model.run_full_analysis()
@@ -171,7 +184,9 @@ with col_kpi3:
     metric_card("Deflection Control", f"L/33", status_def, f"Min: {h_min:.1f} cm | Actual: {h_slab:.0f} cm")
 
 with col_kpi4:
-    metric_card("Factored Load (Wu)", f"{loads_res['w_u']:,.0f}", "INFO", "kg/m² (ULS)")
+    # แสดง Factors ที่ใช้จริงใน KPI Card
+    subtext_factors = f"({factor_dl}D + {factor_ll}L)"
+    metric_card("Factored Load (Wu)", f"{loads_res['w_u']:,.0f}", "INFO", subtext_factors)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
