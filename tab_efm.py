@@ -87,9 +87,9 @@ def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     ax.set_title("Design Moment Envelope (Face of Support)", fontweight='bold')
     return fig
 
-def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
+def draw_section_detail(b_cm, h_cm, db, spacing, title):
     """
-    Visualizes the cross-section with rebars.
+    Visualizes the cross-section with rebars based on spacing.
     """
     fig, ax = plt.subplots(figsize=(5, 2.0))
     # Concrete section
@@ -97,7 +97,7 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
     
     # Rebars
     cover = 2.5 
-    dia_cm = d_bar / 10.0
+    dia_cm = db / 10.0
     
     # Determine Y position (Top or Bot)
     if "Top" in title:
@@ -105,17 +105,23 @@ def draw_section_detail(b_cm, h_cm, num_bars, d_bar, title):
     else:
         y_pos = cover + dia_cm/2
         
-    # Calculate spacing
-    if num_bars > 1:
-        space = (b_cm - 2*cover - dia_cm) / (num_bars - 1)
-        xs = [cover + dia_cm/2 + i*space for i in range(num_bars)]
-    else:
-        xs = [b_cm/2]
+    # Calculate positions based on spacing
+    # Approximate number of bars for visual
+    num_bars = int((b_cm - 2*cover) / spacing) + 1
+    if num_bars < 2: num_bars = 2
+    
+    # Re-distribute strictly for visual centering
+    real_span = (num_bars - 1) * spacing
+    start_x = (b_cm - real_span) / 2
+    
+    xs = [start_x + i*spacing for i in range(num_bars)]
         
     for x in xs:
-        ax.add_patch(patches.Circle((x, y_pos), dia_cm/2, fc='red', ec='black'))
-        
-    ax.text(b_cm/2, h_cm/2, f"{num_bars}-DB{d_bar}", ha='center', va='center', 
+        if 0 < x < b_cm: # Draw only if inside section
+            ax.add_patch(patches.Circle((x, y_pos), dia_cm/2, fc='red', ec='black'))
+            
+    label_text = f"DB{db}@{spacing:.0f}cm" if db > 9 else f"RB{db}@{spacing:.0f}cm"
+    ax.text(b_cm/2, h_cm/2, label_text, ha='center', va='center', 
             fontweight='bold', color='darkred', fontsize=12, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
             
     ax.set_title(title, fontsize=10)
@@ -180,7 +186,53 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
     return pd.DataFrame(history), total_A, total_B
 
 # ==========================================
-# 3. MAIN RENDER FUNCTION
+# 3. CORE DESIGN FUNCTION
+# ==========================================
+def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spacing):
+    """
+    Calculates As_req vs As_prov and checks capacity.
+    """
+    # Units: cm, kg, ksc
+    b_cm = b_width_m * 100
+    d_eff = h_slab - cover - (db/20.0) # Assumed outer layer for simplicity or avg
+    Mu_kgcm = Mu_kgm * 100.0
+    phi = 0.90
+    
+    # 1. Required Steel
+    Rn = Mu_kgcm / (phi * b_cm * d_eff**2)
+    rho_req = 0.0018 # Min
+    
+    term = 1 - (2 * Rn) / (0.85 * fc)
+    if term >= 0:
+        rho_calc = (0.85 * fc / fy) * (1 - np.sqrt(term))
+        rho_req = max(rho_calc, 0.0018)
+    else:
+        rho_req = 999 # Fail section
+        
+    As_req = rho_req * b_cm * d_eff
+    
+    # 2. Provided Steel
+    bar_area = 3.1416 * (db/10.0)**2 / 4.0
+    As_prov = (b_cm / spacing) * bar_area
+    
+    # 3. Capacity
+    a = (As_prov * fy) / (0.85 * fc * b_cm)
+    Mn = As_prov * fy * (d_eff - a/2.0)
+    PhiMn = 0.90 * Mn / 100.0 # kg-m
+    
+    dc_ratio = Mu_kgm / PhiMn if PhiMn > 0 else 999
+    
+    return {
+        "d": d_eff,
+        "As_req": As_req,
+        "As_prov": As_prov,
+        "PhiMn": PhiMn,
+        "Ratio": dc_ratio,
+        "Pass": dc_ratio <= 1.0
+    }
+
+# ==========================================
+# 4. MAIN RENDER FUNCTION
 # ==========================================
 def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwargs):
     
@@ -196,6 +248,8 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     # --- A. PRE-CALCULATION ---
     # Material Properties
     Ec = 15100 * np.sqrt(fc) # ksc
+    fy = mat_props.get('fy', 4000)
+    cover = mat_props.get('cover', 2.5)
     
     # 1. Stiffness Calculations
     try:
@@ -289,43 +343,74 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
 
     # === TAB 3: DESIGN ===
     with tab3:
-        fy = mat_props.get('fy', 4000)
-        d_bar = mat_props.get('d_bar', 12)
-        d_eff = h_slab - 2.5 - d_bar/20.0
+        st.markdown("#### 🛡️ Reinforcement Design Check")
+        st.caption(f"Using materials: fc'={fc} ksc, fy={fy} ksc")
         
-        def calc_rebar_show(Mu_kgm, b_m):
-            Mu = Mu_kgm * 100 # kg-cm
-            # Rn = Mu / (phi * b * d^2)
-            Rn = Mu / (0.9 * (b_m*100) * d_eff**2)
-            try:
-                # rho = (0.85fc/fy) * (1 - sqrt(1 - 2Rn/0.85fc))
-                rho = (0.85*fc/fy)*(1 - np.sqrt(max(0, 1 - 2*Rn/(0.85*fc))))
-            except:
-                rho = 0.002
-            rho = max(rho, 0.0018)
-            As = rho * (b_m*100) * d_eff
-            num = int(np.ceil(As / (np.pi*(d_bar/20.0)**2/4)))
-            return Rn, rho, As, num
-
-        st.write(f"**Design Parameters:** $f_c'={fc}, f_y={fy}, h={h_slab}cm, d={d_eff}cm$")
-
-        col_d1, col_d2 = st.columns(2)
-        with col_d1:
-            st.subheader("🔴 Column Strip (Top)")
-            st.markdown("*Use 75% of Neg Moment*")
-            Mu_cs = M_neg_design * 0.75
-            b_cs = L2/2.0 
-            Rn, rho, As, num = calc_rebar_show(Mu_cs, b_cs)
-            st.write(f"**Moment:** {Mu_cs:,.0f} kg-m")
-            st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
-            st.pyplot(draw_section_detail(b_cs*100, h_slab, num, d_bar, "CS Top"))
+        # 1. Get Config from Mat Props (or default)
+        cfg = mat_props.get('rebar_cfg', {})
+        
+        # 2. Define Strip Widths
+        w_cs = min(L1, L2) / 2.0
+        w_ms = L2 - w_cs
+        
+        # 3. Design Loop (4 Zones)
+        zones = [
+            {
+                "Name": "Column Strip - Top (-)", 
+                "Mu": M_neg_design * 0.75, "Width": w_cs, 
+                "db": cfg.get('cs_top_db', 12), "spa": cfg.get('cs_top_spa', 20)
+            },
+            {
+                "Name": "Column Strip - Bot (+)", 
+                "Mu": M_pos_design * 0.60, "Width": w_cs, 
+                "db": cfg.get('cs_bot_db', 12), "spa": cfg.get('cs_bot_spa', 20)
+            },
+            {
+                "Name": "Middle Strip - Top (-)", 
+                "Mu": M_neg_design * 0.25, "Width": w_ms, 
+                "db": cfg.get('ms_top_db', 12), "spa": cfg.get('ms_top_spa', 20)
+            },
+            {
+                "Name": "Middle Strip - Bot (+)", 
+                "Mu": M_pos_design * 0.40, "Width": w_ms, 
+                "db": cfg.get('ms_bot_db', 12), "spa": cfg.get('ms_bot_spa', 20)
+            }
+        ]
+        
+        # 4. Process and Display
+        results = []
+        for z in zones:
+            res = calculate_capacity_check(z['Mu'], z['Width'], h_slab, cover, fc, fy, z['db'], z['spa'])
+            z.update(res)
+            results.append(z)
             
-        with col_d2:
-            st.subheader("🔵 Middle Strip (Bot)")
-            st.markdown("*Use 60% of Pos Moment*")
-            Mu_ms = M_pos_design * 0.60
-            b_ms = L2/2.0
-            Rn, rho, As, num = calc_rebar_show(Mu_ms, b_ms)
-            st.write(f"**Moment:** {Mu_ms:,.0f} kg-m")
-            st.latex(rf"A_s = {As:.2f} \, cm^2 \to \mathbf{{{num}-DB{d_bar}}}")
-            st.pyplot(draw_section_detail(b_ms*100, h_slab, num, d_bar, "MS Bot"))
+        # Display as Grid
+        c1, c2 = st.columns(2)
+        
+        for i, z in enumerate(results):
+            # Select Column
+            with (c1 if i % 2 == 0 else c2):
+                # Status Color
+                color = "green" if z['Pass'] else "red"
+                icon = "✅" if z['Pass'] else "❌"
+                
+                st.markdown(f"**{z['Name']}**")
+                st.info(f"Using: **DB{z['db']}@{z['spa']}cm**")
+                
+                # Plot Section
+                st.pyplot(draw_section_detail(z['Width']*100, h_slab, z['db'], z['spa'], z['Name']))
+                
+                # Metrics
+                m1, m2 = st.columns(2)
+                m1.write(f"$M_u$: {z['Mu']:,.0f}")
+                m2.write(f"$\\phi M_n$: {z['PhiMn']:,.0f}")
+                
+                # Check
+                st.write(f"Required $A_s$: {z['As_req']:.2f} cm² | Provided: {z['As_prov']:.2f} cm²")
+                st.markdown(f"Ratio: {z['Ratio']:.2f} ... :{color}[**{icon} { 'PASS' if z['Pass'] else 'FAIL' }**]")
+                st.divider()
+
+        # Summary Table
+        st.markdown("#### 📋 Summary Table")
+        df_res = pd.DataFrame(results)[['Name', 'Mu', 'PhiMn', 'As_req', 'As_prov', 'Ratio']]
+        st.dataframe(df_res.style.format("{:,.2f}"), use_container_width=True)
