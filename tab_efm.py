@@ -7,7 +7,7 @@ import matplotlib.patches as patches
 
 # พยายาม import calculations ถ้าไม่มีให้แจ้งเตือน (เพื่อป้องกัน App Crash)
 try:
-    import calculations as calc  # เชื่อมต่อกับ The Brain V2.0 / Core Calculation Module
+    import calculations as calc  # เชื่อมต่อกับ The Brain V2.0
 except ImportError:
     calc = None
 
@@ -28,7 +28,7 @@ plt.rcParams.update({
 
 def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
     """
-    Draws the Equivalent Frame Model (Spring Model) representation.
+    Draws the Equivalent Frame Model (Spring Model).
     """
     fig, ax = plt.subplots(figsize=(6, 2.5))
     
@@ -58,7 +58,7 @@ def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
 
 def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     """
-    Plots the Moment Diagram for the span with parabolic interpolation.
+    Plots the Moment Diagram for the span.
     """
     fig, ax = plt.subplots(figsize=(8, 3))
     x = np.linspace(0, L1, 200)
@@ -151,7 +151,6 @@ def draw_section_detail(b_cm, h_cm, db, spacing, title):
 def run_moment_distribution(FEM, DF_slab, iterations=4):
     """
     Simulate Hardy Cross Method (Simplified for single span demo).
-    Returns history DataFrame and final moments.
     """
     history = []
     
@@ -159,7 +158,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
     M_A = FEM   # CCW (+)
     M_B = -FEM  # CW (-)
     
-    history.append({"Step": "1. FEM (Initial)", "Joint A": M_A, "Joint B": M_B, "Description": "Fixed End Moments"})
+    history.append({"Step": "1. FEM", "Joint A": M_A, "Joint B": M_B, "Description": "Initial Load"})
     
     curr_unbal_A = M_A 
     curr_unbal_B = M_B
@@ -175,7 +174,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         history.append({
             "Step": f"Iter {i+1}: Balance", 
             "Joint A": bal_A, "Joint B": bal_B,
-            "Description": f"Bal = -M_unbal * {DF_slab:.3f}"
+            "Description": f"Bal = -M_unbal x {DF_slab:.3f}"
         })
         
         total_A += bal_A
@@ -188,7 +187,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         history.append({
             "Step": f"Iter {i+1}: Carry Over", 
             "Joint A": co_to_A, "Joint B": co_to_B,
-            "Description": "CO = M_bal * 0.5"
+            "Description": "CO = M_bal x 0.5"
         })
         
         total_A += co_to_A
@@ -198,7 +197,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
         curr_unbal_A = co_to_A
         curr_unbal_B = co_to_B
 
-    history.append({"Step": "🏁 SUM (Total)", "Joint A": total_A, "Joint B": total_B, "Description": "Final Design Moment"})
+    history.append({"Step": "🏁 SUM", "Joint A": total_A, "Joint B": total_B, "Description": "Total Moment"})
     return pd.DataFrame(history), total_A, total_B
 
 # ==========================================
@@ -206,7 +205,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
 # ==========================================
 def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spacing):
     """
-    Calculates As_req vs As_prov and checks capacity (USD Method).
+    Calculates As_req vs As_prov and checks capacity.
     """
     # Units: cm, kg, ksc
     b_cm = b_width_m * 100
@@ -222,7 +221,7 @@ def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spaci
     except ZeroDivisionError:
         Rn = 0
         
-    rho_req = 0.0018 # Min Temp
+    rho_req = 0.0018 # Min
     
     # Check if section can handle moment
     term = 1 - (2 * Rn) / (0.85 * fc)
@@ -291,7 +290,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
     # 1. Stiffness Calculations
     try:
-        # Calls external module for complex stiffness matrix
         Ks_val, Sum_Kc, Kt_val, Kec_val = calc.calculate_stiffness(
             c1_w, c2_w, L1, L2, lc, h_slab, fc, 
             h_drop=h_drop, drop_w=drop_w, drop_l=drop_l
@@ -670,7 +668,9 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
                     # Header
                     pass_status = "✅ PASS" if z['Pass'] else "❌ FAIL"
                     st.markdown(f"##### {z['Name']}")
-                    st.caption(f"Design Moment $M_u = \text{{Total}} \times {z['coeff']} = {z['Mu']:,.0f}$ kg-m")
+                    
+                    # --- FIXED LINE: Improved LaTeX formatting using raw string ---
+                    st.caption(rf"Design Moment: $M_u = M_{{total}} \times {z['coeff']} = {z['Mu']:,.0f}$ kg-m")
                     
                     # Visual
                     st.pyplot(draw_section_detail(z['Width']*100, h_slab, z['db'], z['spa'], z['Name']))
