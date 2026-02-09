@@ -1,3 +1,4 @@
+# tab_calc.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -98,8 +99,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     h_slab = mat_props['h_slab']
     cover = mat_props['cover']
     
-    # From Result Dictionary (Compatibility with new calculations.py)
-    # Use .get() with defaults to prevent KeyErrors inside the renderer too
+    # From Result Dictionary
     d = res.get('d', 0)
     b0 = res.get('b0', res.get('bo', 0)) # Handle alias
     beta = res.get('beta', 2.0)
@@ -192,11 +192,19 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
+        # [MODIFIED] Retrieve Factors & Calculate Loads for Display
+        f_dl = loads.get('factor_dl', 1.4)
+        f_ll = loads.get('factor_ll', 1.7)
+        
         h_m = h_slab / 100.0
         w_sw = h_m * 2400
         sdl = loads['SDL']
         ll = loads['LL']
-        wu_val = (1.2 * (w_sw + sdl)) + (1.6 * ll)
+        w_dead_total = w_sw + sdl
+        
+        # Note: wu_val below is recalculated for display verification, 
+        # normally we should match loads['w_u'] from the model.
+        wu_display = (f_dl * w_dead_total) + (f_ll * ll)
         
         # Load from Result
         vu = res.get('Vu', 0)
@@ -211,8 +219,12 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         
         with col_L:
             st.markdown('<div class="sub-header">A. Factored Shear Demand</div>', unsafe_allow_html=True)
-            st.write("Total Load ($w_u$):")
-            st.latex(fr"w_u = \mathbf{{{wu_val:,.0f}}} \text{{ kg/m}}^2")
+            st.write("Using Load Factors:")
+            
+            # Show formula with factors
+            st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL)")
+            st.latex(fr"w_u = {f_dl:.2f}(\underbrace{{{w_sw:.0f}}}_{{SW}} + \underbrace{{{sdl}}}_{{SDL}}) + {f_ll:.2f}({ll})")
+            st.latex(fr"w_u = \mathbf{{{wu_display:,.0f}}} \text{{ kg/m}}^2")
             
             if is_stress_check and Munbal > 10:
                 # STRESS BASED DISPLAY (Advanced)
@@ -301,8 +313,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.header("1. Punching Shear Analysis")
     
     # Logic: Check if result is Dual (with Drop Panel) or Single (No Drop Panel)
-    # If 'check_1' exists, it's Dual. If not, punch_res IS the data.
-    
     if punch_res.get('is_dual') or 'check_1' in punch_res:
         # --- DUAL CHECK (Drop Panel) ---
         tab1, tab2 = st.tabs(["Inner Section (Column)", "Outer Section (Drop Panel)"])
@@ -321,7 +331,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
                 render_punching_detailed(res_2, mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
         # --- SINGLE CHECK (Flat Plate) ---
-        # Passing punch_res directly because it is the flat dictionary containing 'd', 'Vu', etc.
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
     # --- 2. ONE-WAY SHEAR ---
@@ -361,6 +370,11 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
 
     with c_dem:
         render_step_header("B", "Demand Calculation (Vu)")
+        
+        # [MODIFIED] Use the real wu from loads dict to be consistent
+        w_u_val = loads.get('w_u', 0)
+        
+        st.write(f"Using $w_u = {w_u_val:,.0f}$ kg/m²")
         st.write(f"Critical section at d ({d_slab/100:.2f} m) from support")
         st.latex(r"V_u = w_u (L_{span}/2 - d)")
         st.latex(fr"V_u = \mathbf{{{vu_one:,.0f}}} \text{{ kg/m}}")
