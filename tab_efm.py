@@ -5,20 +5,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-# พยายาม import calculations ถ้าไม่มีให้แจ้งเตือน (เพื่อป้องกัน App Crash)
+# Try to import calculations module, handle gracefully if missing to prevent App Crash
 try:
-    import calculations as calc  # เชื่อมต่อกับ The Brain V2.0
+    import calculations as calc  # connects to The Brain V2.0 logic
 except ImportError:
     calc = None
 
 # --- Settings for Professional Plots ---
 plt.rcParams.update({
-    'font.family': 'sans-serif', 
+    'font.family': 'sans-serif',
     'font.size': 10,
-    'axes.spines.top': False, 
+    'axes.spines.top': False,
     'axes.spines.right': False,
-    'axes.grid': True, 
-    'grid.alpha': 0.3, 
+    'axes.grid': True,
+    'grid.alpha': 0.3,
     'figure.autolayout': True
 })
 
@@ -28,7 +28,7 @@ plt.rcParams.update({
 
 def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
     """
-    Draws the Equivalent Frame Model (Spring Model).
+    Draws the Equivalent Frame Model (Spring Model) diagram.
     """
     fig, ax = plt.subplots(figsize=(6, 2.5))
     
@@ -36,14 +36,14 @@ def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
     ax.axhline(0, color='black', linewidth=1) # Slab axis
     ax.plot([0, 0], [-1, 1], color='gray', linewidth=3, alpha=0.3) # Column axis
     
-    # Torsional Spring Symbol
+    # Torsional Spring Symbol (Schematic)
     ax.plot([0.2, 0.2], [-0.2, 0.2], color='orange', lw=2, linestyle='--')
     ax.text(0.25, 0, f"Torsion ($K_t$)\n{Kt/1e5:.1f}E5", color='orange', va='center', fontsize=8)
     
-    # Slab Stiffness
+    # Slab Stiffness Label
     ax.text(-0.5, 0.1, f"Slab ($K_s$)\n{Ks/1e5:.1f}E5", ha='center', color='blue', fontsize=8)
     
-    # Column Stiffness
+    # Column Stiffness Label
     ax.text(-0.1, 0.8, f"Col (Sum)\n{Sum_Kc/1e5:.1f}E5", ha='right', color='gray', fontsize=8)
     
     # Kec Indicator
@@ -58,7 +58,7 @@ def plot_stick_model(Ks, Sum_Kc, Kt, Kec):
 
 def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     """
-    Plots the Moment Diagram for the span.
+    Plots the Moment Diagram for the span with fill areas.
     """
     fig, ax = plt.subplots(figsize=(8, 3))
     x = np.linspace(0, L1, 200)
@@ -92,7 +92,7 @@ def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     ax.text(L1, -abs(M_neg_R), f"{abs(M_neg_R):,.0f}", ha='left', color='red', fontweight='bold', fontsize=9)
     ax.text(L1/2, M_pos, f"{M_pos:,.0f}", ha='center', va='bottom', color='blue', fontweight='bold', fontsize=9)
     
-    ax.invert_yaxis() # Moment diagram convention
+    ax.invert_yaxis() # Moment diagram convention (Positive down usually, but standard plot is up) - kept standard here for clarity
     ax.set_ylabel("Moment (kg-m)")
     ax.set_xlabel("Span (m)")
     ax.set_title("Design Moment Envelope (Face of Support)", fontweight='bold')
@@ -111,7 +111,7 @@ def draw_section_detail(b_cm, h_cm, db, spacing, title):
     dia_cm = db / 10.0
     
     # Determine Y position (Top or Bot)
-    if "Top" in title:
+    if "Top" in title or "(-)" in title:
         y_pos = h_cm - cover - dia_cm/2
     else:
         y_pos = cover + dia_cm/2
@@ -205,7 +205,7 @@ def run_moment_distribution(FEM, DF_slab, iterations=4):
 # ==========================================
 def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spacing):
     """
-    Calculates As_req vs As_prov and checks capacity.
+    Calculates As_req vs As_prov and checks capacity (USD Method).
     """
     # Units: cm, kg, ksc
     b_cm = b_width_m * 100
@@ -290,6 +290,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
     # 1. Stiffness Calculations
     try:
+        # Assuming calc.calculate_stiffness returns these 4 values
         Ks_val, Sum_Kc, Kt_val, Kec_val = calc.calculate_stiffness(
             c1_w, c2_w, L1, L2, lc, h_slab, fc, 
             h_drop=h_drop, drop_w=drop_w, drop_l=drop_l
@@ -310,7 +311,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     
     # 2. Moment Analysis
     w_line = w_u * L2 # Load per meter length of frame (kg/m)
-    FEM = w_line * L1**2 / 12
+    FEM = w_line * L1**2 / 12.0
     
     # Run Hardy Cross
     df_iter, M_final_L, M_final_R = run_moment_distribution(FEM, DF_slab)
@@ -474,8 +475,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** Structural Analysis Theory (Prismatic Beam Formulas)")
         st.write("Calculate the moment at supports assuming the joints are strictly fixed (no rotation).")
         
-        # Image placeholder removed to prevent syntax error
-
         # 1. Load Calculation
         w_line_val = w_u * L2  # kg/m (Line load)
         
@@ -523,7 +522,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** Cross, H. (1930). *Analysis of Continuous Frames.*")
         st.write("The distribution process follows these standard steps until convergence:")
         
-        # Corrected Markdown with \times
         st.markdown(r"""
         1.  **Unbalanced Moment ($M_{unb}$):** Sum of moments at the joint.
         2.  **Balancing Moment ($M_{bal}$):** Apply equal and opposite moment to restore equilibrium.
@@ -552,7 +550,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown(f"**1. Fixed End Moment:** $+{m_fem_left:,.0f}$ kg-m")
         st.markdown(f"**2. Balancing Moment:** $-({m_fem_left:,.0f}) = {m_bal_A:,.0f}$ kg-m")
         st.markdown("**3. Distribute to Slab:**")
-        # Corrected LaTeX with \times
         st.latex(rf"M_{{dist,slab}} = {m_bal_A:,.0f} \times {df_slab:.3f} = \mathbf{{{m_dist_slab_A:,.0f}}} \, kg\cdot m")
         
         # Create Detailed Dataframe
@@ -609,7 +606,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         
         st.info(f"✅ **Final Design Moments:**\n- Negative ($M^{{-}}$): **{M_face:,.0f}** kg-m\n- Positive ($M^{{+}}$): **{M_pos_final:,.0f}** kg-m")
     
- 
 
     # === TAB 3: DESIGN ===
     with tab3:
