@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 
 # Import Modules
-from calculations import FlatSlabDesign 
+try:
+    from calculations import FlatSlabDesign
+except ImportError:
+    st.error("ไม่พบไฟล์ calculations.py")
+    
 import tab_ddm  
 import tab_drawings 
 import tab_efm
@@ -51,7 +55,6 @@ with st.sidebar.expander("1. Material Properties", expanded=True):
     
     c3, c4 = st.columns(2)
     cover = c3.number_input("Cover (cm)", value=2.5)
-    # Note: Removed d_bar from here, moved to Group 4
     st.caption(f"d_eff approx: {h_slab - cover - 1.2:.1f} cm")
 
 # --- Group 2: Geometry ---
@@ -82,7 +85,7 @@ with st.sidebar.expander("2. Geometry & Span", expanded=False):
         drop_l = d2.number_input("Drop Length (cm)", value=200.0)
         use_drop_as_support = st.checkbox("Use Drop as Support?", value=False)
         
-    # --- [NEW] Opening ---
+    # --- Opening ---
     st.markdown("---")
     has_opening = st.checkbox("Add Opening near Column")
     open_w, open_dist = 0.0, 0.0
@@ -93,29 +96,31 @@ with st.sidebar.expander("2. Geometry & Span", expanded=False):
         open_w = c_op1.number_input("Opening Width (cm)", value=30.0, min_value=0.0)
         open_dist = c_op2.number_input("Dist. from Face (cm)", value=5.0, min_value=0.0)
 
-# --- Group 3: Loads ---
+# --- Group 3: Loads & Factors (UPDATED) ---
 with st.sidebar.expander("3. Design Loads & Factors", expanded=False):
-    # [UPDATED] Load Factors Inputs & Phi
-    st.markdown("**Load Factors & Strength Reduction:**")
-    c_f1, c_f2, c_f3 = st.columns(3)
-    factor_dl = c_f1.number_input("Factor DL", value=1.4, step=0.1, format="%.2f")
-    factor_ll = c_f2.number_input("Factor LL", value=1.7, step=0.1, format="%.2f")
-    # [EDITED] เพิ่มช่องกรอกค่า Phi เพื่อให้ link ตามต้องการ ไม่ fix 0.85
-    phi = c_f3.number_input("Phi (φ)", value=0.85, step=0.05, format="%.2f", help="Shear/Punching Strength Reduction Factor")
+    st.markdown("**Load Factors:**")
+    c_f1, c_f2 = st.columns(2)
+    factor_dl = c_f1.number_input("Fac. DL", value=1.4, step=0.1, format="%.2f")
+    factor_ll = c_f2.number_input("Fac. LL", value=1.7, step=0.1, format="%.2f")
+    
+    st.markdown("---")
+    st.markdown("**Strength Reduction (φ):**")
+    c_p1, c_p2 = st.columns(2)
+    # [FIX] แยกค่า Phi Shear และ Phi Bending
+    phi_shear = c_p1.number_input("φ Shear", value=0.85, step=0.05, format="%.2f", help="For Shear/Punching (0.75 or 0.85)")
+    phi_bend = c_p2.number_input("φ Bend", value=0.90, step=0.05, format="%.2f", help="For Flexure/Moment (0.90)")
     
     st.markdown("---")
     SDL = st.number_input("SDL (kg/m²)", value=150.0)
     LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
-# --- Group 4: Reinforcement Detailing (NEW) ---
-# นี่คือส่วนที่เพิ่มเข้ามาใหม่ เพื่อรวมการเลือกเหล็กไว้ที่หน้าแรก
+# --- Group 4: Reinforcement Detailing ---
 with st.sidebar.expander("4. Reinforcement Detailing", expanded=True):
     rebar_mode = st.radio("Selection Mode:", ["Uniform (Auto)", "Custom (Manual)"], horizontal=True)
     
     bar_opts = [9, 10, 12, 16, 20, 25]
     spa_opts = [10, 15, 20, 25, 30]
 
-    # ค่า Default เริ่มต้น
     cfg = {
         'cs_top_db': 12, 'cs_top_spa': 15,
         'cs_bot_db': 12, 'cs_bot_spa': 20,
@@ -128,14 +133,10 @@ with st.sidebar.expander("4. Reinforcement Detailing", expanded=True):
         main_db = c_r1.selectbox("Main Bar (mm)", bar_opts, index=2) # Default DB12
         main_spa = c_r2.selectbox("Spacing (cm)", spa_opts, index=2) # Default @20
         
-        # Apply to all
         for key in cfg:
             if 'db' in key: cfg[key] = main_db
             if 'spa' in key: cfg[key] = main_spa
             
-        # Specific override logic (optional): Top bars usually closer?
-        # For now, keep it simple (Uniform) as requested
-        
     else: # Custom Manual Mode
         st.markdown("**🟥 Column Strip**")
         c1, c2 = st.columns(2)
@@ -155,19 +156,18 @@ with st.sidebar.expander("4. Reinforcement Detailing", expanded=True):
         cfg['ms_bot_db'] = c7.selectbox("Bot Dia", bar_opts, index=2, key="msb_d")
         cfg['ms_bot_spa'] = c8.selectbox("Bot @", spa_opts, index=3, key="msb_s")
 
-    # ใช้ค่าเหล็กหลัก (CS Top) เป็นตัวแทนสำหรับการคำนวณ Punching/Shear เบื้องต้น
     d_bar = cfg['cs_top_db'] 
 
 # ==========================
-# 3. CONTROLLER LOGIC (Connect UI to Model)
+# 3. CONTROLLER LOGIC
 # ==========================
 
-# 3.1 Pack Inputs: รวบรวมค่าจากหน้าจอใส่กล่องเดียว
+# 3.1 Pack Inputs
 user_inputs = {
     "fc": fc, "fy": fy,
     "h_slab": h_slab, "cover": cover, 
-    "d_bar": d_bar, # ใช้ค่า Main Bar สำหรับการคำนวณ General
-    "rebar_cfg": cfg, # [NEW] ส่ง Config ละเอียดไปด้วย
+    "d_bar": d_bar,
+    "rebar_cfg": cfg,
     "Lx": Lx, "Ly": Ly,
     "cx": cx, "cy": cy,
     "lc": lc, "col_type": col_type,
@@ -175,30 +175,32 @@ user_inputs = {
     "h_drop": h_drop, "drop_w": drop_w, "drop_l": drop_l,
     "use_drop_as_support": use_drop_as_support,
     "SDL": SDL, "LL": LL,
-    # [NEW] Opening Inputs
     "open_w": open_w if has_opening else 0.0,
     "open_dist": open_dist if has_opening else 0.0,
-    # [EDITED] ส่งค่า Factor และ Phi เข้าไปใน user_inputs ด้วย เพื่อความชัวร์ในการเรียกใช้
+    
+    # [IMPORTANT] ส่งค่าแยกกันเพื่อความชัดเจน
     "factor_dl": factor_dl,
     "factor_ll": factor_ll,
-    "phi": phi
+    "phi": phi_bend,       # Key 'phi' ใช้สำหรับ Tab_DDM (Bending) ตามโค้ดเดิม
+    "phi_shear": phi_shear # Key 'phi_shear' ส่งเพิ่มเผื่อไว้ใช้
 }
 
-# 3.1.2 Pack Factors
+# 3.1.2 Pack Factors for Model
 load_factors = {
     'DL': factor_dl,
     'LL': factor_ll,
-    'phi': phi # ใส่ phi ไปใน dict factors ด้วย
+    'phi': phi_shear # สำหรับ Model (Punching) ให้ใช้ phi_shear เป็นหลัก
 }
 
-# 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ (พร้อม Factors)
+# 3.2 Initialize Model
+# หมายเหตุ: Model จะใช้ load_factors['phi'] (ซึ่งตอนนี้คือ shear) ไปคำนวณ Punching
 model = FlatSlabDesign(user_inputs, factors=load_factors)
 
-# 3.3 Execute: สั่งคำนวณทุกอย่าง
+# 3.3 Execute
 results = model.run_full_analysis()
 
 # ==========================
-# 4. DASHBOARD DISPLAY (VIEW)
+# 4. DASHBOARD DISPLAY
 # ==========================
 st.markdown("## 🏗️ ProFlat: Structural Analysis Dashboard")
 st.markdown("---")
@@ -219,7 +221,7 @@ def metric_card(label, value, status, subtext=""):
     </div>
     """, unsafe_allow_html=True)
 
-# Unpack results for Header Dashboard
+# Unpack results
 loads_res = results['loads']
 geo_res = results['geometry']
 shear_res = results['shear_oneway']
@@ -231,13 +233,13 @@ col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 with col_kpi1:
     status = punch_res.get('status', 'ERROR')
     ratio = punch_res.get('ratio', 0)
-    # Update Subtext to warn if Opening is used
     note_txt = punch_res.get('note', '')
-    metric_card("Punching Shear", f"{ratio:.2f}", status, note_txt)
+    # แสดงให้รู้ว่าใช้ Phi ตัวไหน
+    metric_card("Punching Shear", f"{ratio:.2f}", status, f"φ={phi_shear:.2f} | {note_txt}")
 
 with col_kpi2:
     status = shear_res['status']
-    metric_card("One-Way Shear", f"{shear_res['ratio']:.2f}", status, f"Critical at {shear_res['critical_dir']}")
+    metric_card("One-Way Shear", f"{shear_res['ratio']:.2f}", status, f"φ={phi_shear:.2f} | Critical at {shear_res['critical_dir']}")
 
 with col_kpi3:
     h_min = check_res['h_min']
@@ -245,7 +247,6 @@ with col_kpi3:
     metric_card("Deflection Control", f"L/33", status_def, f"Min: {h_min:.1f} cm | Actual: {h_slab:.0f} cm")
 
 with col_kpi4:
-    # แสดง Factors ที่ใช้จริงใน KPI Card
     subtext_factors = f"({factor_dl}D + {factor_ll}L)"
     metric_card("Factored Load (Wu)", f"{loads_res['w_u']:,.0f}", "INFO", subtext_factors)
 
@@ -259,7 +260,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["📐 Engineering Drawings", "📊 Calculation
 # --- TAB 1: DRAWINGS ---
 with tab1:
     drop_data = {"has_drop": has_drop, "width": drop_w, "length": drop_l, "depth": h_drop}
-    # ส่งค่าที่ Clean แล้วจาก Model ไปให้ module วาดรูป
     tab_drawings.render(
         L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover, 
         d_eff=geo_res['d_slab'], 
@@ -282,7 +282,7 @@ with tab2:
 
 # --- TAB 3: DDM ---
 with tab3:
-    # tab_ddm จะต้องถูกแก้ให้รับค่าจาก mat_props['rebar_cfg'] แทนการ selectbox เอง
+    # tab_ddm จะอ่านค่า 'phi' จาก user_inputs ซึ่งเรา map ไว้เป็น phi_bend แล้ว
     tab_ddm.render_dual(
         data_x=results['ddm']['x'], 
         data_y=results['ddm']['y'], 
