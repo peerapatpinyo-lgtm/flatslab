@@ -3,12 +3,11 @@ import numpy as np
 import math
 
 # ==========================================
-# HELPER: FLEXURAL DESIGN FUNCTION (UPDATED)
+# HELPER: FLEXURAL DESIGN FUNCTION
 # ==========================================
 def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
     """
     คำนวณปริมาณเหล็กเสริมรับแรงดัด (Slab Flexural Design)
-    Updated: รับค่า phi จากภายนอก (ไม่ Hardcode)
     """
     Mu_kgcm = abs(Mu_kgm) * 100.0 
 
@@ -77,13 +76,27 @@ class FlatSlabDesign:
     def __init__(self, inputs, factors=None):
         self.inputs = inputs
         
-        # --- [UPDATED] Load Factors & Phi Configuration ---
-        # ถ้าไม่มีการส่ง factors มา ให้ใช้ค่า default แบบกลางๆ
+        # --- [SAFETY CRITICAL] Load Factors & Phi Configuration ---
         if factors:
             self.factors = factors
+            # Auto-detect Code Standard based on Live Load Factor
+            # Modern Code (ACI 318-02+): 1.6 LL -> Phi Shear = 0.75
+            # Old Code (ACI 318-99/EIT): 1.7 LL -> Phi Shear = 0.85
+            if self.factors.get('LL', 1.7) < 1.65:
+                self.factors['phi_shear'] = 0.75
+                self.factors['phi_flexure'] = 0.90
+                self.factors['code_ref'] = "ACI 318 Modern (phi=0.75)"
+            else:
+                self.factors['phi_shear'] = 0.85
+                self.factors['phi_flexure'] = 0.90
+                self.factors['code_ref'] = "ACI 318-99/EIT (phi=0.85)"
         else:
             # Default fallback (Old EIT style as safety base)
-            self.factors = {'DL': 1.4, 'LL': 1.7, 'phi_shear': 0.85, 'phi_flexure': 0.90}
+            self.factors = {
+                'DL': 1.4, 'LL': 1.7, 
+                'phi_shear': 0.85, 'phi_flexure': 0.90,
+                'code_ref': "Default"
+            }
 
         self.Lx = inputs.get('Lx', 8.0)
         self.Ly = inputs.get('Ly', 6.0)
@@ -107,7 +120,7 @@ class FlatSlabDesign:
     def _calculate_loads(self):
         w_self = (self.h_slab / 100.0) * 2400
         
-        # --- [UPDATED] Use Dynamic Factors ---
+        # --- Use Dynamic Factors ---
         f_dl = self.factors.get('DL', 1.4)
         f_ll = self.factors.get('LL', 1.7)
         
@@ -314,7 +327,7 @@ class FlatSlabDesign:
             "shear_punching": punch_res,
             "ddm": ddm_res,
             "efm": efm_res,
-            "checks": {"h_min": h_min, "deflection": deflection_res}
+            "checks": {"h_min": h_min, "deflection": deflection_res, "code_ref": self.factors.get('code_ref', '-')}
         }
 
 # ==========================================
