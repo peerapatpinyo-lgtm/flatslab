@@ -1,4 +1,3 @@
-# tab_calc.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -192,17 +191,20 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # [UPDATED] Retrieve Factors & Phi (Link to Input)
-        # Priority: mat_props (from user input) -> loads -> default
+        # Retrieve Factors
         f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
         f_ll = mat_props.get('factor_ll', loads.get('factor_ll', 1.7))
         
-        # [UPDATED] Use User Input Phi if available
-        if 'phi' in mat_props:
+        # [CRITICAL UPDATE] Explicitly get phi_shear
+        # Priority: phi_shear -> phi (generic) -> default based on load factors
+        if 'phi_shear' in mat_props:
+            phi = mat_props['phi_shear']
+            std_ref = f"User Input (φ_shear={phi})"
+        elif 'phi' in mat_props:
             phi = mat_props['phi']
             std_ref = f"User Input (φ={phi})"
         else:
-            # Fallback Logic if 'phi' not found
+            # Fallback
             if f_dl < 1.3:
                 phi = 0.75
                 std_ref = "ACI 318-05+"
@@ -256,9 +258,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 st.latex(r"\phi v_c = \phi \times \min(\text{Eq1, Eq2, Eq3})")
                 
                 # Recalculate v_allow using the linked phi to ensure display consistency
-                # (Note: v_allow from res might be pre-calculated, so we double check)
-                v_c_stress = vc_min / (b0*d) # approx
-                # We use the value from result but show phi
+                # (Note: v_allow from res might be pre-calculated, so we double check consistency here if needed)
+                # But typically we trust the result passed in. Just showing phi for clarity.
                 
                 st.latex(fr"\phi v_c = {phi} \times v_{{c,nom}} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
                 
@@ -286,24 +287,16 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         with col_R:
             status = res.get('status', 'N/A')
             # Re-evaluate status based on linked phi to be safe
-            if demand_val <= capacity_val:
-                status = "PASS"
-                passed = True
-            else:
-                status = "FAIL"
-                passed = False
-                
-            passed = status == "OK" or status == "PASS"
-            status_text = "PASS" if passed else "FAIL"
-            color_vu = "black" if passed else "red"
-            operator = r"\leq" if passed else ">"
-            cls = "pass" if passed else "fail"
-            
-            # Recalculate ratio for display
             if capacity_val > 0:
                 ratio = demand_val / capacity_val
             else:
                 ratio = 999
+            
+            passed = demand_val <= capacity_val
+            status_text = "PASS" if passed else "FAIL"
+            color_vu = "black" if passed else "red"
+            operator = r"\leq" if passed else ">"
+            cls = "pass" if passed else "fail"
             
             st.markdown(f"""
             <div class="verdict-box {cls}">
@@ -327,11 +320,20 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     inject_custom_css()
     
     st.title("📑 Detailed Calculation Report")
-    st.caption("Reference: ACI 318 / EIT Standard (Method of Limit States)")
+    
+    # Check if Phi values are present to show in header
+    p_shear = mat_props.get('phi_shear')
+    p_bend = mat_props.get('phi_bend')
+    
+    ref_text = "Reference: ACI 318 / EIT Standard"
+    if p_shear and p_bend:
+        ref_text += f" | Factors: φ_shear={p_shear}, φ_bend={p_bend}"
+    
+    st.caption(ref_text)
     st.markdown("---")
     
     # -----------------------------------------------------
-    # PRE-CALCULATION FOR NEW CHECKS
+    # PRE-CALCULATION
     # -----------------------------------------------------
     h_slab = mat_props['h_slab']
     fc = mat_props['fc']
@@ -342,7 +344,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     # Check Long Term Deflection
     res_deflection = check_long_term_deflection(w_service, max(Lx, Ly), h_slab, fc, res_min_rebar['As_min'])
 
-    # --- 1. PUNCHING SHEAR (FIXED KEYERROR) ---
+    # --- 1. PUNCHING SHEAR ---
     st.header("1. Punching Shear Analysis")
     
     # Logic: Check if result is Dual (with Drop Panel) or Single (No Drop Panel)
@@ -385,10 +387,12 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
     bw = 100.0
     
-    # [UPDATED] Link Phi to User Input (mat_props)
+    # [CRITICAL UPDATE] Explicitly get phi_shear for One-Way
     f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
     
-    if 'phi' in mat_props:
+    if 'phi_shear' in mat_props:
+        phi_shear = mat_props['phi_shear']
+    elif 'phi' in mat_props:
         phi_shear = mat_props['phi']
     elif f_dl < 1.3:
         phi_shear = 0.75
@@ -414,7 +418,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     with c_dem:
         render_step_header("B", "Demand Calculation (Vu)")
         
-        # [MODIFIED] Use the real wu from loads dict to be consistent
+        # Use the real wu from loads dict to be consistent
         w_u_val = loads.get('w_u', 0)
         
         st.write(f"Using $w_u = {w_u_val:,.0f}$ kg/m²")
@@ -474,7 +478,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
             
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 4. ADVANCED SERVICEABILITY (NEW SECTION) ---
+    # --- 4. ADVANCED SERVICEABILITY ---
     st.header("4. Advanced Serviceability & Detailing")
     
     # 4.1 Long Term Deflection
