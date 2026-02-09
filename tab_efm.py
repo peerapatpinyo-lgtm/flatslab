@@ -349,67 +349,61 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     tab1, tab2, tab3 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design"])
 
 
+
     # === TAB 1: STIFFNESS CALCULATIONS ===
     with tab1:
-        st.subheader("1. การคำนวณค่าสติฟเนส (Stiffness Parameters)")
-        st.caption("Reference: ACI 318 Equivalent Frame Method (EFM) - Elastic Analysis")
+        st.subheader("1. Stiffness Matrix Calculations")
+        st.caption("Methodology: ACI 318-19 Equivalent Frame Method (EFM) & Elastic Analysis")
         
         # --- 1.1 Material Properties ---
-        st.markdown("#### 1.1 คุณสมบัติวัสดุ (Material Properties)")
-        col_mat1, col_mat2 = st.columns(2)
+        st.markdown("#### 1.1 Material Properties")
+        st.markdown("**Reference:** ACI 318-19 Section 19.2.2 (Modulus of Elasticity)")
+        
+        col_mat1, col_mat2 = st.columns([1, 2])
+        
+        # Calculation
+        Ec_calc = 15100 * np.sqrt(fc) # ksc unit
+        
         with col_mat1:
-            st.write(f"**Concrete Strength ($f_c'$):** {fc} ksc")
-            st.write(f"**Modulus of Elasticity ($E_c$):**")
-        
-        # Formula for Ec (ACI 318 / EIT)
-        # Ec = 15100 sqrt(fc') for ksc unit
-        Ec_calc = 15100 * np.sqrt(fc)
-        
+            st.write(f"**Concrete Strength ($f_c'$):**")
+            st.write(f"**Modulus ($E_c$):**")
         with col_mat2:
-            st.latex(rf"E_c = 15,100 \sqrt{{f_c'}}")
-            st.latex(rf"E_c = 15,100 \sqrt{{{fc}}} = \mathbf{{{Ec_calc:,.0f}}} \, ksc")
+            st.write(f"{fc} ksc")
+            st.latex(rf"E_c = 15,100 \sqrt{{f_c'}} = 15,100 \sqrt{{{fc}}} = \mathbf{{{Ec_calc:,.0f}}} \, ksc")
         
         st.divider()
 
         # --- 1.2 Column Stiffness (Kc) ---
-        st.markdown("#### 1.2 สติฟเนสของเสา (Column Stiffness, $K_c$)")
-        st.markdown(r"""
-        พิจารณาโมเมนต์ความเฉื่อย ($I_c$) ของหน้าตัดเสา และความยาวเสา ($l_c$)
-        โดย $K_c$ คำนวณจากสูตรพื้นฐานสำหรับปลายยึดแน่น (Far End Fixed):
-        """)
+        st.markdown("#### 1.2 Column Stiffness ($K_c$)")
+        st.markdown("**Reference:** ACI 318-19 Section 8.11.3 (Column Moments) / Mechanics of Materials")
+        st.write("Stiffness of the column member assuming fixed far ends (standard frame assumption).")
         
-        # Prepare variables for display
-        lc_cm = lc * 100  # m to cm
-        Ic_val = (c2_w * c1_w**3) / 12  # cm4 (c1 is usually the dimension in bending direction)
-        
-        # Display Column Section Calculation
-        c_k1, c_k2 = st.columns([1, 1.5])
-        with c_k1:
-            st.info(f"**Column Dim:** {c1_w}x{c2_w} cm\n\n**Height ($l_c$):** {lc} m")
-        with c_k2:
-            st.latex(rf"I_c = \frac{{b h^3}}{{12}} = \frac{{{c2_w} \cdot {c1_w}^3}}{{12}} = {Ic_val:,.0f} \, cm^4")
-            
-        st.write("คำนวณค่า Stiffness ($K_c$):")
-        
-        # Kc Calculation Display
-        # Note: The actual Sum_Kc comes from calc.calculate_stiffness which might include rigid arm effects
-        # Here we show the base formula verification
+        # Variables
+        lc_cm = lc * 100
+        Ic_val = (c2_w * c1_w**3) / 12  
         Kc_theory = (4 * Ec_calc * Ic_val) / lc_cm
         
-        st.latex(rf"K_{{c,theory}} = \frac{{4 E_c I_c}}{{l_c}} = \frac{{4 \cdot {Ec_calc:,.0f} \cdot {Ic_val:,.0f}}}{{{lc_cm}}} \approx {Kc_theory:,.0f} \, kg\cdot cm")
-        
-        st.markdown(f"""
-        > **Note:** ค่าที่ใช้จริงรวมผลรวมของเสาต้นบนและต้นล่าง ($\Sigma K_c$) 
-        > และอาจมีการปรับแก้กรณี Joint มีความหนา (Rigid Arm Correction)
-        """)
-        st.success(f"📌 **Result:** $\Sigma K_c$ (Total) = **{Sum_Kc/1e5:.3f} $\times 10^5$** kg-cm")
+        c_k1, c_k2 = st.columns([1, 1.5])
+        with c_k1:
+            st.info(f"**Geometry:**\n- Width ($c_2$): {c2_w} cm\n- Depth ($c_1$): {c1_w} cm\n- Height ($l_c$): {lc_cm} cm")
+        with c_k2:
+            st.markdown("**A) Moment of Inertia ($I_c$):**")
+            st.latex(rf"I_c = \frac{{c_2 c_1^3}}{{12}} = \frac{{{c2_w} \cdot {c1_w}^3}}{{12}} = {Ic_val:,.0f} \, cm^4")
+            
+            st.markdown("**B) Stiffness ($K_c$):**")
+            st.latex(rf"K_c = \frac{{4 E_c I_c}}{{l_c}} = \frac{{4 \cdot {Ec_calc:,.0f} \cdot {Ic_val:,.0f}}}{{{lc_cm}}} \approx {Kc_theory:,.0f} \, kg\cdot cm")
+
+        st.warning(f"👉 **Total Column Stiffness ($\Sigma K_c$):** Sum of stiffnesses for columns above and below the slab.")
+        st.latex(rf"\Sigma K_c = \mathbf{{{Sum_Kc/1e5:.3f} \times 10^5}} \, kg\cdot cm")
 
         st.divider()
 
         # --- 1.3 Slab Stiffness (Ks) ---
-        st.markdown("#### 1.3 สติฟเนสของพื้น (Slab Stiffness, $K_s$)")
-        st.write(f"พิจารณาความกว้างแถบพื้น ($L_2$) และความหนา ($h$):")
+        st.markdown("#### 1.3 Slab Stiffness ($K_s$)")
+        st.markdown("**Reference:** ACI 318-19 Section 8.11.4 (Slab Moment of Inertia)")
+        st.write("Stiffness of the slab-beam element based on gross section properties.")
         
+        # Variables
         L1_cm = L1 * 100
         L2_cm = L2 * 100
         Is_val = (L2_cm * h_slab**3) / 12
@@ -417,54 +411,60 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         
         s_k1, s_k2 = st.columns([1, 1.5])
         with s_k1:
-            st.write(f"- Span $L_1 = {L1}$ m")
-            st.write(f"- Width $L_2 = {L2}$ m")
-            st.write(f"- Thickness $h = {h_slab}$ cm")
+            st.info(f"**Geometry:**\n- Span ($L_1$): {L1_cm} cm\n- Width ($L_2$): {L2_cm} cm\n- Thickness ($h$): {h_slab} cm")
         with s_k2:
+            st.markdown("**A) Moment of Inertia ($I_s$):**")
             st.latex(rf"I_s = \frac{{L_2 h^3}}{{12}} = \frac{{{L2_cm:.0f} \cdot {h_slab}^3}}{{12}} = {Is_val:,.0f} \, cm^4")
-        
-        st.write("แทนค่าในสูตร Stiffness ของพื้น:")
-        st.latex(rf"K_s = \frac{{4 E_c I_s}}{{L_1}} = \frac{{4 \cdot {Ec_calc:,.0f} \cdot {Is_val:,.0f}}}{{{L1_cm}}} \approx {Ks_theory:,.0f} \, kg\cdot cm")
+            
+            st.markdown("**B) Stiffness ($K_s$):**")
+            st.latex(rf"K_s = \frac{{4 E_c I_s}}{{L_1}} = \frac{{4 \cdot {Ec_calc:,.0f} \cdot {Is_val:,.0f}}}{{{L1_cm}}} \approx {Ks_theory:,.0f} \, kg\cdot cm")
         
         st.success(f"📌 **Result:** $K_s$ (Slab) = **{Ks_val/1e5:.3f} $\times 10^5$** kg-cm")
 
         st.divider()
 
         # --- 1.4 Equivalent Stiffness (Kec) ---
-        st.markdown("#### 1.4 สติฟเนสเทียบเท่า (Equivalent Stiffness, $K_{ec}$)")
-        st.markdown(r"""
-        ในวิธี EFM จุดต่อระหว่างพื้นและเสาไม่ได้เป็น Rigid 100% แต่มีความยืดหยุ่นจากการบิดตัว (Torsion) 
-        จึงต้องรวมผลของ Torsional Member ($K_t$) เข้ากับเสา ($K_c$)
+        st.markdown("#### 1.4 Equivalent Stiffness ($K_{ec}$)")
+        st.markdown("**Reference:** ACI 318-19 Section 8.11.5 (Equivalent Column)")
+        st.markdown("""
+        In the Equivalent Frame Method, the column stiffness is reduced to account for the torsional flexibility 
+        of the slab-to-column connection.
         """)
         
-        # Torsional Stiffness Kt (Show Formula Only implies complexity)
+        
+        # Torsional Stiffness Kt
         st.markdown("**1) Torsional Stiffness ($K_t$):**")
-        st.caption("คำนวณโดยพิจารณาส่วนของพื้นทียื่นออกมาด้านข้างเสา (Torsional member)")
-        st.latex(r"K_t = \sum \frac{9 E_{cs} C}{L_2 (1 - c_2/L_2)^3}")
-        st.code(f"Calculated Kt = {Kt_val:,.0f} kg-cm", language="markdown")
+        st.caption("Represents the torsional resistance of the slab strip attached to the column.")
+        st.latex(r"K_t = \sum \frac{9 E_{cs} C}{L_2 (1 - c_2/L_2)^3} \quad \text{[ACI 318 Eq. 8.11.5]}")
+        st.code(f"Calculated Kt = {Kt_val:,.0f} kg-cm (Computed internally)", language="markdown")
         
+        # Equivalent Stiffness Kec
         st.markdown("**2) Combine to Equivalent Stiffness ($K_{ec}$):**")
-        st.markdown("รวมความอ่อนตัว (Flexibility) ของเสาและส่วนรับแรงบิด:")
+        st.write("Series combination of Column Stiffness ($\Sigma K_c$) and Torsional Stiffness ($K_t$):")
         
+        # Formula
         st.latex(r"\frac{1}{K_{ec}} = \frac{1}{\Sigma K_c} + \frac{1}{K_t}")
         
-        # Substitution Display
+        # Substitution
         st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{{Sum_Kc:,.0f}}} + \frac{{1}}{{{Kt_val:,.0f}}}")
         
-        # Final Calculation Check
-        inv_Kec = (1/Sum_Kc + 1/Kt_val)
-        Kec_check = 1/inv_Kec if inv_Kec > 0 else 0
-        
+        # Result
         st.latex(rf"K_{{ec}} = \mathbf{{{Kec_val/1e5:.3f} \times 10^5}} \, kg\cdot cm")
         
-        # Summary Box for Step 1
-        st.info(f"""
-        **สรุปค่าสำหรับนำไปกระจายโมเมนต์ (Step 2):**
-        * Stiffness ของพื้น ($K_s$) = {Ks_val:,.0f} kg-cm
-        * Stiffness เทียบเท่าของเสา ($K_{{ec}}$) = {Kec_val:,.0f} kg-cm
-        * **Distribution Factor (DF):** {Ks_val / (Ks_val + Kec_val):.3f}
-        """)
+        # --- Summary for Next Step ---
+        st.markdown("---")
+        st.markdown("#### 🏁 Final Distribution Factors (DF)")
+        st.caption("These factors determine how the unbalanced moment is distributed between Slab and Column.")
+        
+        df_calc_disp = Ks_val / (Ks_val + Kec_val)
+        
+        col_res1, col_res2 = st.columns(2)
+        with col_res1:
+            st.latex(r"DF_{slab} = \frac{K_s}{K_s + K_{ec}}")
+        with col_res2:
+            st.latex(rf"DF_{{slab}} = \frac{{{Ks_val:.0f}}}{{{Ks_val:.0f} + {Kec_val:.0f}}} = \mathbf{{{df_calc_disp:.3f}}}")
 
+    
     # === TAB 2: MOMENT ===
     with tab2:
         st.subheader("2. Moment Distribution Analysis")
