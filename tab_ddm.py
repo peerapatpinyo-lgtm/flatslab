@@ -186,7 +186,10 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 
     with step3:
         st.markdown("**3.1 Provided Reinforcement ($A_{s,prov}$)**")
-        st.write(f"เลือกใช้: **DB{db} @ {s:.0f} cm**")
+        # [MODIFIED] Logic for RB/DB name
+        bar_prefix = "RB" if db == 9 else "DB"
+        st.write(f"เลือกใช้: **{bar_prefix}{db} @ {s:.0f} cm**")
+        
         bar_area = 3.1416 * (db/10)**2 / 4
         st.latex(f"A_{{s,prov}} = \\frac{{{b*100:.0f}}}{{{s:.0f}}} \\cdot {bar_area:.2f} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
         
@@ -358,6 +361,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     
     col_cs, gap, col_ms = st.columns([1, 0.05, 1])
     
+    # [MODIFIED] Added 9mm to all lists below
     # --- CS ---
     with col_cs:
         st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
@@ -366,13 +370,13 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_cs_neg']:,.0f}):**")
         c1, c2 = st.columns(2)
-        d_cst = c1.selectbox("DB", [10,12,16,20,25], 2, key=f"d_cst_{axis_id}", label_visibility="collapsed")
+        d_cst = c1.selectbox("Bar", [9,10,12,16,20,25], 3, key=f"d_cst_{axis_id}", label_visibility="collapsed") # Index 3 is 16mm
         s_cst = c2.selectbox("@", [10,15,20,25,30], 2, key=f"s_cst_{axis_id}", label_visibility="collapsed")
         
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_cs_pos']:,.0f}):**")
         c1, c2 = st.columns(2)
-        d_csb = c1.selectbox("DB", [10,12,16,20,25], 1, key=f"d_csb_{axis_id}", label_visibility="collapsed")
+        d_csb = c1.selectbox("Bar", [9,10,12,16,20,25], 2, key=f"d_csb_{axis_id}", label_visibility="collapsed") # Index 2 is 12mm
         s_csb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_csb_{axis_id}", label_visibility="collapsed")
 
     # --- MS ---
@@ -383,13 +387,13 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_ms_neg']:,.0f}):**")
         c1, c2 = st.columns(2)
-        d_mst = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_mst_{axis_id}", label_visibility="collapsed")
+        d_mst = c1.selectbox("Bar", [9,10,12,16,20,25], 1, key=f"d_mst_{axis_id}", label_visibility="collapsed") # Index 1 is 10mm
         s_mst = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_mst_{axis_id}", label_visibility="collapsed")
         
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_ms_pos']:,.0f}):**")
         c1, c2 = st.columns(2)
-        d_msb = c1.selectbox("DB", [10,12,16,20,25], 0, key=f"d_msb_{axis_id}", label_visibility="collapsed")
+        d_msb = c1.selectbox("Bar", [9,10,12,16,20,25], 1, key=f"d_msb_{axis_id}", label_visibility="collapsed") # Index 1 is 10mm
         s_msb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_msb_{axis_id}", label_visibility="collapsed")
 
     # --- CALCULATION LOOP ---
@@ -439,7 +443,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         st.markdown("---")
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        rebar_map = {r['PlotKey']: f"DB{r['db']}@{r['s']:.0f}" for r in results}
+        # [MODIFIED] Logic for RB/DB name in Plots
+        rebar_map = {
+            r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" 
+            for r in results
+        }
         
         with t1:
             st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
