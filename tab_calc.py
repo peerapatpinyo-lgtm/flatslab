@@ -257,10 +257,6 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 st.write(f"Ref: {std_ref}")
                 st.latex(r"\phi v_c = \phi \times \min(\text{Eq1, Eq2, Eq3})")
                 
-                # Recalculate v_allow using the linked phi to ensure display consistency
-                # (Note: v_allow from res might be pre-calculated, so we double check consistency here if needed)
-                # But typically we trust the result passed in. Just showing phi for clarity.
-                
                 st.latex(fr"\phi v_c = {phi} \times v_{{c,nom}} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
                 
                 # Setup vars for verdict
@@ -368,7 +364,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         # --- SINGLE CHECK (Flat Plate) ---
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
-    # --- 2. ONE-WAY SHEAR ---
+    # --- 2. ONE-WAY SHEAR (FIXED) ---
     st.header("2. One-Way Shear Analysis")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
@@ -384,11 +380,16 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     # Prep Data
     fc = mat_props['fc']
     sqrt_fc = math.sqrt(fc)
-    d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
+    
+    # --- [FIXED] CALCULATE Wu & Vu EXPLICITLY ---
+    # 1. Geometry
+    d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0 # cm
+    d_meter = d_slab / 100.0
     bw = 100.0
     
-    # [CRITICAL UPDATE] Explicitly get phi_shear for One-Way
+    # 2. Factors
     f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
+    f_ll = mat_props.get('factor_ll', loads.get('factor_ll', 1.7))
     
     if 'phi_shear' in mat_props:
         phi_shear = mat_props['phi_shear']
@@ -399,9 +400,22 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     else:
         phi_shear = 0.85
     
+    # 3. Calculate Wu (Load Factors)
+    # Convert Slab H to meters for weight calc
+    h_m_one = mat_props['h_slab'] / 100.0
+    w_sw_one = h_m_one * 2400
+    w_sdl_one = loads['SDL']
+    w_ll_one = loads['LL']
+    
+    # Explicit Calculation of Wu
+    wu_calc = (f_dl * (w_sw_one + w_sdl_one)) + (f_ll * w_ll_one)
+    
+    # 4. Calculate Vu at critical section d
+    vu_one_calc = wu_calc * ((ln_select / 2) - d_meter)
+    
+    # 5. Capacity
     vc_nominal = 0.53 * sqrt_fc * bw * d_slab
     phi_vc = phi_shear * vc_nominal
-    vu_one = v_oneway_res.get('Vu', 0)
     
     c_cap, c_dem = st.columns(2)
     
@@ -418,25 +432,29 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     with c_dem:
         render_step_header("B", "Demand Calculation (Vu)")
         
-        # Use the real wu from loads dict to be consistent
-        w_u_val = loads.get('w_u', 0)
+        # Display derivation of Wu so user sees where it comes from
+        st.write("Load Calculation:")
+        st.latex(fr"w_u = {f_dl:.2f}({w_sw_one:.0f}_{{sw}}+{w_sdl_one}_{{sdl}}) + {f_ll:.2f}({w_ll_one}_{{ll}})")
+        st.latex(fr"w_u = \mathbf{{{wu_calc:,.0f}}} \text{{ kg/m}}^2")
         
-        st.write(f"Using $w_u = {w_u_val:,.0f}$ kg/m²")
-        st.write(f"Critical section at d ({d_slab/100:.2f} m) from support")
+        st.write(f"Critical section at d ({d_meter:.2f} m) from support")
         st.latex(r"V_u = w_u (L_{span}/2 - d)")
-        st.latex(fr"V_u = \mathbf{{{vu_one:,.0f}}} \text{{ kg/m}}")
         
-        color_vu_one = "black" if vu_one <= phi_vc else "red"
-        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one:,.0f}}}}} \text{{ kg/m}}")
+        # Show formula with values
+        st.latex(fr"V_u = {wu_calc:,.0f} \left(\frac{{{ln_select:.2f}}}{{2}} - {d_meter:.2f}\right)")
+        
+        # Use the calculated Vu, not the one from the dict which might be 0
+        color_vu_one = "black" if vu_one_calc <= phi_vc else "red"
+        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one_calc:,.0f}}}}} \text{{ kg/m}}")
     
     st.markdown("---")
     
-    passed_one = vu_one <= phi_vc
+    passed_one = vu_one_calc <= phi_vc
     op_one = r"\leq" if passed_one else ">"
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
     
-    st.markdown(f"**Conclusion:** $V_u$ ({vu_one:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"**Conclusion:** $V_u$ ({vu_one_calc:,.0f}) ${op_one}$ $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 3. DEFLECTION (Initial L/33) ---
@@ -519,12 +537,17 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     render_step_header("B", "Minimum Reinforcement (Temp & Shrinkage)")
     
     req_as = res_min_rebar['As_min']
-    bar_dia = mat_props['d_bar']
+    
+    # Fallback if d_bar is not in mat_props
+    bar_dia = mat_props.get('d_bar', 12.0)
     
     # Calculate spacing
     area_bar = 3.1416 * (bar_dia/10/2)**2
-    spacing = (area_bar / req_as) * 100
-    
+    if req_as > 0:
+        spacing = (area_bar / req_as) * 100
+    else:
+        spacing = 30 # Default max spacing
+        
     st.latex(r"A_{s,min} = 0.0018 b h")
     st.latex(fr"A_{{s,min}} = \mathbf{{{req_as:.2f}}} \text{{ cm}}^2/\text{{m}}")
     
