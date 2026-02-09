@@ -73,8 +73,16 @@ class FlatSlabDesign:
     Class นี้ทำหน้าที่เป็น 'Engineering Logic Controller'
     รวบรวม Logic การคำนวณทั้งหมด
     """
-    def __init__(self, inputs):
+    def __init__(self, inputs, factors=None):
         self.inputs = inputs
+        
+        # --- [UPDATED] Load Factors Configuration ---
+        # ถ้าไม่มีการส่ง factors มา ให้ใช้ค่า default เดิม (1.4, 1.7)
+        if factors:
+            self.factors = factors
+        else:
+            self.factors = {'DL': 1.4, 'LL': 1.7}
+
         self.Lx = inputs.get('Lx', 8.0)
         self.Ly = inputs.get('Ly', 6.0)
         self.cx = inputs.get('cx', 40.0)
@@ -96,9 +104,12 @@ class FlatSlabDesign:
 
     def _calculate_loads(self):
         w_self = (self.h_slab / 100.0) * 2400
-        # NOTE: Using 1.4D + 1.7L (EIT/Old ACI). 
-        # For ACI 318-19, change to: 1.2 * (w_self + SDL) + 1.6 * LL
-        w_u = 1.4 * (w_self + self.inputs['SDL']) + 1.7 * self.inputs['LL']
+        
+        # --- [UPDATED] Use Dynamic Factors ---
+        f_dl = self.factors.get('DL', 1.4)
+        f_ll = self.factors.get('LL', 1.7)
+        
+        w_u = f_dl * (w_self + self.inputs['SDL']) + f_ll * self.inputs['LL']
         return w_u
     
     def _calculate_service_load(self):
