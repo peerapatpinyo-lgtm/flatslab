@@ -95,11 +95,13 @@ with st.sidebar.expander("2. Geometry & Span", expanded=False):
 
 # --- Group 3: Loads ---
 with st.sidebar.expander("3. Design Loads & Factors", expanded=False):
-    # [UPDATED] Load Factors Inputs
-    st.markdown("**Load Factors:**")
-    c_f1, c_f2 = st.columns(2)
+    # [UPDATED] Load Factors Inputs & Phi
+    st.markdown("**Load Factors & Strength Reduction:**")
+    c_f1, c_f2, c_f3 = st.columns(3)
     factor_dl = c_f1.number_input("Factor DL", value=1.4, step=0.1, format="%.2f")
     factor_ll = c_f2.number_input("Factor LL", value=1.7, step=0.1, format="%.2f")
+    # [EDITED] เพิ่มช่องกรอกค่า Phi เพื่อให้ link ตามต้องการ ไม่ fix 0.85
+    phi = c_f3.number_input("Phi (φ)", value=0.85, step=0.05, format="%.2f", help="Shear/Punching Strength Reduction Factor")
     
     st.markdown("---")
     SDL = st.number_input("SDL (kg/m²)", value=150.0)
@@ -175,13 +177,18 @@ user_inputs = {
     "SDL": SDL, "LL": LL,
     # [NEW] Opening Inputs
     "open_w": open_w if has_opening else 0.0,
-    "open_dist": open_dist if has_opening else 0.0
+    "open_dist": open_dist if has_opening else 0.0,
+    # [EDITED] ส่งค่า Factor และ Phi เข้าไปใน user_inputs ด้วย เพื่อความชัวร์ในการเรียกใช้
+    "factor_dl": factor_dl,
+    "factor_ll": factor_ll,
+    "phi": phi
 }
 
 # 3.1.2 Pack Factors
 load_factors = {
     'DL': factor_dl,
-    'LL': factor_ll
+    'LL': factor_ll,
+    'phi': phi # ใส่ phi ไปใน dict factors ด้วย
 }
 
 # 3.2 Initialize Model: ส่งค่าเข้า Class คำนวณ (พร้อม Factors)
