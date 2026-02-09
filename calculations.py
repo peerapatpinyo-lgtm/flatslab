@@ -3,14 +3,14 @@ import numpy as np
 import math
 
 # ==========================================
-# HELPER: FLEXURAL DESIGN FUNCTION
+# HELPER: FLEXURAL DESIGN FUNCTION (UPDATED)
 # ==========================================
-def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
+def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
     """
     คำนวณปริมาณเหล็กเสริมรับแรงดัด (Slab Flexural Design)
+    Updated: รับค่า phi จากภายนอก (ไม่ Hardcode)
     """
     Mu_kgcm = abs(Mu_kgm) * 100.0 
-    phi = 0.90 
 
     if Mu_kgcm == 0:
         return {"As_req": 0, "rho": 0, "spacing": 0, "txt": "-"}
@@ -18,6 +18,7 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm):
     if d_cm <= 0:
         return {"As_req": 999, "rho": 999, "spacing": 0, "txt": "Error (d<=0)", "status": "FAIL"}
 
+    # ใช้ค่า phi ที่รับเข้ามาในการคำนวณ Rn
     Rn = Mu_kgcm / (phi * b_cm * (d_cm**2))
     
     term = 1 - (2 * Rn) / (0.85 * fc)
@@ -76,12 +77,13 @@ class FlatSlabDesign:
     def __init__(self, inputs, factors=None):
         self.inputs = inputs
         
-        # --- [UPDATED] Load Factors Configuration ---
-        # ถ้าไม่มีการส่ง factors มา ให้ใช้ค่า default เดิม (1.4, 1.7)
+        # --- [UPDATED] Load Factors & Phi Configuration ---
+        # ถ้าไม่มีการส่ง factors มา ให้ใช้ค่า default แบบกลางๆ
         if factors:
             self.factors = factors
         else:
-            self.factors = {'DL': 1.4, 'LL': 1.7}
+            # Default fallback (Old EIT style as safety base)
+            self.factors = {'DL': 1.4, 'LL': 1.7, 'phi_shear': 0.85, 'phi_flexure': 0.90}
 
         self.Lx = inputs.get('Lx', 8.0)
         self.Ly = inputs.get('Ly', 6.0)
@@ -118,13 +120,16 @@ class FlatSlabDesign:
         return w_service
 
     def _analyze_oneway(self, w_u, d_slab):
+        # Extract Correct Phi
+        phi_s = self.factors.get('phi_shear', 0.85)
+
         # 1. X-Direction
         Vu_face_x = w_u * (self.Lx / 2.0) - w_u * (self.cx / 100.0 / 2.0)
-        res_x = check_oneway_shear(Vu_face_x, w_u, self.Lx - self.cx/100.0, d_slab, self.fc)
+        res_x = check_oneway_shear(Vu_face_x, w_u, self.Lx - self.cx/100.0, d_slab, self.fc, phi=phi_s)
         
         # 2. Y-Direction
         Vu_face_y = w_u * (self.Ly / 2.0) - w_u * (self.cy / 100.0 / 2.0)
-        res_y = check_oneway_shear(Vu_face_y, w_u, self.Ly - self.cy/100.0, d_slab, self.fc)
+        res_y = check_oneway_shear(Vu_face_y, w_u, self.Ly - self.cy/100.0, d_slab, self.fc, phi=phi_s)
 
         # 3. Compare & Return Winner
         if res_x['ratio'] > res_y['ratio']:
@@ -135,6 +140,9 @@ class FlatSlabDesign:
             return res_y
 
     def _analyze_ddm_moments(self, w_u):
+        # Extract Correct Phi
+        phi_f = self.factors.get('phi_flexure', 0.90)
+
         use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
         
         if use_drop:
@@ -160,10 +168,11 @@ class FlatSlabDesign:
             
             h_neg = self.h_slab + self.h_drop if use_drop else self.h_slab
             
-            des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar)
-            des_cs_pos = design_flexure_slab(M_cs_pos, b_cs, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
-            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
-            des_ms_pos = design_flexure_slab(M_ms_pos, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar)
+            # Pass phi_f to all design calls
+            des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_cs_pos = design_flexure_slab(M_cs_pos, b_cs, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_ms_pos = design_flexure_slab(M_ms_pos, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
             
             return {
                 "M_cs_neg": M_cs_neg, "M_cs_pos": M_cs_pos,
@@ -259,17 +268,21 @@ class FlatSlabDesign:
         Munbal_design = max(abs(Munbal_x), abs(Munbal_y))
 
         # ============================================================
-        # 4. PUNCHING ANALYSIS (Updated with Openings & EFM Moment)
+        # 4. PUNCHING ANALYSIS (Updated with Openings, EFM Moment & Dynamic Phi)
         # ============================================================
         op_w = self.inputs.get('open_w', 0.0)
         op_dist = self.inputs.get('open_dist', 0.0)
+        
+        # Extract Phi for Shear
+        phi_s = self.factors.get('phi_shear', 0.85)
 
         if self.has_drop:
             punch_res = check_punching_dual_case(
                 w_u, self.Lx, self.Ly, self.fc, 
                 self.cx, self.cy, d_total, d_slab, 
                 self.drop_w, self.drop_l, self.inputs['col_type'],
-                Munbal=Munbal_design 
+                Munbal=Munbal_design,
+                phi=phi_s
             )
         else:
             c1_d = self.cx + d_slab
@@ -281,7 +294,8 @@ class FlatSlabDesign:
                 Vu_punch, self.fc, self.cx, self.cy, d_slab, 
                 self.inputs['col_type'], 
                 Munbal=Munbal_design, 
-                open_w=op_w, open_dist=op_dist 
+                open_w=op_w, open_dist=op_dist,
+                phi=phi_s
             )
 
         # 5. DDM Analysis
@@ -304,7 +318,7 @@ class FlatSlabDesign:
         }
 
 # ==========================================
-# 1. PUNCHING SHEAR (UPDATED WITH OPENINGS)
+# 1. PUNCHING SHEAR (UPDATED WITH OPENINGS & PHI)
 # ==========================================
 def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     """
@@ -347,7 +361,10 @@ def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
 
     return Ac, Jc, gamma_v, c_AB, bo, deduction
 
-def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0):
+def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0, phi=0.85):
+    """
+    Updated: รับค่า phi จากภายนอก
+    """
     try:
         Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
     except ValueError:
@@ -365,7 +382,6 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     vu_max = stress_direct + stress_moment 
 
     # Capacity
-    phi = 0.85 
     sqrt_fc = np.sqrt(fc)
     
     vc_stress_nominal = 1.06 * sqrt_fc 
@@ -378,6 +394,8 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
 
     vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
+    
+    # Apply Phi
     phi_vc_stress = phi * vc_final_stress
 
     if phi_vc_stress > 0:
@@ -388,9 +406,9 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     status = "OK" if ratio <= 1.0 else "FAIL"
     
     # Create note string
-    note_txt = f"Munbal: {Munbal:,.0f} kg-m"
+    note_txt = f"Munbal: {Munbal:,.0f} kg-m | ϕ={phi}"
     if deduc_len > 0:
-        note_txt += f" | Opening Deduct: {deduc_len:.1f} cm"
+        note_txt += f" | Op.Deduct: {deduc_len:.1f} cm"
 
     return {
         "Vu": Vu, "Munbal": Munbal, "d": d, "bo": bo, "Ac": Ac,
@@ -403,20 +421,21 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     }
 
 # ==========================================
-# 2. DUAL CASE PUNCHING
+# 2. DUAL CASE PUNCHING (UPDATED)
 # ==========================================
-def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0):
+def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0, phi=0.85):
     """
     Handle Drop Panel (Check 2 perimeters)
+    Updated: Pass phi to sub-checks
     """
     # Case 1: At Column Face (Inside Drop)
     Vu1 = w_u * (Lx * Ly) * 0.95 
-    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal) 
+    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal, phi=phi) 
     res1["case"] = "Inside Drop (d_drop)" 
     
     # Case 2: At Drop Panel Edge (Outside Drop)
     Vu2 = w_u * (Lx * Ly) * 0.90 
-    res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5)
+    res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5, phi=phi)
     res2["case"] = "Outside Drop (d_slab)" 
     
     if res1['ratio'] > res2['ratio']:
@@ -571,15 +590,20 @@ def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
     }
 
 # ==========================================
-# 5. ONE-WAY SHEAR
+# 5. ONE-WAY SHEAR (UPDATED WITH PHI)
 # ==========================================
-def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc):
+def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc, phi=0.85):
+    """
+    Updated: รับค่า phi จากภายนอก
+    """
     d_m = d_eff_cm / 100.0 
     w_line_strip = w_u_area * 1.0 
     Vu_critical = Vu_face_kg - (w_line_strip * d_m)
     if Vu_critical < 0: Vu_critical = 0
+    
     Vc = 0.53 * np.sqrt(fc) * 100.0 * d_eff_cm
-    phi = 0.85
+    
+    # Apply Phi
     phi_Vc = phi * Vc
     
     if phi_Vc > 0: ratio = Vu_critical / phi_Vc
@@ -592,7 +616,7 @@ def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc):
     }
 
 # ==========================================
-# 6. DDM LIMITATIONS CHECK (NEW)
+# 6. DDM LIMITATIONS CHECK
 # ==========================================
 def check_ddm_limitations(L1, L2, num_spans, L_adjacent):
     """
