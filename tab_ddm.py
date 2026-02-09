@@ -95,22 +95,12 @@ def get_ddm_coeffs(span_type):
     Return dictionaries of Moment Coefficients based on Span Type (ACI 318).
     Returns: { 'neg_factor': float, 'pos_factor': float, 'name': str }
     """
-    # NOTE: For End Spans, 'neg_factor' here represents the Governing Negative Moment 
-    # (usually at the First Interior Support) for safe top bar design.
-    
     if span_type == "Interior Span (ช่วงพื้นภายใน)":
-        # Classic DDM: Neg 0.65, Pos 0.35
         return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Interior: Neg 0.65, Pos 0.35' }
-    
     elif span_type == "End Span - Edge Beam (ช่วงริมมีคานขอบ)":
-        # ACI: Int Neg 0.70, Pos 0.57, Ext Neg 0.16
-        # Design Top using 0.70 (Gov), Design Bot using 0.57
         return { 'neg': 0.70, 'pos': 0.57, 'desc': 'End w/ Beam: IntNeg 0.70, Pos 0.57' }
-    
     elif span_type == "End Span - No Beam (ช่วงริมไร้คาน)":
-        # ACI: Int Neg 0.70, Pos 0.52, Ext Neg 0.26
         return { 'neg': 0.70, 'pos': 0.52, 'desc': 'End No Beam: IntNeg 0.70, Pos 0.52' }
-        
     return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Default' }
 
 def update_moments_based_on_config(data_obj, span_type):
@@ -120,14 +110,8 @@ def update_moments_based_on_config(data_obj, span_type):
     Mo = data_obj['Mo']
     coeffs = get_ddm_coeffs(span_type)
     
-    # Total Static Moments
     M_neg_total = coeffs['neg'] * Mo
     M_pos_total = coeffs['pos'] * Mo
-    
-    # Distribution to Column Strip (CS) and Middle Strip (MS)
-    # Standard DDM Ratios:
-    # CS Neg: 75% of Total Neg | MS Neg: 25%
-    # CS Pos: 60% of Total Pos | MS Pos: 40%
     
     M_cs_neg = 0.75 * M_neg_total
     M_ms_neg = 0.25 * M_neg_total
@@ -135,7 +119,6 @@ def update_moments_based_on_config(data_obj, span_type):
     M_cs_pos = 0.60 * M_pos_total
     M_ms_pos = 0.40 * M_pos_total
     
-    # Update the data object
     data_obj['M_vals'] = {
         'M_cs_neg': M_cs_neg,
         'M_ms_neg': M_ms_neg,
@@ -186,7 +169,7 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 
     with step3:
         st.markdown("**3.1 Provided Reinforcement ($A_{s,prov}$)**")
-        # [MODIFIED] Logic for RB/DB name
+        # Logic for RB/DB name
         bar_prefix = "RB" if db == 9 else "DB"
         st.write(f"เลือกใช้: **{bar_prefix}{db} @ {s:.0f} cm**")
         
@@ -209,12 +192,30 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     """
     Render DDM analysis for one direction.
+    Now receives rebar config from mat_props instead of user input.
     """
     # Unpack Materials
     h_slab = mat_props['h_slab']
     cover = mat_props['cover']
     fc = mat_props['fc']
     fy = mat_props['fy']
+    
+    # [NEW] Unpack Rebar Config
+    # If key doesn't exist (legacy), default to 12mm @ 20cm
+    cfg = mat_props.get('rebar_cfg', {})
+    
+    # Map Config to Local Variables
+    d_cst = cfg.get('cs_top_db', 12)
+    s_cst = cfg.get('cs_top_spa', 20)
+    
+    d_csb = cfg.get('cs_bot_db', 12)
+    s_csb = cfg.get('cs_bot_spa', 20)
+    
+    d_mst = cfg.get('ms_top_db', 12)
+    s_mst = cfg.get('ms_top_spa', 20)
+    
+    d_msb = cfg.get('ms_bot_db', 12)
+    s_msb = cfg.get('ms_bot_spa', 20)
     
     # Unpack Opening Data
     open_w = mat_props.get('open_w', 0.0)
@@ -355,13 +356,15 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     elif not HAS_CALC:
         st.warning("⚠️ Module 'calculations.py' not found. Skipping Shear Check.")
 
-    # --- PART 3: REINFORCEMENT SELECTION ---
+    # --- PART 3: REINFORCEMENT SELECTION (READ-ONLY) ---
     st.markdown("---")
-    st.markdown("### 3️⃣ Reinforcement Selection")
+    st.markdown("### 3️⃣ Reinforcement Status (Configured in Sidebar)")
     
     col_cs, gap, col_ms = st.columns([1, 0.05, 1])
     
-    # [MODIFIED] Added 9mm to all lists below
+    # --- Helper to format string ---
+    def fmt_bar(db, spa): return f"DB{db} @ {spa} cm" if db > 9 else f"RB{db} @ {spa} cm"
+
     # --- CS ---
     with col_cs:
         st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
@@ -369,15 +372,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_cs_neg']:,.0f}):**")
-        c1, c2 = st.columns(2)
-        d_cst = c1.selectbox("Bar", [9,10,12,16,20,25], 3, key=f"d_cst_{axis_id}", label_visibility="collapsed") # Index 3 is 16mm
-        s_cst = c2.selectbox("@", [10,15,20,25,30], 2, key=f"s_cst_{axis_id}", label_visibility="collapsed")
+        st.info(f"📌 Using: **{fmt_bar(d_cst, s_cst)}**")
         
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_cs_pos']:,.0f}):**")
-        c1, c2 = st.columns(2)
-        d_csb = c1.selectbox("Bar", [9,10,12,16,20,25], 2, key=f"d_csb_{axis_id}", label_visibility="collapsed") # Index 2 is 12mm
-        s_csb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_csb_{axis_id}", label_visibility="collapsed")
+        st.info(f"📌 Using: **{fmt_bar(d_csb, s_csb)}**")
 
     # --- MS ---
     with col_ms:
@@ -386,15 +385,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         
         # Top
         st.markdown(f"**Top ($M_u$ {m_vals['M_ms_neg']:,.0f}):**")
-        c1, c2 = st.columns(2)
-        d_mst = c1.selectbox("Bar", [9,10,12,16,20,25], 1, key=f"d_mst_{axis_id}", label_visibility="collapsed") # Index 1 is 10mm
-        s_mst = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_mst_{axis_id}", label_visibility="collapsed")
+        st.info(f"📌 Using: **{fmt_bar(d_mst, s_mst)}**")
         
         # Bot
         st.markdown(f"**Bot ($M_u$ {m_vals['M_ms_pos']:,.0f}):**")
-        c1, c2 = st.columns(2)
-        d_msb = c1.selectbox("Bar", [9,10,12,16,20,25], 1, key=f"d_msb_{axis_id}", label_visibility="collapsed") # Index 1 is 10mm
-        s_msb = c2.selectbox("@", [10,15,20,25,30], 3, key=f"s_msb_{axis_id}", label_visibility="collapsed")
+        st.info(f"📌 Using: **{fmt_bar(d_msb, s_msb)}**")
 
     # --- CALCULATION LOOP ---
     calc_configs = [
@@ -443,7 +438,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         st.markdown("---")
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        # [MODIFIED] Logic for RB/DB name in Plots
+        # Logic for RB/DB name in Plots
         rebar_map = {
             r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" 
             for r in results
