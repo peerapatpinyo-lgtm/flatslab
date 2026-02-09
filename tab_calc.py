@@ -192,10 +192,20 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # [MODIFIED] Retrieve Factors & Calculate Loads for Display
+        # Retrieve Factors
         f_dl = loads.get('factor_dl', 1.4)
         f_ll = loads.get('factor_ll', 1.7)
         
+        # [MODIFIED] Logic to determine Phi automatically
+        # If Load Factor DL < 1.3 (implied 1.2), use Phi 0.75 (Modern ACI).
+        # Else (implied 1.4), use Phi 0.85 (EIT/Old ACI).
+        if f_dl < 1.3:
+            phi = 0.75
+            std_ref = "ACI 318-05+"
+        else:
+            phi = 0.85
+            std_ref = "EIT / ACI 318-99"
+
         h_m = h_slab / 100.0
         w_sw = h_m * 2400
         sdl = loads['SDL']
@@ -209,7 +219,6 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         # Load from Result
         vu = res.get('Vu', 0)
         vc_min = min(val_vc1, val_vc2, val_vc3)
-        phi = 0.85
         phi_vn = phi * vc_min
         
         # Logic Switch: Force vs Stress
@@ -240,8 +249,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 
                 st.markdown("---")
                 st.markdown('<div class="sub-header">B. Stress Capacity</div>', unsafe_allow_html=True)
+                st.write(f"Ref: {std_ref} ($\phi = {phi}$)")
                 st.latex(r"\phi v_c = \phi \times \min(\text{Eq1, Eq2, Eq3})")
-                st.latex(fr"\phi v_c = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
+                st.latex(fr"\phi v_c = {phi} \times {vc_min/(b0*d):.2f} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
                 
                 # Setup vars for verdict
                 demand_val = v_act
@@ -255,8 +265,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 
                 st.markdown("---")
                 st.markdown('<div class="sub-header">B. Force Capacity</div>', unsafe_allow_html=True)
-                st.latex(r"\phi V_n = 0.85 \times V_{c,min}")
-                st.latex(fr"= 0.85 \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
+                st.write(f"Ref: {std_ref} ($\phi = {phi}$)")
+                st.latex(fr"\phi V_n = {phi} \times V_{{c,min}}")
+                st.latex(fr"= {phi} \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
                 
                 # Setup vars for verdict
                 demand_val = vu
@@ -352,8 +363,15 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     d_slab = mat_props['h_slab'] - mat_props['cover'] - 1.0
     bw = 100.0
     
+    # [MODIFIED] Link Phi to Load Factor here as well
+    f_dl = loads.get('factor_dl', 1.4)
+    if f_dl < 1.3:
+        phi_shear = 0.75
+    else:
+        phi_shear = 0.85
+    
     vc_nominal = 0.53 * sqrt_fc * bw * d_slab
-    phi_vc = 0.85 * vc_nominal
+    phi_vc = phi_shear * vc_nominal
     vu_one = v_oneway_res.get('Vu', 0)
     
     c_cap, c_dem = st.columns(2)
@@ -365,8 +383,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         st.latex(fr"= 0.53 ({sqrt_fc:.2f}) (100) ({d_slab:.2f})")
         st.markdown(f"Nominal $V_c =$ **{vc_nominal:,.0f}** kg/m")
         st.markdown("---")
-        st.latex(r"\phi V_c = 0.85 \times V_c")
-        st.latex(fr"= 0.85 \times {vc_nominal:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
+        st.latex(fr"\phi V_c = {phi_shear} \times V_c")
+        st.latex(fr"= {phi_shear} \times {vc_nominal:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
 
     with c_dem:
         render_step_header("B", "Demand Calculation (Vu)")
