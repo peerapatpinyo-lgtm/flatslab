@@ -100,13 +100,14 @@ with st.sidebar.expander("2. Geometry & Span", expanded=False):
 with st.sidebar.expander("3. Design Loads & Factors", expanded=False):
     st.markdown("**Load Factors:**")
     c_f1, c_f2 = st.columns(2)
+    # [FIXED] Linked to calculation
     factor_dl = c_f1.number_input("Fac. DL", value=1.4, step=0.1, format="%.2f")
     factor_ll = c_f2.number_input("Fac. LL", value=1.7, step=0.1, format="%.2f")
     
     st.markdown("---")
     st.markdown("**Strength Reduction (φ):**")
     c_p1, c_p2 = st.columns(2)
-    # [FIX] แยกค่า Phi Shear และ Phi Bending
+    # [FIXED] Linked to calculation (Shear vs Bending)
     phi_shear = c_p1.number_input("φ Shear", value=0.85, step=0.05, format="%.2f", help="For Shear/Punching (0.75 or 0.85)")
     phi_bend = c_p2.number_input("φ Bend", value=0.90, step=0.05, format="%.2f", help="For Flexure/Moment (0.90)")
     
@@ -178,22 +179,23 @@ user_inputs = {
     "open_w": open_w if has_opening else 0.0,
     "open_dist": open_dist if has_opening else 0.0,
     
-    # [IMPORTANT] ส่งค่าแยกกันเพื่อความชัดเจน
+    # [UPDATED] ส่งค่า Factor ไปยัง Module ต่างๆ ให้ครบถ้วน
     "factor_dl": factor_dl,
     "factor_ll": factor_ll,
-    "phi": phi_bend,       # Key 'phi' ใช้สำหรับ Tab_DDM (Bending) ตามโค้ดเดิม
-    "phi_shear": phi_shear # Key 'phi_shear' ส่งเพิ่มเผื่อไว้ใช้
+    "phi": phi_bend,       # Key 'phi' ใช้สำหรับ Tab_DDM (Bending Design)
+    "phi_shear": phi_shear # Key 'phi_shear' ใช้สำหรับตรวจสอบ Shear/Punching
 }
 
 # 3.1.2 Pack Factors for Model
+# [UPDATED] Dictionary นี้จะถูกส่งให้ calculations.py เพื่อคำนวณ Wu
 load_factors = {
     'DL': factor_dl,
     'LL': factor_ll,
-    'phi': phi_shear # สำหรับ Model (Punching) ให้ใช้ phi_shear เป็นหลัก
+    'phi': phi_shear # สำหรับ Model (Punching Check) ให้ใช้ phi_shear เป็นหลัก
 }
 
 # 3.2 Initialize Model
-# หมายเหตุ: Model จะใช้ load_factors['phi'] (ซึ่งตอนนี้คือ shear) ไปคำนวณ Punching
+# Model จะรับ factors ไปคำนวณ Wu = DL*Factor + LL*Factor ภายใน Class
 model = FlatSlabDesign(user_inputs, factors=load_factors)
 
 # 3.3 Execute
@@ -234,7 +236,7 @@ with col_kpi1:
     status = punch_res.get('status', 'ERROR')
     ratio = punch_res.get('ratio', 0)
     note_txt = punch_res.get('note', '')
-    # แสดงให้รู้ว่าใช้ Phi ตัวไหน
+    # แสดงให้รู้ว่าใช้ Phi ตัวไหนในการคำนวณ
     metric_card("Punching Shear", f"{ratio:.2f}", status, f"φ={phi_shear:.2f} | {note_txt}")
 
 with col_kpi2:
