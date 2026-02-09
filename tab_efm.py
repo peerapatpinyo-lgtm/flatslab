@@ -4,13 +4,22 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import calculations as calc  # เชื่อมต่อกับ The Brain V2.0
+
+# พยายาม import calculations ถ้าไม่มีให้แจ้งเตือน (เพื่อป้องกัน App Crash)
+try:
+    import calculations as calc  # เชื่อมต่อกับ The Brain V2.0
+except ImportError:
+    calc = None
 
 # --- Settings for Professional Plots ---
 plt.rcParams.update({
-    'font.family': 'sans-serif', 'font.size': 10,
-    'axes.spines.top': False, 'axes.spines.right': False,
-    'axes.grid': True, 'grid.alpha': 0.3, 'figure.autolayout': True
+    'font.family': 'sans-serif', 
+    'font.size': 10,
+    'axes.spines.top': False, 
+    'axes.spines.right': False,
+    'axes.grid': True, 
+    'grid.alpha': 0.3, 
+    'figure.autolayout': True
 })
 
 # ==========================================
@@ -57,12 +66,14 @@ def plot_moment_envelope(L1, M_neg_L, M_neg_R, M_pos, c1_cm):
     # Simple Parabolic interpolation for visualization
     M_x = np.zeros_like(x)
     for i, xi in enumerate(x):
-        t = xi / L1
+        t = xi / L1 if L1 > 0 else 0
         # Linear interpolation of end moments
         M_base = (1-t)*(-abs(M_neg_L)) + t*(-abs(M_neg_R))
         # Parabolic hump (approximate wL^2/8 shape added)
-        M_mid_diff = M_pos - M_base 
-        M_bump = 4 * (M_pos + (abs(M_neg_L)+abs(M_neg_R))/2) * t * (1-t) 
+        # Height of bump needs to reach M_pos from the base line
+        M_mid_base = (-abs(M_neg_L) - abs(M_neg_R)) / 2
+        bump_height = M_pos - M_mid_base
+        M_bump = 4 * bump_height * t * (1-t) 
         M_x[i] = M_base + M_bump
 
     # Fill Areas
@@ -107,7 +118,11 @@ def draw_section_detail(b_cm, h_cm, db, spacing, title):
         
     # Calculate positions based on spacing
     # Approximate number of bars for visual
-    num_bars = int((b_cm - 2*cover) / spacing) + 1
+    if spacing > 0:
+        num_bars = int((b_cm - 2*cover) / spacing) + 1
+    else:
+        num_bars = 2
+        
     if num_bars < 2: num_bars = 2
     
     # Re-distribute strictly for visual centering
@@ -120,7 +135,7 @@ def draw_section_detail(b_cm, h_cm, db, spacing, title):
         if 0 < x < b_cm: # Draw only if inside section
             ax.add_patch(patches.Circle((x, y_pos), dia_cm/2, fc='red', ec='black'))
             
-    label_text = f"DB{db}@{spacing:.0f}cm" if db > 9 else f"RB{db}@{spacing:.0f}cm"
+    label_text = f"DB{db}@{spacing:.0f}cm" if db >= 10 else f"RB{db}@{spacing:.0f}cm"
     ax.text(b_cm/2, h_cm/2, label_text, ha='center', va='center', 
             fontweight='bold', color='darkred', fontsize=12, bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
             
@@ -194,32 +209,44 @@ def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spaci
     """
     # Units: cm, kg, ksc
     b_cm = b_width_m * 100
-    d_eff = h_slab - cover - (db/20.0) # Assumed outer layer for simplicity or avg
+    # Effective depth d
+    d_eff = h_slab - cover - (db/20.0) # db in mm -> db/2 in cm = db/20
+    
     Mu_kgcm = Mu_kgm * 100.0
     phi = 0.90
     
     # 1. Required Steel
-    Rn = Mu_kgcm / (phi * b_cm * d_eff**2)
+    try:
+        Rn = Mu_kgcm / (phi * b_cm * d_eff**2)
+    except ZeroDivisionError:
+        Rn = 0
+        
     rho_req = 0.0018 # Min
     
+    # Check if section can handle moment
     term = 1 - (2 * Rn) / (0.85 * fc)
+    
     if term >= 0:
         rho_calc = (0.85 * fc / fy) * (1 - np.sqrt(term))
         rho_req = max(rho_calc, 0.0018)
     else:
-        rho_req = 999 # Fail section
+        # Section Fail (Moment too high for concrete section)
+        rho_req = 999 
         rho_calc = 999
         
     As_req = rho_req * b_cm * d_eff
     
     # 2. Provided Steel
     bar_area = 3.1416 * (db/10.0)**2 / 4.0
-    As_prov = (b_cm / spacing) * bar_area
+    if spacing > 0:
+        As_prov = (b_cm / spacing) * bar_area
+    else:
+        As_prov = 0
     
     # 3. Capacity
     a = (As_prov * fy) / (0.85 * fc * b_cm)
     Mn = As_prov * fy * (d_eff - a/2.0)
-    PhiMn = 0.90 * Mn / 100.0 # kg-m
+    PhiMn = 0.90 * Mn / 100.0 # Convert back to kg-m
     
     dc_ratio = Mu_kgm / PhiMn if PhiMn > 0 else 999
     
@@ -234,7 +261,7 @@ def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spaci
         "a_depth": a,
         "PhiMn": PhiMn,
         "Ratio": dc_ratio,
-        "Pass": dc_ratio <= 1.0
+        "Pass": dc_ratio <= 1.0 and rho_calc != 999
     }
 
 # ==========================================
@@ -245,6 +272,10 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     st.markdown("### 🏗️ Full EFM Analysis: Stiffness to Design")
     st.caption("Equivalent Frame Method with Detailed Step-by-Step Calculation")
     st.markdown("---")
+    
+    if calc is None:
+        st.error("❌ Critical Error: 'calculations.py' not found. Please ensure the calculation module is available.")
+        return
 
     # --- Extract Drop Panel Props from kwargs ---
     h_drop = kwargs.get('h_drop', h_slab)
@@ -264,7 +295,10 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             h_drop=h_drop, drop_w=drop_w, drop_l=drop_l
         )
     except AttributeError:
-        st.error("Cannot find 'calculate_stiffness' in calculations.py. Please ensure the file is updated.")
+        st.error("❌ Error: Function 'calculate_stiffness' not found in calculations.py.")
+        return
+    except Exception as e:
+        st.error(f"❌ Calculation Error: {e}")
         return
     
     # Distribution Factor (DF)
@@ -289,12 +323,14 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     M_correction = Vu_frame * (c1_m/2.0) - w_line*(c1_m/2.0)**2 / 2.0
     
     M_neg_design = abs(M_final_L) - M_correction
+    if M_neg_design < 0: M_neg_design = 0
     
     # Calculate Positive Moment (Statics)
     # Mo = wL^2/8
     Mo = w_line * L1**2 / 8.0
     # M_pos = Mo - (M_neg_L + M_neg_R)/2
     M_pos_design = Mo - M_neg_design # assuming symmetry for this module check
+    if M_pos_design < 0: M_pos_design = 0
 
     # --- B. DASHBOARD SUMMARY ---
     col1, col2 = st.columns([1.5, 1])
@@ -502,7 +538,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("#### 📋 Summary Table")
         df_res = pd.DataFrame(results)[['Name', 'Mu', 'PhiMn', 'As_req', 'As_prov', 'Ratio']]
         
-        # Updated: Format specific columns only to avoid String error
         st.dataframe(df_res.style.format({
             'Mu': "{:,.2f}", 
             'PhiMn': "{:,.2f}", 
