@@ -51,10 +51,11 @@ with st.sidebar.expander("1. Material Properties", expanded=True):
     
     c3, c4 = st.columns(2)
     cover = c3.number_input("Cover (cm)", value=2.5)
-    d_bar = c4.selectbox("Rebar (mm)", [12, 16, 20, 25], index=0)
+    # Note: Removed d_bar from here, moved to Group 4
+    st.caption(f"d_eff approx: {h_slab - cover - 1.2:.1f} cm")
 
 # --- Group 2: Geometry ---
-with st.sidebar.expander("2. Geometry & Span", expanded=True):
+with st.sidebar.expander("2. Geometry & Span", expanded=False):
     col1, col2 = st.columns(2)
     with col1:
         Lx = st.number_input("Span Lx (m)", value=8.0, min_value=0.5)
@@ -93,7 +94,7 @@ with st.sidebar.expander("2. Geometry & Span", expanded=True):
         open_dist = c_op2.number_input("Dist. from Face (cm)", value=5.0, min_value=0.0)
 
 # --- Group 3: Loads ---
-with st.sidebar.expander("3. Design Loads & Factors", expanded=True):
+with st.sidebar.expander("3. Design Loads & Factors", expanded=False):
     # [UPDATED] Load Factors Inputs
     st.markdown("**Load Factors:**")
     c_f1, c_f2 = st.columns(2)
@@ -104,6 +105,57 @@ with st.sidebar.expander("3. Design Loads & Factors", expanded=True):
     SDL = st.number_input("SDL (kg/m²)", value=150.0)
     LL = st.number_input("Live Load (kg/m²)", value=300.0)
 
+# --- Group 4: Reinforcement Detailing (NEW) ---
+# นี่คือส่วนที่เพิ่มเข้ามาใหม่ เพื่อรวมการเลือกเหล็กไว้ที่หน้าแรก
+with st.sidebar.expander("4. Reinforcement Detailing", expanded=True):
+    rebar_mode = st.radio("Selection Mode:", ["Uniform (Auto)", "Custom (Manual)"], horizontal=True)
+    
+    bar_opts = [9, 10, 12, 16, 20, 25]
+    spa_opts = [10, 15, 20, 25, 30]
+
+    # ค่า Default เริ่มต้น
+    cfg = {
+        'cs_top_db': 12, 'cs_top_spa': 15,
+        'cs_bot_db': 12, 'cs_bot_spa': 20,
+        'ms_top_db': 12, 'ms_top_spa': 20,
+        'ms_bot_db': 12, 'ms_bot_spa': 25
+    }
+
+    if rebar_mode == "Uniform (Auto)":
+        c_r1, c_r2 = st.columns(2)
+        main_db = c_r1.selectbox("Main Bar (mm)", bar_opts, index=2) # Default DB12
+        main_spa = c_r2.selectbox("Spacing (cm)", spa_opts, index=2) # Default @20
+        
+        # Apply to all
+        for key in cfg:
+            if 'db' in key: cfg[key] = main_db
+            if 'spa' in key: cfg[key] = main_spa
+            
+        # Specific override logic (optional): Top bars usually closer?
+        # For now, keep it simple (Uniform) as requested
+        
+    else: # Custom Manual Mode
+        st.markdown("**🟥 Column Strip**")
+        c1, c2 = st.columns(2)
+        cfg['cs_top_db'] = c1.selectbox("Top Dia", bar_opts, index=2, key="cst_d")
+        cfg['cs_top_spa'] = c2.selectbox("Top @", spa_opts, index=1, key="cst_s")
+        
+        c3, c4 = st.columns(2)
+        cfg['cs_bot_db'] = c3.selectbox("Bot Dia", bar_opts, index=2, key="csb_d")
+        cfg['cs_bot_spa'] = c4.selectbox("Bot @", spa_opts, index=2, key="csb_s")
+        
+        st.markdown("**🟦 Middle Strip**")
+        c5, c6 = st.columns(2)
+        cfg['ms_top_db'] = c5.selectbox("Top Dia", bar_opts, index=2, key="mst_d")
+        cfg['ms_top_spa'] = c6.selectbox("Top @", spa_opts, index=2, key="mst_s")
+        
+        c7, c8 = st.columns(2)
+        cfg['ms_bot_db'] = c7.selectbox("Bot Dia", bar_opts, index=2, key="msb_d")
+        cfg['ms_bot_spa'] = c8.selectbox("Bot @", spa_opts, index=3, key="msb_s")
+
+    # ใช้ค่าเหล็กหลัก (CS Top) เป็นตัวแทนสำหรับการคำนวณ Punching/Shear เบื้องต้น
+    d_bar = cfg['cs_top_db'] 
+
 # ==========================
 # 3. CONTROLLER LOGIC (Connect UI to Model)
 # ==========================
@@ -111,7 +163,9 @@ with st.sidebar.expander("3. Design Loads & Factors", expanded=True):
 # 3.1 Pack Inputs: รวบรวมค่าจากหน้าจอใส่กล่องเดียว
 user_inputs = {
     "fc": fc, "fy": fy,
-    "h_slab": h_slab, "cover": cover, "d_bar": d_bar,
+    "h_slab": h_slab, "cover": cover, 
+    "d_bar": d_bar, # ใช้ค่า Main Bar สำหรับการคำนวณ General
+    "rebar_cfg": cfg, # [NEW] ส่ง Config ละเอียดไปด้วย
     "Lx": Lx, "Ly": Ly,
     "cx": cx, "cy": cy,
     "lc": lc, "col_type": col_type,
@@ -221,6 +275,7 @@ with tab2:
 
 # --- TAB 3: DDM ---
 with tab3:
+    # tab_ddm จะต้องถูกแก้ให้รับค่าจาก mat_props['rebar_cfg'] แทนการ selectbox เอง
     tab_ddm.render_dual(
         data_x=results['ddm']['x'], 
         data_y=results['ddm']['y'], 
