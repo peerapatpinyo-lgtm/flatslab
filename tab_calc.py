@@ -86,6 +86,11 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
     Render detailed punching shear calculation.
     """
+    # Safety check: if res is None or empty, stop rendering
+    if not res:
+        st.error(f"No data available for {label}")
+        return
+
     st.markdown(f"#### 📍 Critical Section: {label}")
     
     # Extract Variables
@@ -94,8 +99,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     cover = mat_props['cover']
     
     # From Result Dictionary (Compatibility with new calculations.py)
-    d = res['d']
-    b0 = res.get('b0', res.get('bo')) # Handle alias
+    # Use .get() with defaults to prevent KeyErrors inside the renderer too
+    d = res.get('d', 0)
+    b0 = res.get('b0', res.get('bo', 0)) # Handle alias
     beta = res.get('beta', 2.0)
     alpha_s = res.get('alpha_s', 40)
     gamma_v = res.get('gamma_v', 0.4) # For moment transfer
@@ -193,7 +199,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         wu_val = (1.2 * (w_sw + sdl)) + (1.6 * ll)
         
         # Load from Result
-        vu = res['Vu']
+        vu = res.get('Vu', 0)
         vc_min = min(val_vc1, val_vc2, val_vc3)
         phi = 0.85
         phi_vn = phi * vc_min
@@ -246,12 +252,13 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 unit = "kg"
 
         with col_R:
-            passed = res['status'] == "OK" or res['status'] == "PASS"
+            status = res.get('status', 'N/A')
+            passed = status == "OK" or status == "PASS"
             status_text = "PASS" if passed else "FAIL"
             color_vu = "black" if passed else "red"
             operator = r"\leq" if passed else ">"
             cls = "pass" if passed else "fail"
-            ratio = res['ratio']
+            ratio = res.get('ratio', 0)
             
             st.markdown(f"""
             <div class="verdict-box {cls}">
@@ -290,13 +297,31 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     # Check Long Term Deflection
     res_deflection = check_long_term_deflection(w_service, max(Lx, Ly), h_slab, fc, res_min_rebar['As_min'])
 
-    # --- 1. PUNCHING SHEAR ---
+    # --- 1. PUNCHING SHEAR (FIXED KEYERROR) ---
     st.header("1. Punching Shear Analysis")
-    if punch_res.get('is_dual', False):
+    
+    # Logic: Check if result is Dual (with Drop Panel) or Single (No Drop Panel)
+    # If 'check_1' exists, it's Dual. If not, punch_res IS the data.
+    
+    if punch_res.get('is_dual') or 'check_1' in punch_res:
+        # --- DUAL CHECK (Drop Panel) ---
         tab1, tab2 = st.tabs(["Inner Section (Column)", "Outer Section (Drop Panel)"])
-        with tab1: render_punching_detailed(punch_res['check_1'], mat_props, loads, Lx, Ly, "d/2 from Column Face")
-        with tab2: render_punching_detailed(punch_res['check_2'], mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
+        
+        # Safe Get for Check 1
+        res_1 = punch_res.get('check_1')
+        if not res_1: res_1 = punch_res # Fallback
+            
+        with tab1: 
+            render_punching_detailed(res_1, mat_props, loads, Lx, Ly, "d/2 from Column Face")
+        
+        # Safe Get for Check 2
+        res_2 = punch_res.get('check_2')
+        if res_2:
+            with tab2: 
+                render_punching_detailed(res_2, mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
+        # --- SINGLE CHECK (Flat Plate) ---
+        # Passing punch_res directly because it is the flat dictionary containing 'd', 'Vu', etc.
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
     # --- 2. ONE-WAY SHEAR ---
