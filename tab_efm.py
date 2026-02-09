@@ -465,8 +465,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.latex(rf"DF_{{slab}} = \frac{{{Ks_val:.0f}}}{{{Ks_val:.0f} + {Kec_val:.0f}}} = \mathbf{{{df_calc_disp:.3f}}}")
 
     
-
-    # === TAB 2: MOMENT DISTRIBUTION ===
     # === TAB 2: MOMENT DISTRIBUTION ===
     with tab2:
         st.subheader("2. Moment Distribution Analysis (Hardy Cross Method)")
@@ -619,7 +617,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.latex(rf"M_{{pos}} = {Mo:,.0f} - {M_face:,.0f} = \mathbf{{{M_pos_final:,.0f}}} \, kg\cdot m")
         
         st.info(f"✅ **Final Design Moments:**\n- Negative ($M^{{-}}$): **{M_face:,.0f}** kg-m\n- Positive ($M^{{+}}$): **{M_pos_final:,.0f}** kg-m")
-    
  
 
     # === TAB 3: DESIGN ===
