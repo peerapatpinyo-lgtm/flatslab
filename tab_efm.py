@@ -348,8 +348,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     # --- C. DETAILED TABS ---
     tab1, tab2, tab3 = st.tabs(["1️⃣ Step 1: Stiffness", "2️⃣ Step 2: Moment Dist.", "3️⃣ Step 3: Design"])
 
-
-
     # === TAB 1: STIFFNESS CALCULATIONS ===
     with tab1:
         st.subheader("1. Stiffness Matrix Calculations")
@@ -465,6 +463,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
             st.latex(rf"DF_{{slab}} = \frac{{{Ks_val:.0f}}}{{{Ks_val:.0f} + {Kec_val:.0f}}} = \mathbf{{{df_calc_disp:.3f}}}")
 
     
+
     # === TAB 2: MOMENT DISTRIBUTION ===
     with tab2:
         st.subheader("2. Moment Distribution Analysis (Hardy Cross Method)")
@@ -475,11 +474,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** Structural Analysis Theory (Prismatic Beam Formulas)")
         st.write("Calculate the moment at supports assuming the joints are strictly fixed (no rotation).")
         
-        # [Image trigger for educational context]
-        # 
-
-[Image of fixed end moment beam formula]
-
+        # Image placeholder removed to prevent syntax error
 
         # 1. Load Calculation
         w_line_val = w_u * L2  # kg/m (Line load)
@@ -527,8 +522,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("#### 2.3 Iteration Logic (Step-by-Step)")
         st.markdown("**Reference:** Cross, H. (1930). *Analysis of Continuous Frames.*")
         st.write("The distribution process follows these standard steps until convergence:")
-        
-        # 
         
         # Corrected Markdown with \times
         st.markdown(r"""
@@ -590,8 +583,6 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.markdown("**Reference:** ACI 318-19 Section 8.11.6.1")
         st.write("Moments are reduced to the **face of the support** for design, not the centerline.")
         
-        # 
-
         # Shear and Correction Calc
         Vu = w_line_val * L1 / 2
         c1_m = c1_w / 100
@@ -617,6 +608,7 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         st.latex(rf"M_{{pos}} = {Mo:,.0f} - {M_face:,.0f} = \mathbf{{{M_pos_final:,.0f}}} \, kg\cdot m")
         
         st.info(f"✅ **Final Design Moments:**\n- Negative ($M^{{-}}$): **{M_face:,.0f}** kg-m\n- Positive ($M^{{+}}$): **{M_pos_final:,.0f}** kg-m")
+    
  
 
     # === TAB 3: DESIGN ===
