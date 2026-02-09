@@ -208,6 +208,7 @@ def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spaci
         rho_req = max(rho_calc, 0.0018)
     else:
         rho_req = 999 # Fail section
+        rho_calc = 999
         
     As_req = rho_req * b_cm * d_eff
     
@@ -222,10 +223,15 @@ def calculate_capacity_check(Mu_kgm, b_width_m, h_slab, cover, fc, fy, db, spaci
     
     dc_ratio = Mu_kgm / PhiMn if PhiMn > 0 else 999
     
+    # Return all intermediate values for display
     return {
         "d": d_eff,
+        "Rn": Rn,
+        "rho_calc": rho_calc,
+        "rho_req": rho_req,
         "As_req": As_req,
         "As_prov": As_prov,
+        "a_depth": a,
         "PhiMn": PhiMn,
         "Ratio": dc_ratio,
         "Pass": dc_ratio <= 1.0
@@ -280,9 +286,9 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
     Vu_frame = w_line * L1 / 2.0 # Total shear
     c1_m = c1_w / 100.0
     # M_face = M_center - V*c/2 + w*(c/2)^2/2
-    M_red = Vu_frame * (c1_m/2.0) - w_line*(c1_m/2.0)**2 / 2.0
+    M_correction = Vu_frame * (c1_m/2.0) - w_line*(c1_m/2.0)**2 / 2.0
     
-    M_neg_design = abs(M_final_L) - M_red
+    M_neg_design = abs(M_final_L) - M_correction
     
     # Calculate Positive Moment (Statics)
     # Mo = wL^2/8
@@ -308,43 +314,90 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
 
     # === TAB 1: STIFFNESS ===
     with tab1:
+        st.subheader("1. Stiffness Calculations")
+        st.caption("Reference: ACI 318 Equivalent Frame Method (EFM) & mechanics of materials.")
+        
         st.markdown("#### 1.1 Column Stiffness ($K_c$)")
         Ic_cm4 = (c2_w * c1_w**3) / 12
-        st.write(f"Column Moment of Inertia $I_c = {Ic_cm4:,.0f} \, cm^4$")
-        st.latex(rf"K_c = \frac{{4EI_c}}{{l_c}}")
-        st.latex(rf"\Sigma K_c = {Sum_Kc/1e5:.2f} \times 10^5 \quad (Top + Bot)")
+        st.markdown(r"""
+        **Methodology:**
+        1. Calculate Moment of Inertia ($I_c$) for the column cross-section.
+        2. Calculate Stiffness ($K_c$) assuming fixed far ends (standard frame assumption).
+        """)
+        st.latex(rf"I_c = \frac{{b h^3}}{{12}} = \frac{{{c2_w} \cdot {c1_w}^3}}{{12}} = {Ic_cm4:,.0f} \, cm^4")
+        st.latex(rf"E_c = 15100\sqrt{{f_c'}} = 15100\sqrt{{{fc}}} = {Ec:,.0f} \, ksc")
+        st.latex(rf"K_c = \frac{{4E_c I_c}}{{l_c}}")
+        st.write(f"Using $l_c = {lc} m = {lc*100} cm$:")
+        st.latex(rf"\Sigma K_c = {Sum_Kc/1e5:.2f} \times 10^5 \, kg\cdot cm \quad \text{{(Sum of Top & Bottom Columns)}}")
         
         st.divider()
+        
         st.markdown("#### 1.2 Slab Stiffness ($K_s$)")
         Is_cm4 = (L2*100 * h_slab**3) / 12
-        st.write(f"Slab Moment of Inertia $I_s = {Is_cm4:,.0f} \, cm^4$")
-        st.latex(rf"K_s = \frac{{4EI_s}}{{L_1}} = {Ks_val/1e5:.2f} \times 10^5")
+        st.markdown(r"""
+        **Methodology:**
+        1. Gross Inertia ($I_g$) of the slab using full panel width ($L_2$).
+        2. Stiffness $K_s$ for the span $L_1$.
+        """)
+        st.latex(rf"I_s = \frac{{L_2 h^3}}{{12}} = \frac{{{L2*100} \cdot {h_slab}^3}}{{12}} = {Is_cm4:,.0f} \, cm^4")
+        st.latex(rf"K_s = \frac{{4E_c I_s}}{{L_1}} = \frac{{4 \cdot {Ec:,.0f} \cdot {Is_cm4:,.0f}}}{{{L1*100}}} = {Ks_val/1e5:.2f} \times 10^5")
 
         st.divider()
+        
         st.markdown("#### 1.3 Equivalent Stiffness ($K_{ec}$)")
-        st.write("Torsional Stiffness Calculation ($K_t$):")
-        st.latex(rf"K_t = {Kt_val/1e5:.2f} \times 10^5")
-        st.write("Equivalent Column Stiffness ($K_{ec}$):")
-        st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{\Sigma K_c}} + \frac{{1}}{{K_t}} \Rightarrow K_{{ec}} = \mathbf{{{Kec_val/1e5:.2f} \times 10^5}}")
+        st.markdown(r"""
+        **Ref:** ACI 318 - The column stiffness is reduced by the torsional flexibility of the slab-column connection.
+        """)
+        st.latex(rf"K_t = \sum \frac{{9 E_{{cs}} C}}{{L_2 (1 - c_2/L_2)^3}}")
+        st.write(f"(Calculated internally via `calculations.py`) $\Rightarrow K_t = {Kt_val/1e5:.2f} \times 10^5$")
+        
+        st.markdown("**Combination Formula:**")
+        st.latex(rf"\frac{{1}}{{K_{{ec}}}} = \frac{{1}}{{\Sigma K_c}} + \frac{{1}}{{K_t}}")
+        st.latex(rf"K_{{ec}} = \mathbf{{{Kec_val/1e5:.2f} \times 10^5}}")
 
     # === TAB 2: MOMENT ===
     with tab2:
-        st.markdown("#### 2.1 Fixed End Moment (FEM)")
-        st.latex(rf"w = {w_line:,.0f} \, kg/m")
-        st.latex(rf"FEM = \frac{{w L_1^2}}{{12}} = \mathbf{{{FEM:,.0f}}} \, kg\cdot m")
-        
-        st.markdown("#### 2.2 Moment Distribution Table (Hardy Cross)")
-        st.dataframe(df_iter.style.format({"Joint A": "{:,.0f}", "Joint B": "{:,.0f}"}), use_container_width=True)
+        st.subheader("2. Moment Distribution Analysis")
+        st.caption("Method: Hardy Cross Method (Moment Distribution)")
 
-        st.markdown("#### 2.3 Design Moment Envelope")
-        st.write("Face Correction Moment:")
-        st.latex(rf"M_{{design}} = {abs(M_final_L):,.0f} - {M_red:,.0f} = \mathbf{{{M_neg_design:,.0f}}} \, kg\cdot m")
+        st.markdown("#### 2.1 Load & Fixed End Moments (FEM)")
+        st.write("Convert Area Load ($w_u$) to Line Load ($w$) on the frame:")
+        st.latex(rf"w = w_u \times L_2 = {w_u} \times {L2} = \mathbf{{{w_line:,.0f}}} \, kg/m")
+        
+        st.write("Fixed End Moment (assuming fixed supports initially):")
+        st.latex(rf"FEM = \frac{{w L_1^2}}{{12}} = \frac{{{w_line:,.0f} \cdot {L1}^2}}{{12}} = \mathbf{{{FEM:,.0f}}} \, kg\cdot m")
+        
+        st.divider()
+        
+        st.markdown("#### 2.2 Iterative Distribution (Hardy Cross)")
+        st.markdown(f"**Distribution Factor (DF):** Proportion of unbalanced moment absorbed by the slab.")
+        st.latex(rf"DF_{{slab}} = \frac{{K_s}}{{K_s + K_{{ec}}}} = \frac{{{Ks_val:.0f}}}{{{Ks_val:.0f} + {Kec_val:.0f}}} = \mathbf{{{DF_slab:.3f}}}")
+        
+        with st.expander("Show Iteration Table"):
+            st.dataframe(df_iter.style.format({"Joint A": "{:,.0f}", "Joint B": "{:,.0f}"}), use_container_width=True)
+        
+        st.markdown(f"**Final Centerline Moment ($M_{{cen}}$):** ${abs(M_final_L):,.0f} \, kg\cdot m$")
+
+        st.divider()
+        
+        st.markdown("#### 2.3 Face Correction (Design Moment)")
+        st.caption("Ref: Design moments are taken at the face of the support, not the centerline.")
+        st.latex(r"M_{face} = M_{cen} - V_u \left(\frac{c_1}{2}\right) + \frac{w_u (c_1/2)^2}{2}")
+        
+        st.write("Where:")
+        st.write(f"- Shear $V_u = w L_1 / 2 = {Vu_frame:,.0f}$ kg")
+        st.write(f"- Support width $c_1 = {c1_m:.2f}$ m")
+        
+        st.latex(rf"\Delta M = {Vu_frame:,.0f} \left(\frac{{{c1_m}}}{{2}}\right) - \frac{{{w_line:,.0f} (0.5 \cdot {c1_m})^2}}{{2}} = {M_correction:,.0f} \, kg\cdot m")
+        st.latex(rf"M_{{design}} (-) = {abs(M_final_L):,.0f} - {M_correction:,.0f} = \mathbf{{{M_neg_design:,.0f}}} \, kg\cdot m")
+        
         st.pyplot(plot_moment_envelope(L1, -M_neg_design, -M_neg_design, M_pos_design, c1_w))
 
     # === TAB 3: DESIGN ===
     with tab3:
-        st.markdown("#### 🛡️ Reinforcement Design Check")
-        st.caption(f"Using materials: fc'={fc} ksc, fy={fy} ksc")
+        st.subheader("3. Reinforcement Design (USD Method)")
+        st.caption(f"Code Reference: ACI 318 / EIT Standard (SDM)")
+        st.write(f"**Materials:** $f_c' = {fc}$ ksc, $f_y = {fy}$ ksc")
         
         # 1. Get Config from Mat Props (or default)
         cfg = mat_props.get('rebar_cfg', {})
@@ -352,63 +405,98 @@ def render(c1_w, c2_w, L1, L2, lc, h_slab, fc, mat_props, w_u, col_type, **kwarg
         # 2. Define Strip Widths
         w_cs = min(L1, L2) / 2.0
         w_ms = L2 - w_cs
+        st.info(f"**Strip Widths:** Column Strip = {w_cs:.2f} m | Middle Strip = {w_ms:.2f} m")
         
         # 3. Design Loop (4 Zones)
         zones = [
             {
                 "Name": "Column Strip - Top (-)", 
                 "Mu": M_neg_design * 0.75, "Width": w_cs, 
-                "db": cfg.get('cs_top_db', 12), "spa": cfg.get('cs_top_spa', 20)
+                "db": cfg.get('cs_top_db', 12), "spa": cfg.get('cs_top_spa', 20),
+                "coeff": 0.75, "loc": "Support"
             },
             {
                 "Name": "Column Strip - Bot (+)", 
                 "Mu": M_pos_design * 0.60, "Width": w_cs, 
-                "db": cfg.get('cs_bot_db', 12), "spa": cfg.get('cs_bot_spa', 20)
+                "db": cfg.get('cs_bot_db', 12), "spa": cfg.get('cs_bot_spa', 20),
+                "coeff": 0.60, "loc": "Midspan"
             },
             {
                 "Name": "Middle Strip - Top (-)", 
                 "Mu": M_neg_design * 0.25, "Width": w_ms, 
-                "db": cfg.get('ms_top_db', 12), "spa": cfg.get('ms_top_spa', 20)
+                "db": cfg.get('ms_top_db', 12), "spa": cfg.get('ms_top_spa', 20),
+                "coeff": 0.25, "loc": "Support"
             },
             {
                 "Name": "Middle Strip - Bot (+)", 
                 "Mu": M_pos_design * 0.40, "Width": w_ms, 
-                "db": cfg.get('ms_bot_db', 12), "spa": cfg.get('ms_bot_spa', 20)
+                "db": cfg.get('ms_bot_db', 12), "spa": cfg.get('ms_bot_spa', 20),
+                "coeff": 0.40, "loc": "Midspan"
             }
         ]
         
-        # 4. Process and Display
         results = []
-        for z in zones:
+        
+        # Grid Layout for Cards
+        c1, c2 = st.columns(2)
+        
+        for i, z in enumerate(zones):
+            # Calculate Logic
             res = calculate_capacity_check(z['Mu'], z['Width'], h_slab, cover, fc, fy, z['db'], z['spa'])
             z.update(res)
             results.append(z)
             
-        # Display as Grid
-        c1, c2 = st.columns(2)
-        
-        for i, z in enumerate(results):
             # Select Column
-            with (c1 if i % 2 == 0 else c2):
-                # Status Color
-                color = "green" if z['Pass'] else "red"
-                icon = "✅" if z['Pass'] else "❌"
-                
-                st.markdown(f"**{z['Name']}**")
-                st.info(f"Using: **DB{z['db']}@{z['spa']}cm**")
-                
-                # Plot Section
-                st.pyplot(draw_section_detail(z['Width']*100, h_slab, z['db'], z['spa'], z['Name']))
-                
-                # Metrics
-                m1, m2 = st.columns(2)
-                m1.write(f"$M_u$: {z['Mu']:,.0f}")
-                m2.write(f"$\\phi M_n$: {z['PhiMn']:,.0f}")
-                
-                # Check
-                st.write(f"Required $A_s$: {z['As_req']:.2f} cm² | Provided: {z['As_prov']:.2f} cm²")
-                st.markdown(f"Ratio: {z['Ratio']:.2f} ... :{color}[**{icon} { 'PASS' if z['Pass'] else 'FAIL' }**]")
-                st.divider()
+            col_curr = c1 if i % 2 == 0 else c2
+            
+            with col_curr:
+                with st.container(border=True):
+                    # Header
+                    pass_status = "✅ PASS" if z['Pass'] else "❌ FAIL"
+                    st.markdown(f"##### {z['Name']}")
+                    st.caption(f"Design Moment $M_u = \text{{Total}} \times {z['coeff']} = {z['Mu']:,.0f}$ kg-m")
+                    
+                    # Visual
+                    st.pyplot(draw_section_detail(z['Width']*100, h_slab, z['db'], z['spa'], z['Name']))
+                    
+                    # Quick Metrics
+                    c_a, c_b = st.columns(2)
+                    c_a.metric("Provided As", f"{z['As_prov']:.2f} cm²", f"Req: {z['As_req']:.2f}")
+                    c_b.metric("D/C Ratio", f"{z['Ratio']:.2f}", pass_status, delta_color="inverse")
+                    
+                    # --- DETAILED CALCULATION EXPANDER ---
+                    with st.expander("📝 View Detailed Calculation Steps"):
+                        st.markdown("**1. Section Parameters**")
+                        st.latex(rf"b = {z['Width']*100:.0f} \, cm, \quad h = {h_slab} \, cm")
+                        st.latex(rf"d = h - cover - d_b/2 = {h_slab} - {cover} - {z['db']/20:.1f} = {z['d']:.2f} \, cm")
+                        
+                        st.markdown("**2. Required Reinforcement ($A_{s,req}$)**")
+                        st.write("Calculate Strength Parameter ($R_n$):")
+                        st.latex(rf"R_n = \frac{{M_u}}{{\phi b d^2}} = \frac{{{z['Mu']*100:,.0f}}}{{0.9 \cdot {z['Width']*100:.0f} \cdot {z['d']:.2f}^2}} = {z['Rn']:.2f} \, ksc")
+                        
+                        st.write("Calculate Reinforcement Ratio ($\rho$):")
+                        if z['rho_calc'] != 999:
+                            st.latex(rf"\rho_{{req}} = \frac{{0.85 f_c'}}{{f_y}} \left( 1 - \sqrt{{1 - \frac{{2 R_n}}{{0.85 f_c'}}}} \right) = {z['rho_calc']:.5f}")
+                            st.write(f"Check Min $\\rho$: $0.0018$ vs {z['rho_calc']:.5f} -> Use $\\rho = {z['rho_req']:.5f}$")
+                        else:
+                            st.error("Section Failed (Rn too high). Concrete dimensions too small.")
+                        
+                        st.latex(rf"A_{{s,req}} = \rho b d = {z['rho_req']:.5f} \cdot {z['Width']*100:.0f} \cdot {z['d']:.2f} = \mathbf{{{z['As_req']:.2f} \, cm^2}}")
+                        
+                        st.markdown("**3. Check Capacity ($\phi M_n$)**")
+                        st.write(f"Using **DB{z['db']}@{z['spa']}cm**: $A_{{s,prov}} = {z['As_prov']:.2f} \, cm^2$")
+                        st.write("Depth of equivalent stress block ($a$):")
+                        st.latex(rf"a = \frac{{A_s f_y}}{{0.85 f_c' b}} = \frac{{{z['As_prov']:.2f} \cdot {fy}}}{{0.85 \cdot {fc} \cdot {z['Width']*100:.0f}}} = {z['a_depth']:.2f} \, cm")
+                        
+                        st.write("Nominal Moment Capacity:")
+                        st.latex(rf"\phi M_n = \phi A_s f_y (d - a/2)")
+                        st.latex(rf"= 0.9 \cdot {z['As_prov']:.2f} \cdot {fy} \cdot ({z['d']:.2f} - {z['a_depth']:.2f}/2) \cdot 10^{{-2}}")
+                        st.latex(rf"= \mathbf{{{z['PhiMn']:,.0f} \, kg\cdot m}}")
+                        
+                        if z['Ratio'] <= 1.0:
+                            st.success(f"Check: $M_u ({z['Mu']:,.0f}) \le \phi M_n ({z['PhiMn']:,.0f})$ -> OK")
+                        else:
+                            st.error(f"Check: $M_u ({z['Mu']:,.0f}) > \phi M_n ({z['PhiMn']:,.0f})$ -> NOT SAFE")
 
         # Summary Table
         st.markdown("#### 📋 Summary Table")
