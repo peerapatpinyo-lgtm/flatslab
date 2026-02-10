@@ -262,9 +262,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
     Render detailed punching shear calculation with Step-by-Step explanation.
     """
-    # 0. Safety Check: ถ้าไม่มีผลลัพธ์ส่งมา ให้แจ้งเตือนและออกจากฟังก์ชัน
     if not res:
-        st.error(f"⚠️ No calculation data available for {label}")
+        st.error(f"No data available for {label}")
         return
 
     st.markdown(f"#### 📍 Section: {label}")
@@ -277,11 +276,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     
     # Thickness logic: If checking Column Face and Drop exists, add Drop thickness
     h_slab_base = mat_props.get('h_slab', 20.0)
-    
-    # ตรวจสอบว่าจุดที่เช็ค (label) อยู่ในบริเวณที่มี Drop Panel หรือไม่
     is_drop_check = "Face" in label or "Column" in label
     
-    # Calculate Total Thickness (h)
+    # Check if we should add drop thickness
     if mat_props.get('has_drop') and is_drop_check:
         h_total = h_slab_base + mat_props.get('h_drop', 0)
     else:
@@ -293,15 +290,14 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     d = h_total - cover - (d_bar_cm / 2)
     
     # --- Analysis Results ---
-    # Safe division (ป้องกันตัวหารเป็น 0)
-    min_c = min(c1, c2) if min(c1, c2) > 0 else 1.0
-    beta = max(c1, c2) / min_c
+    # Safe division
+    min_c = min(c1,c2) if min(c1,c2) > 0 else 1
+    beta = max(c1,c2)/min_c
     
-    alpha_s = mat_props.get('alpha_s', 40) # 40=Interior, 30=Edge, 20=Corner
+    alpha_s = mat_props.get('alpha_s', 40) # 40=Int, 30=Edge, 20=Corner
     sqrt_fc = math.sqrt(fc)
     
     # --- Calculate b0 for Display ---
-    # เลือกสูตรและคำอธิบายตามตำแหน่งเสา
     if alpha_s >= 40:
         pos_title = "Interior Column"
         b0_latex_eq = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
@@ -320,29 +316,26 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 1: Geometry & Parameters ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        # ตรวจสอบว่ามีฟังก์ชัน render_step_header หรือไม่ ถ้าไม่มีให้ใช้ markdown ธรรมดา
-        try:
-            render_step_header(1, "Geometry & Parameters")
-        except NameError:
-            st.markdown("##### 1️⃣ Geometry & Parameters")
+        # ตรวจสอบว่ามี function render_step_header หรือไม่ (ถ้าไม่มีให้ comment บรรทัดนี้)
+        render_step_header(1, "Geometry & Parameters")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown('**A. Effective Depth (d)**')
+            st.markdown('<div class="sub-header">A. Effective Depth (d)</div>', unsafe_allow_html=True)
             st.write(f"Thickness: {h_total:.0f} cm | Cover: {cover:.1f} cm | Bar: $\phi${d_bar_mm:.0f} mm")
             st.latex(fr"d = {h_total:.0f} - {cover:.1f} - \frac{{{d_bar_cm}}}{{2}} = \mathbf{{{d:.2f}}} \text{{ cm}}")
             
-            st.markdown('**B. Concrete Strength**')
+            st.markdown('<div class="sub-header">B. Concrete Strength</div>', unsafe_allow_html=True)
             st.latex(fr"\sqrt{{f'_c}} = \sqrt{{{fc}}} = \mathbf{{{sqrt_fc:.2f}}} \text{{ ksc}}")
 
         with col2:
-            st.markdown('**C. Critical Perimeter ($b_0$)**')
+            st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
             st.write(f"**Type:** {pos_title} ($\\alpha_s = {alpha_s}$)")
             st.latex(b0_latex_eq)
-            st.success(f"b0 = {b0:.2f} cm")
+            st.markdown(f"<div class='calc-result-box'>b0 = {b0:.2f} cm</div>", unsafe_allow_html=True)
             
-            st.markdown('**D. Shape Factor ($\\beta$)**')
+            st.markdown('<div class="sub-header">D. Shape Factor</div>', unsafe_allow_html=True)
             st.latex(fr"\beta = \frac{{{max(c1,c2)}}}{{{min_c}}} = {beta:.2f}")
             
         st.markdown('</div>', unsafe_allow_html=True)
@@ -350,35 +343,32 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 2: Nominal Capacity ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        try:
-            render_step_header(2, "Nominal Shear Capacity (Vc)")
-        except:
-            st.markdown("##### 2️⃣ Nominal Shear Capacity ($V_c$)")
+        render_step_header(2, "Nominal Shear Capacity (V<sub>c</sub>)")
         
         eq1, eq2, eq3 = st.columns(3)
         
-        # --- Eq 1: Rectangularity ---
+        # --- Eq 1 ---
         with eq1:
             st.markdown("**1. Rectangularity Effect**")
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
             term_beta = 1 + (2/beta)
             val_vc1 = 0.53 * term_beta * sqrt_fc * b0 * d
-            st.info(f"{val_vc1:,.0f} kg")
+            st.markdown(f"<div class='calc-result-box'>{val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 2: Size Effect ---
+        # --- Eq 2 ---
         with eq2:
             st.markdown("**2. Size Effect**")
             st.latex(r"V_{c2} = 0.27 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d") 
             term_peri_val = (alpha_s * d / b0) + 2
             val_vc2 = 0.27 * term_peri_val * sqrt_fc * b0 * d 
-            st.info(f"{val_vc2:,.0f} kg")
+            st.markdown(f"<div class='calc-result-box'>{val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 3: Basic Limit ---
+        # --- Eq 3 ---
         with eq3:
             st.markdown("**3. Basic Limit**")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
             val_vc3 = 1.06 * sqrt_fc * b0 * d
-            st.info(f"{val_vc3:,.0f} kg")
+            st.markdown(f"<div class='calc-result-box'>{val_vc3:,.0f} kg</div>", unsafe_allow_html=True)
         
         st.markdown("---")
         vc_min = min(val_vc1, val_vc2, val_vc3)
@@ -388,59 +378,52 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 3: Demand Calculation ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        try:
-            render_step_header(3, "Shear Demand (Vu)")
-        except:
-            st.markdown("##### 3️⃣ Shear Demand ($V_u$)")
+        render_step_header(3, "Shear Demand (V<sub>u</sub>)")
         
-        # Loads Setup
+        # Loads
         f_dl = mat_props.get('factor_dl', 1.4)
         f_ll = mat_props.get('factor_ll', 1.7)
         h_m = h_total / 100.0
-        w_sw = h_m * 2400 # Slab Self Weight (kg/m2)
-        
-        # Safe Get Loads
-        sdl = loads.get('SDL', 0)
-        ll = loads.get('LL', 0)
-        
-        wu_val = (f_dl * (w_sw + sdl)) + (f_ll * ll)
+        w_sw = h_m * 2400
+        wu_val = (f_dl * (w_sw + loads['SDL'])) + (f_ll * loads['LL'])
 
         # Areas
         area_trib = Lx * Ly
+        # Critical area (approximate for display)
         area_crit = ((c1+d)/100) * ((c2+d)/100)
         
-        # Vu Calc (Estimate)
+        # Vu Calc
         vu_calc_raw = wu_val * (area_trib - area_crit)
-        
-        # Use Vu from analysis result if available, else use estimate
+        # Prefer value from result dict if available
         vu_display = res.get('Vu', vu_calc_raw)
 
         col_L, col_R = st.columns(2)
         
         with col_L:
-            st.markdown('**A. Factored Load ($w_u$)**')
+            st.markdown('<div class="sub-header">A. Factored Load (w<sub>u</sub>)</div>', unsafe_allow_html=True)
             st.latex(fr"w_u = {f_dl}(DL) + {f_ll}(LL)")
-            st.latex(fr"w_u = {f_dl}({w_sw+sdl:.0f}) + {f_ll}({ll:.0f})")
-            st.write(f"**$w_u$ = {wu_val:,.0f} kg/m²**")
+            st.latex(fr"w_u = {f_dl}({w_sw+loads['SDL']:.0f}) + {f_ll}({loads['LL']:.0f})")
+            st.markdown(f"**$w_u$ = {wu_val:,.0f} kg/m²**")
 
-            st.markdown('**B. Areas**')
+            st.markdown('<div class="sub-header">B. Areas</div>', unsafe_allow_html=True)
             st.write(f"$A_{{trib}} = {area_trib:.2f} m^2$")
             st.write(f"$A_{{crit}} \\approx {area_crit:.3f} m^2$")
 
         with col_R:
-            st.markdown('**C. Factored Shear ($V_u$)**')
+            st.markdown('<div class="sub-header">C. Factored Shear (V<sub>u</sub>)</div>', unsafe_allow_html=True)
             st.latex(r"V_u = w_u \times (A_{trib} - A_{crit})")
-            st.warning(f"**Vu = {vu_display:,.0f} kg**")
+            st.markdown(f"""
+            <div class="calc-result-box" style="font-size:1.4rem; background-color:#fff3e0; color:#e65100; border-color:#ffb74d">
+            Vu = {vu_display:,.0f} kg
+            </div>
+            """, unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Step 4: Design Check ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        try:
-            render_step_header(4, "Design Verdict")
-        except:
-            st.markdown("##### 4️⃣ Design Verdict")
+        render_step_header(4, "Design Verdict")
         
         phi = mat_props.get('phi_shear', 0.85)
         phi_vn = phi * vc_min
@@ -458,49 +441,49 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         
         st.markdown("---")
         
-        ratio = vu_display / phi_vn if phi_vn > 0 else 999.99
+        ratio = vu_display / phi_vn if phi_vn > 0 else 999
+        status_text = "PASS (Safe)" if passed else "FAIL (Unsafe)"
+        cls = "pass" if passed else "fail"
         
-        if passed:
-            st.success(f"✅ PASS (Safe) | Ratio: {ratio:.2f}")
-        else:
-            st.error(f"❌ FAIL (Unsafe) | Ratio: {ratio:.2f}")
+        st.markdown(f"""
+        <div class="verdict-box {cls}">
+            <div style="font-size:1rem; opacity:0.8;">Demand / Capacity Ratio</div>
+            <div style="font-size:2.5rem; line-height:1.2;">{ratio:.2f}</div>
+            <div style="font-size:1.5rem; margin-top:5px;">{status_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
-
 
 # ==========================================
 # 3. SLAB THICKNESS CHECK (ACI 318)
 # ==========================================
 def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     """
-    is_structural_drop: รับค่า True/False มาจากผลลัพธ์ของฟังก์ชัน Drop Panel
+    is_structural_drop: รับค่า True/False มาจากผลลัพธ์ของฟังก์ชัน Drop Panel ก่อนหน้า
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    try:
-        render_step_header("📏", "Slab Thickness Check (ACI 318 Deflection Control)")
-    except:
-        st.markdown("### 📏 Slab Thickness Check (ACI 318)")
+    render_step_header("📏", "Slab Thickness Check (ACI 318 Deflection Control)")
 
     # 1. Get Inputs
     h_slab = mat_props.get('h_slab', 20.0)
-    fy = mat_props.get('fy', 4000) # Input unit: ksc
-    
-    # Convert ksc to MPa approx for ACI formula
+    fy = mat_props.get('fy', 4000) # ksc -> need check unit based on your system
+    # สมมติ input fy เป็น ksc, แปลงเป็น MPa เพื่อเข้าสูตร ACI
+    # 1 ksc approx 0.098 MPa. Let's assume user inputs ksc.
     fy_mpa = fy * 0.0980665 
     
-    # 2. Select Panel Condition (UI Element)
-    # หมายเหตุ: ในการใช้งานจริง ควรระวังการเรียก widget ซ้ำ (Duplicated Key)
-    # แต่สำหรับการแสดงผล Report รอบเดียว สามารถใช้ได้
+    # 2. Select Panel Condition (User Interaction for Logic)
+    # ในโปรแกรมจริงอาจจะ Auto Detect แต่ถ้าทำ Quick Check ให้เลือกเอา
     col_layout = st.radio(
         "Select Panel Position:",
-        ["Interior Panel (พื้นภายใน)", 
-         "Exterior Panel (พื้นภายนอก - ไม่มีคานขอบ)", 
-         "Exterior Panel (พื้นภายนอก - มีคานขอบ)"],
-        horizontal=True,
-        key="panel_pos_radio" # ใส่ key ป้องกัน error
+        ["Interior Panel (พื้นภายใน)", "Exterior Panel (พื้นภายนอก - ไม่มีคานขอบ)", "Exterior Panel (พื้นภายนอก - มีคานขอบ)"],
+        horizontal=True
     )
 
-    # 3. Determine Denominator (ตัวหาร)
+    # 3. Determine Denominator (ตัวหาร) based on ACI Table
+    # ACI 318 Table 8.3.1.1
+    # is_structural_drop ส่งผลต่อตัวหาร (ถ้ามี Drop Panel จะใช้เกณฑ์ Flat Slab แทน Flat Plate)
+    
     limit_denominator = 0
     system_type = ""
 
@@ -522,24 +505,26 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
             
     else: # Exterior with Edge Beam
         if is_structural_drop:
-            limit_denominator = 36 
+            limit_denominator = 36 # Value slightly varies based on stiffness, assume close to interior
             system_type = "Exterior + Drop Panel (With Beam)"
         else:
             limit_denominator = 33
             system_type = "Exterior Flat Plate (With Beam)"
 
     # 4. Calculate Minimum Thickness (h_min)
-    # Assume Ln = Longest span (Conservative) - ควรใช้ Clear Span แต่ใช้ Lx, Ly เพื่อความปลอดภัย
+    # Formula: h_min = (Ln * (0.8 + fy/1400)) / Denominator
+    # Note: Ln is clear span. Assume Ln approx Lx for conservative check or Lx - col_size
+    
+    # Assume Ln = Longest span
     Ln = max(Lx, Ly) 
     
-    # Correction Factor for Steel Grade
+    # Correction Factor for Steel Grade (fy in MPa)
     steel_correction = 0.8 + (fy_mpa / 1400.0)
     
     h_min_req = (Ln * steel_correction / limit_denominator) * 100 # Convert m to cm
     
     # Check Absolute Minimums (ACI)
-    # 10cm for Drop, 12.5cm for Plate
-    abs_min = 10.0 if is_structural_drop else 12.5
+    abs_min = 10.0 if is_structural_drop else 12.5 # 10cm for Drop, 12.5cm for Plate
     h_min_final = max(h_min_req, abs_min)
     
     pass_h = h_slab >= h_min_final
@@ -568,7 +553,7 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     if h_min_req < abs_min:
         req_text += f" (Min. {abs_min} cm)"
         
-    c2.warning(f"Min: {req_text}") 
+    c2.error(f"Min: {req_text}") 
     c3.info(f"{h_slab:.2f} cm")
     
     if pass_h:
@@ -577,38 +562,10 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
         c4.error("FAIL")
     
     if not pass_h:
-        st.warning(f"⚠️ Slab thickness is insufficient! Try increasing thickness to **{h_min_final:.2f} cm** or adding Drop Panels.")
+        st.warning(f"⚠️ Slab thickness is insufficient! Try increasing thickness to **{h_min_final:.2f} cm** or adding Drop Panels to increase the denominator.")
         
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-# ==========================================
-# TEST RUNNER (ส่วนทดสอบ - Copy ไปด้วยเพื่อลองรัน)
-# ==========================================
-if __name__ == "__main__":
-    st.title("🛠️ Engineering Module Test")
-    
-    # 1. Mock Data (ข้อมูลสมมติ)
-    mock_mat = {
-        'fc': 280, 'fy': 4000, 
-        'h_slab': 20, 'h_drop': 15, 'has_drop': True,
-        'cx': 50, 'cy': 50, 'cover': 3.0, 'd_bar': 16,
-        'alpha_s': 40, 'phi_shear': 0.85,
-        'factor_dl': 1.4, 'factor_ll': 1.7
-    }
-    mock_loads = {'SDL': 150, 'LL': 300}
-    mock_res = {'Vu': 45000} # สมมติว่าวิเคราะห์แรงเฉือนมาแล้วได้ 45 ตัน
-    
-    # 2. Test Function 1: Punching Shear
-    st.header("1. Testing Punching Shear Renderer")
-    render_punching_detailed(mock_res, mock_mat, mock_loads, 8.0, 8.0, "Interior Column Face")
-    
-    st.markdown("---")
-    
-    # 3. Test Function 2: Thickness Check
-    st.header("2. Testing Thickness Check Renderer")
-    # ลองเปลี่ยน is_structural_drop เป็น False เพื่อดูผลที่ต่างกัน
-    render_thickness_check(mock_mat, 8.0, 8.0, is_structural_drop=True)
     
 # ==========================================
 # 4. MAIN RENDERER
