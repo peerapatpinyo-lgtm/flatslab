@@ -114,7 +114,7 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. LOGIC RENDERER (NEW SECTION)
+# 2. LOGIC RENDERER
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     """
@@ -124,17 +124,18 @@ def render_structural_logic(mat_props, Lx, Ly):
     render_step_header("ℹ️", "Logic Check: Drop Panel vs. Shear Cap Classification")
 
     # 1. Extract Data
-    h_slab = mat_props['h_slab']
+    h_slab = mat_props.get('h_slab', 20.0)
     h_drop = mat_props.get('h_drop', 0)
     
     # Drop dimensions (Assuming input is total width/length of drop)
     w_drop_x = mat_props.get('drop_width_x', 0) 
     w_drop_y = mat_props.get('drop_width_y', 0)
     
+    # Check if Drop exists
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
     if not has_drop:
-        st.info("System is designed as **Flat Plate** (No thickening at column).")
+        st.info("ℹ️ System is designed as **Flat Plate** (No thickening at column).")
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
@@ -224,16 +225,16 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     st.markdown(f"#### 📍 Section: {label}")
     
     # --- 1. Extract Basic Material & Geometry ---
-    fc = mat_props['fc']
+    fc = mat_props.get('fc', 240)
     c1 = mat_props.get('cx', 50.0) 
     c2 = mat_props.get('cy', 50.0)
     cover = mat_props.get('cover', 2.5)
     
     # Thickness logic: If checking Column Face and Drop exists, add Drop thickness
-    h_slab_base = mat_props['h_slab']
+    h_slab_base = mat_props.get('h_slab', 20.0)
     is_drop_check = "Face" in label or "Column" in label
     
-    # Check if we should add drop thickness (structural or shear cap, physically it adds depth)
+    # Check if we should add drop thickness
     if mat_props.get('has_drop') and is_drop_check:
         h_total = h_slab_base + mat_props.get('h_drop', 0)
     else:
@@ -245,7 +246,10 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     d = h_total - cover - (d_bar_cm / 2)
     
     # --- Analysis Results ---
-    beta = max(c1,c2)/min(c1,c2)
+    # Safe division
+    min_c = min(c1,c2) if min(c1,c2) > 0 else 1
+    beta = max(c1,c2)/min_c
+    
     alpha_s = mat_props.get('alpha_s', 40) # 40=Int, 30=Edge, 20=Corner
     sqrt_fc = math.sqrt(fc)
     
@@ -287,7 +291,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.markdown(f"<div class='calc-result-box'>b0 = {b0:.2f} cm</div>", unsafe_allow_html=True)
             
             st.markdown('<div class="sub-header">D. Shape Factor</div>', unsafe_allow_html=True)
-            st.latex(fr"\beta = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
+            st.latex(fr"\beta = \frac{{{max(c1,c2)}}}{{{min_c}}} = {beta:.2f}")
             
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -426,8 +430,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     # -----------------------------------------------------
     # PRE-CALCULATION
     # -----------------------------------------------------
-    h_slab = mat_props['h_slab']
-    fc = mat_props['fc']
+    h_slab = mat_props.get('h_slab', 20.0)
+    fc = mat_props.get('fc', 240)
     w_service = loads['SDL'] + loads['LL']
     
     # Recalculate basic checks for display
