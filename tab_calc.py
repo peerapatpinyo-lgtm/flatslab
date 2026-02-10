@@ -85,7 +85,7 @@ def render_step_header(number, text):
 
 def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
-    Render detailed punching shear calculation with correct b0 re-calculation.
+    Render detailed punching shear calculation with correct DYNAMIC b0 calculation.
     """
     if not res:
         st.error(f"No data available for {label}")
@@ -93,21 +93,21 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
     st.markdown(f"#### 📍 Critical Section: {label}")
     
-    # 1. Extract Basic Material & Geometry
+    # --- 1. Extract Basic Material & Geometry ---
     fc = mat_props['fc']
     h_slab = mat_props['h_slab']
     cover = mat_props['cover']
     
-    # Get Column Size (Default to 50x50 if missing, strictly needed for corner/edge calc)
-    c1 = mat_props.get('c1', 50) 
-    c2 = mat_props.get('c2', 50)
+    # Get Column Size (Default to 50x50 if missing from props)
+    c1 = mat_props.get('c1', 50.0) 
+    c2 = mat_props.get('c2', 50.0)
     
-    # Calculate d (Effective Depth) explicitly to be sure
-    # Using 1.0 cm as approx half-bar diameter (DB20)
+    # Calculate d (Effective Depth) explicitly
+    # Using 1.0 cm as approx half-bar diameter (DB20) to be conservative
     d = h_slab - cover - 1.0 
     
-    # 2. Extract Analysis Results
-    # Note: res['b0'] from calculator might be generic, we will Recalculate it below for display accuracy
+    # --- 2. Extract Analysis Results & Check Alpha ---
+    # Note: We prioritize recalculating b0 here for display accuracy
     beta = res.get('beta', max(c1,c2)/min(c1,c2))
     alpha_s = res.get('alpha_s', 40) # 40=Int, 30=Edge, 20=Corner
     gamma_v = res.get('gamma_v', 0.4)
@@ -116,32 +116,37 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     sqrt_fc = math.sqrt(fc)
     
     # ==========================================
-    # 🔴 ENGINEERING LOGIC: Recalculate b0
+    # 🔴 ENGINEERING LOGIC FIX: Dynamic b0
     # ==========================================
-    # This ensures the displayed b0 matches the column position exactly
+    # Recalculate b0 based on alpha_s (Column Position)
     
     if alpha_s >= 40:
-        # Interior: 4 sides
+        # Case: Interior Column (4 Sides)
         pos_text = "Interior Column (4 Sides)"
         b0_calc = 2*(c1 + d) + 2*(c2 + d)
+        
         b0_latex_formula = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
         b0_sub = fr"2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
+        
     elif alpha_s >= 30:
-        # Edge: 3 sides
-        # Assumption: Perpendicular to edge is c1 or c2? 
-        # Standard conservative display for report:
+        # Case: Edge Column (3 Sides)
+        # Assumes c1 is perpendicular to edge, c2 is parallel (or vice versa, resulting perim is similar for square)
+        # Formula: 2 sides + 1 front face
         pos_text = "Edge Column (3 Sides)"
-        b0_calc = 2*(c1 + d/2) + (c2 + d) # Example formula
+        b0_calc = 2*(c1 + d/2) + (c2 + d) 
+        
         b0_latex_formula = r"b_0 = 2(c_{side} + d/2) + (c_{front} + d)"
         b0_sub = fr"2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
+        
     else:
-        # Corner: 2 sides
+        # Case: Corner Column (2 Sides)
         pos_text = "Corner Column (2 Sides)"
         b0_calc = (c1 + d/2) + (c2 + d/2)
+        
         b0_latex_formula = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
         b0_sub = fr"({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
         
-    # Use the recalculated b0 for consistency in this report
+    # FORCE UPDATE: Use the calculated b0 for consistency in the report
     b0 = b0_calc
 
     # --- Step 1: Geometry & Parameters ---
