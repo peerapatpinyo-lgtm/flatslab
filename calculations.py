@@ -444,7 +444,7 @@ def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
     }
 
 # ==========================================
-# PART 3: MAIN CONTROLLER CLASS
+# PART 3: MAIN CONTROLLER CLASS (UPDATED)
 # ==========================================
 class FlatSlabDesign:
     """
@@ -486,10 +486,51 @@ class FlatSlabDesign:
         self.d_bar = inputs.get('d_bar', 12)
         self.fc = inputs.get('fc', 240)
         self.fy = inputs.get('fy', 4000)
+        
+        # Drop Panel Inputs
         self.has_drop = inputs.get('has_drop', False)
-        self.h_drop = inputs.get('h_drop', 0.0)
+        self.h_drop = inputs.get('h_drop', 0.0) # This is usually projection below slab
         self.drop_w = inputs.get('drop_w', 0.0)
         self.drop_l = inputs.get('drop_l', 0.0)
+
+        # --- NEW: Check ACI Drop Panel Compliance ---
+        self.is_structural_drop = False
+        self.drop_status_msg = "No Drop"
+        
+        if self.has_drop:
+            self._check_aci_drop_compliance()
+
+    def _check_aci_drop_compliance(self):
+        """
+        [NEW] ตรวจสอบขนาด Drop Panel ตาม ACI 318
+        1. ความหนายื่นลงมา (Projection) >= h_slab / 4
+        2. ระยะยื่นออกจากศูนย์กลางเสา (Extension) >= L / 6 ในแต่ละทิศทาง
+        """
+        # 1. Check Projection (Thickness)
+        min_proj = self.h_slab / 4.0
+        pass_thick = self.h_drop >= min_proj
+
+        # 2. Check Extension (Length)
+        # Assuming Drop is centered: Extension = Width / 2
+        # ACI: Extend L/6 from center-line of support
+        min_ext_x = self.Lx / 6.0
+        min_ext_y = self.Ly / 6.0
+        
+        actual_ext_x = self.drop_w / 2.0
+        actual_ext_y = self.drop_l / 2.0
+        
+        pass_size = (actual_ext_x >= min_ext_x) and (actual_ext_y >= min_ext_y)
+
+        if pass_thick and pass_size:
+            self.is_structural_drop = True
+            self.drop_status_msg = "OK (Structural Drop)"
+        else:
+            self.is_structural_drop = False
+            # สร้างข้อความแจ้งเตือนว่าทำไมถึงตกเกณฑ์
+            reasons = []
+            if not pass_thick: reasons.append(f"Too Thin (<{min_proj:.1f}cm)")
+            if not pass_size: reasons.append(f"Too Small (<L/6)")
+            self.drop_status_msg = f"Acts as Shear Cap Only ({', '.join(reasons)})"
 
     def _get_eff_depth(self, h_total):
         d = h_total - self.cover - (self.d_bar / 10.0) / 2.0
@@ -534,13 +575,16 @@ class FlatSlabDesign:
         # Extract Correct Phi
         phi_f = self.factors.get('phi_flexure', 0.90)
 
-        use_drop = self.has_drop and self.inputs.get('use_drop_as_support', False)
+        # [UPDATED]: Use structural flag directly. 
+        # Even if user wants to use as support, if it fails ACI check, we force False.
+        use_drop_for_flexure = self.has_drop and self.is_structural_drop
         
-        if use_drop:
+        if use_drop_for_flexure:
             eff_cx = self.drop_w * 100.0
             eff_cy = self.drop_l * 100.0
             d_neg = self._get_eff_depth(self.h_slab + self.h_drop)
         else:
+            # If Shear Cap or No Drop -> Use Slab geometry
             eff_cx = self.cx
             eff_cy = self.cy
             d_neg = self._get_eff_depth(self.h_slab)
@@ -557,7 +601,8 @@ class FlatSlabDesign:
             M_ms_neg = 0.65 * Mo * factor_ms_neg
             M_ms_pos = 0.35 * Mo * factor_ms_pos
             
-            h_neg = self.h_slab + self.h_drop if use_drop else self.h_slab
+            # Use thickness based on compliance check
+            h_neg = self.h_slab + self.h_drop if use_drop_for_flexure else self.h_slab
             
             # Pass phi_f to all design calls
             des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar, phi=phi_f)
@@ -602,12 +647,23 @@ class FlatSlabDesign:
         results = {}
         col_type = self.inputs['col_type'] 
 
+        # [UPDATED] Determine dimensions to pass for Stiffness
+        # If it's a Shear Cap (not structural drop), pass None/0 to ignore stiffness contribution
+        if self.has_drop and self.is_structural_drop:
+            calc_h_drop = self.h_slab + self.h_drop
+            calc_drop_w = self.drop_w
+            calc_drop_l = self.drop_l
+        else:
+            calc_h_drop = None
+            calc_drop_w = 0
+            calc_drop_l = 0
+
         # --- X-Direction EFM ---
         Ks_x, Sum_Kc_x, Kt_x, Kec_x = calculate_stiffness(
             c1=self.cx, c2=self.cy, L1=self.Lx, L2=self.Ly, 
             lc=self.lc, h_slab=self.h_slab, fc=self.fc,
-            h_drop=self.h_slab+self.h_drop if self.has_drop else None,
-            drop_w=self.drop_w if self.has_drop else 0
+            h_drop=calc_h_drop,
+            drop_w=calc_drop_w
         )
         is_edge_x = True if col_type in ['edge', 'corner'] else False
         moments_x = solve_efm_distribution(Kec_x, Ks_x, w_u, self.Lx, self.Ly, is_edge_span=is_edge_x)
@@ -617,8 +673,8 @@ class FlatSlabDesign:
         Ks_y, Sum_Kc_y, Kt_y, Kec_y = calculate_stiffness(
             c1=self.cy, c2=self.cx, L1=self.Ly, L2=self.Lx, 
             lc=self.lc, h_slab=self.h_slab, fc=self.fc,
-            h_drop=self.h_slab+self.h_drop if self.has_drop else None,
-            drop_w=self.drop_l if self.has_drop else 0
+            h_drop=calc_h_drop,
+            drop_w=calc_drop_l
         )
         is_edge_y = True if col_type == 'corner' else False
         moments_y = solve_efm_distribution(Kec_y, Ks_y, w_u, self.Ly, self.Lx, is_edge_span=is_edge_y)
@@ -669,6 +725,7 @@ class FlatSlabDesign:
         # ============================================================
         # 5. PUNCHING ANALYSIS (Updated with Openings, EFM Moment & Dynamic Phi)
         # ============================================================
+        # NOTE: Shear Caps (even if not Structural Drops) still help with Punching Shear
         op_w = self.inputs.get('open_w', 0.0)
         op_dist = self.inputs.get('open_dist', 0.0)
         
@@ -683,6 +740,8 @@ class FlatSlabDesign:
                 Munbal=Munbal_design,
                 phi=phi_s
             )
+            # Add Status Note to Punching Result
+            punch_res['drop_status'] = self.drop_status_msg
         else:
             c1_d = self.cx + d_slab
             c2_d = self.cy + d_slab
@@ -696,8 +755,10 @@ class FlatSlabDesign:
                 open_w=op_w, open_dist=op_dist,
                 phi=phi_s
             )
+            punch_res['drop_status'] = "No Drop"
 
         # 6. DDM Analysis
+        # Will automatically use flat plate design if is_structural_drop is False
         ddm_res = self._analyze_ddm_moments(w_u)
         
         # 7. Serviceability
@@ -718,6 +779,7 @@ class FlatSlabDesign:
                 "deflection": deflection_res, 
                 "code_ref": self.factors.get('code_ref', '-'),
                 "ddm_valid": ddm_valid,
-                "ddm_warnings": ddm_warn
+                "ddm_warnings": ddm_warn,
+                "drop_panel_status": self.drop_status_msg 
             }
         }
