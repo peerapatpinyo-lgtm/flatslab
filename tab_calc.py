@@ -114,7 +114,6 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 
-
 # ==========================================
 # 2. LOGIC RENDERER (DEBUG MODE)
 # ==========================================
