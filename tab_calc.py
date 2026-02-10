@@ -114,37 +114,61 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. LOGIC RENDERER
+# 2. LOGIC RENDERER (UPDATED)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     """
     Render the logic check for Drop Panel vs Shear Cap according to ACI 318.
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    render_step_header("ℹ️", "Logic Check: Drop Panel vs. Shear Cap Classification")
+    render_step_header("ℹ️", "Logic Check: System Classification")
 
     # 1. Extract Data
     h_slab = mat_props.get('h_slab', 20.0)
     h_drop = mat_props.get('h_drop', 0)
     
-    # Drop dimensions (Assuming input is total width/length of drop)
+    # Drop dimensions
     w_drop_x = mat_props.get('drop_width_x', 0) 
     w_drop_y = mat_props.get('drop_width_y', 0)
     
     # Check if Drop exists
+    # เงื่อนไข: ต้องมีการติ๊ก has_drop และ ความหนาต้องมากกว่า 0
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
+    # ---------------------------------------------------------
+    # CASE 1: FLAT PLATE (NO DROP) - ส่วนที่เพิ่มคำอธิบายเข้าไป
+    # ---------------------------------------------------------
     if not has_drop:
-        st.info("ℹ️ System is designed as **Flat Plate** (No thickening at column).")
+        st.info("### 🟦 System Type: FLAT PLATE")
+        
+        c1, c2 = st.columns([1, 1.5])
+        with c1:
+            st.markdown("**🔍 Configuration Input:**")
+            st.write(f"- Slab Thickness ($h_s$): **{h_slab} cm**")
+            st.write(f"- Drop Panel: **None / Not Active**")
+        
+        with c2:
+            st.markdown("**⚙️ Analysis Protocol:**")
+            st.markdown("""
+            Since no thickening is provided at the column support:
+            1.  **Stiffness:** Computed based on uniform slab thickness ($I_{slab}$).
+            2.  **Punching Shear:** Checked at **1 Critical Section** only ($d/2$ from column face).
+            3.  **Moments:** Standard Flat Plate coefficients applied.
+            """)
+            
+        st.markdown("---")
+        st.caption("Note: To analyze as a Drop Panel or Shear Cap, please enable 'Drop Panel' in the sidebar and ensure Drop Thickness > 0.")
+        
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
+    # ---------------------------------------------------------
+    # CASE 2: DROP PANEL or SHEAR CAP (มีหัวเสา) - คำนวณต่อ
+    # ---------------------------------------------------------
+
     # 2. Calculate ACI Limits
-    # ACI 318: Drop panel must extend L/6 from center (Total width >= L/3)
     limit_L_x = Lx / 3.0
     limit_L_y = Ly / 3.0
-    
-    # ACI 318: Drop panel projection must be >= h_slab/4
     limit_h = h_slab / 4.0
     
     # 3. Check Criteria
@@ -187,8 +211,8 @@ def render_structural_logic(mat_props, Lx, Ly):
         st.markdown("""
         **Engineering Consequence:**
         1.  **Stiffness:** The thickened section **IS included** in the frame analysis ($I_{gross}$ increases).
-        2.  **Moment:** Helps reduce positive moment at mid-span.
-        3.  **Shear:** Increases punching shear capacity.
+        2.  **Moment:** Helps reduce positive moment at mid-span (ACI coeff. modified).
+        3.  **Shear:** Increases punching shear capacity significantly.
         """)
     else:
         st.warning("### ⚠️ Conclusion: SHEAR CAP (Not a Structural Drop)")
@@ -198,14 +222,11 @@ def render_structural_logic(mat_props, Lx, Ly):
         **1. For Stiffness & Flexure (Safe Side):**
         * The program **IGNORES** the cap thickness.
         * Calculations treat this as a **Flat Plate** ($h = {h_slab}$ cm).
-        * *Reason:* Prevents over-estimating stiffness at support, ensuring mid-span reinforcement is not under-designed.
+        * *Reason:* Prevents over-estimating stiffness at support.
         
         **2. For Punching Shear (Economical Side):**
         * The program **USES** the cap physical dimensions.
-        * Checks two critical sections:
-            1.  Inside Cap ($d_1$ derived from $h_{{slab}} + {h_drop}$ cm).
-            2.  Outside Cap ($d_2$ derived from $h_{{slab}}$ cm).
-        * *Reason:* The concrete mass physically exists and resists punching shear.
+        * Checks **2 Critical Sections**: Inside Cap & Outside Cap.
         """)
 
     st.markdown('</div>', unsafe_allow_html=True)
