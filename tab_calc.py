@@ -113,12 +113,14 @@ def render_step_header(number, text):
     else:
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
+
 # ==========================================
-# 2. LOGIC RENDERER (UPDATED)
+# 2. LOGIC RENDERER (UPDATED for app.py compatibility)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     """
     Render the logic check for Drop Panel vs Shear Cap according to ACI 318.
+    Automatically handles unit conversion from app.py inputs.
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     render_step_header("ℹ️", "Logic Check: System Classification")
@@ -127,16 +129,30 @@ def render_structural_logic(mat_props, Lx, Ly):
     h_slab = mat_props.get('h_slab', 20.0)
     h_drop = mat_props.get('h_drop', 0)
     
-    # Drop dimensions
-    w_drop_x = mat_props.get('drop_width_x', 0) 
-    w_drop_y = mat_props.get('drop_width_y', 0)
+    # ---------------------------------------------------------
+    # 🛠️ PATCH START: แก้ไขการรับค่าให้ตรงกับ app.py
+    # ---------------------------------------------------------
+    # app.py ส่งมาเป็น 'drop_w' และ 'drop_l' ในหน่วย cm
+    # เราต้องดึงค่านั้นมาหาร 100 ให้เป็นเมตร (m) เพื่อเทียบกับ Lx, Ly
     
+    raw_w_cm = mat_props.get('drop_w', 0)
+    raw_l_cm = mat_props.get('drop_l', 0)
+    
+    # ถ้าหาไม่เจอ (เผื่ออนาคตเปลี่ยนชื่อ) ให้ลองหาชื่อเดิม
+    if raw_w_cm == 0: raw_w_cm = mat_props.get('drop_width_x', 0) * 100
+    if raw_l_cm == 0: raw_l_cm = mat_props.get('drop_width_y', 0) * 100
+
+    # แปลงเป็นเมตร (m)
+    w_drop_x = raw_w_cm / 100.0
+    w_drop_y = raw_l_cm / 100.0
+    # ---------------------------------------------------------
+
     # Check if Drop exists
     # เงื่อนไข: ต้องมีการติ๊ก has_drop และ ความหนาต้องมากกว่า 0
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
     # ---------------------------------------------------------
-    # CASE 1: FLAT PLATE (NO DROP) - ส่วนที่เพิ่มคำอธิบายเข้าไป
+    # CASE 1: FLAT PLATE (NO DROP)
     # ---------------------------------------------------------
     if not has_drop:
         st.info("### 🟦 System Type: FLAT PLATE")
@@ -163,7 +179,7 @@ def render_structural_logic(mat_props, Lx, Ly):
         return
 
     # ---------------------------------------------------------
-    # CASE 2: DROP PANEL or SHEAR CAP (มีหัวเสา) - คำนวณต่อ
+    # CASE 2: DROP PANEL or SHEAR CAP (มีหัวเสา)
     # ---------------------------------------------------------
 
     # 2. Calculate ACI Limits
