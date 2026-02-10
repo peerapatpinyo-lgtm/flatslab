@@ -108,29 +108,17 @@ def inject_custom_css():
 def render_step_header(number, text):
     # If number is a string (e.g. "Logic Check"), handle gracefully
     if isinstance(number, str) and not number.isdigit() and len(number) > 2:
-        # Special case for text-only headers
         st.markdown(f'<div class="step-title" style="padding-left:0;">{text}</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
-
 # ==========================================
-# 2. LOGIC RENDERER (DEBUG MODE)
+# 2. LOGIC RENDERER (FINAL PROFESSIONAL VERSION)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    render_step_header("ℹ️", "Logic Check: System Classification")
-
-    # ---------------------------------------------------------
-    # 🕵️ DEBUGGING SECTION (ส่วนตรวจสอบข้อมูล)
-    # ---------------------------------------------------------
-    # ถ้าค่าเป็น 0.00 ให้ดูที่กรอบสีแดงนี้ว่ามี key ชื่อ 'drop_w' หรือไม่?
-    # และค่าของมันเป็นเท่าไหร่?
-    with st.expander("🔴 DEBUG: Check Input Data", expanded=False):
-        st.write("Keys received:", list(mat_props.keys()))
-        st.write("Full Data:", mat_props)
-    # ---------------------------------------------------------
+    render_step_header("ℹ️", "Logic Check: Drop Panel vs. Shear Cap Classification")
 
     # 1. Extract Basic Data
     h_slab = mat_props.get('h_slab', 20.0)
@@ -138,7 +126,7 @@ def render_structural_logic(mat_props, Lx, Ly):
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
     # ---------------------------------------------------------
-    # 🛠️ SMART FETCH: พยายามดึงค่ากว้างยาว ไม่ว่าจะชื่ออะไร
+    # SMART FETCH: ดึงค่าจาก app.py (ไม่ว่าหน่วยจะเป็น cm หรือ m)
     # ---------------------------------------------------------
     def get_dim(keys_to_check):
         for key in keys_to_check:
@@ -146,12 +134,10 @@ def render_structural_logic(mat_props, Lx, Ly):
             if val > 0: return val
         return 0
 
-    # ลองหาชื่อตัวแปรทุกรูปแบบที่เป็นไปได้
     raw_x = get_dim(['drop_w', 'drop_width_x', 'drop_width', 'width', 'drop_x'])
     raw_y = get_dim(['drop_l', 'drop_width_y', 'drop_length', 'length', 'drop_y'])
 
-    # 📏 AUTO UNIT CONVERSION (แปลงหน่วยอัตโนมัติ)
-    # สมมติฐาน: ถ้าค่ามากกว่า 10 แสดงว่าเป็น cm (ต้องหาร 100), ถ้าน้อยกว่า แสดงว่าเป็น m อยู่แล้ว
+    # Auto Unit Conversion: ถ้าค่า > 10 เดาว่าเป็น cm ให้หาร 100
     w_drop_x = raw_x / 100.0 if raw_x > 10 else raw_x
     w_drop_y = raw_y / 100.0 if raw_y > 10 else raw_y
     # ---------------------------------------------------------
@@ -159,8 +145,12 @@ def render_structural_logic(mat_props, Lx, Ly):
     # CASE 1: FLAT PLATE (NO DROP)
     if not has_drop:
         st.info("### 🟦 System Type: FLAT PLATE")
-        st.write(f"- Slab Thickness: {h_slab} cm")
-        st.caption("No Drop Panel detected or Drop Thickness is 0.")
+        st.markdown("""
+        **Engineering Analysis Protocol:**
+        * **Stiffness ($EI$):** Calculated based on uniform slab thickness ($h_{slab}$).
+        * **Reinforcement:** Design follows standard Flat Plate coefficients.
+        * **Shear:** Punching shear capacity is limited by slab thickness only.
+        """)
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
@@ -175,33 +165,60 @@ def render_structural_logic(mat_props, Lx, Ly):
     pass_thick = h_drop >= limit_h
     is_structural = pass_dim_x and pass_dim_y and pass_thick
     
-    # Render Results
-    st.write("Checking dimensions against ACI 318 Requirements:")
-    
+    # Render Results Table
+    st.write("**Checking dimensions against ACI 318 Requirements:**")
     results = [
-        {"Check": "Min. Width X", "Limit": f"{limit_L_x:.2f} m", "Actual": f"{w_drop_x:.2f} m", "Status": pass_dim_x},
-        {"Check": "Min. Width Y", "Limit": f"{limit_L_y:.2f} m", "Actual": f"{w_drop_y:.2f} m", "Status": pass_dim_y},
-        {"Check": "Min. Projection", "Limit": f"{limit_h:.2f} cm", "Actual": f"{h_drop:.2f} cm", "Status": pass_thick},
+        {"Check": "Min. Extension X ($L_x/3$)", "Limit": f"≥ {limit_L_x:.2f} m", "Actual": f"{w_drop_x:.2f} m", "Status": pass_dim_x},
+        {"Check": "Min. Extension Y ($L_y/3$)", "Limit": f"≥ {limit_L_y:.2f} m", "Actual": f"{w_drop_y:.2f} m", "Status": pass_dim_y},
+        {"Check": "Min. Projection ($h_s/4$)", "Limit": f"≥ {limit_h:.2f} cm", "Actual": f"{h_drop:.2f} cm", "Status": pass_thick},
     ]
     
-    # Display Table
     c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
     c1.markdown("**Criteria**"); c2.markdown("**Required**"); c3.markdown("**Provided**"); c4.markdown("**Result**")
     st.markdown("---")
     for r in results:
         c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
-        c1.write(r["Check"])
-        c2.write(r["Limit"])
-        c3.write(r["Actual"])
+        c1.write(r["Check"]); c2.write(r["Limit"]); c3.write(r["Actual"])
         c4.write("✅" if r["Status"] else "❌")
-        
     st.markdown("---")
     
+    # --- ENGINEERING CONCLUSION ---
     if is_structural:
         st.success("### ✅ Conclusion: STRUCTURAL DROP PANEL")
+        st.markdown("""
+        **Engineering Consequence Analysis:**
+        
+        1.  **Stiffness Modification (Improved):** * The thickened section meets ACI requirements.
+            * **Action:** The software **includes** the Drop Panel inertia ($I_{drop}$) in the Equivalent Frame Analysis.
+            * **Result:** Increased stiffness at supports reduces calculated deflection.
+            
+        2.  **Flexural Design (Economical):**
+            * **Action:** Negative moment reinforcement at support is calculated using the full effective depth ($d = h_{slab} + h_{drop} - cover$).
+            * **Result:** Reduces the area of steel ($A_s$) required at the column strip.
+            
+        3.  **Shear Capacity:** * Provides maximum protection against Punching Shear at the column face.
+        """)
     else:
-        st.warning("### ⚠️ Conclusion: SHEAR CAP (Not a Structural Drop)")
-        st.caption("Calculated as Flat Plate for Stiffness, but checks Punching Shear at 2 sections.")
+        st.warning("### ⚠️ Conclusion: SHEAR CAP ONLY (Not a Structural Drop)")
+        st.markdown(f"""
+        **Engineering Logic Applied (Safe & Economical Protocol):**
+        
+        The provided dimensions do not meet ACI 318 criteria for a Drop Panel. The system acts as a **Flat Plate with Shear Caps**.
+        
+        **1. Stiffness & Frame Analysis (Conservative Approach):**
+        * **Action:** The software **IGNORES** the cap thickness for stiffness calculations.
+        * **Model:** Treated as a uniform Flat Plate ($h = {h_slab}$ cm).
+        * **Reasoning:** Modeling a small cap as a rigid support would artificially attract negative moment and underestimate positive moment at mid-span. We ignore it to ensure the mid-span reinforcement is **Safe**.
+        
+        **2. Flexural Reinforcement:**
+        * **Action:** Support reinforcement is calculated using slab thickness ($h_{{slab}}$) only.
+        * **Reasoning:** ACI Code prohibits using the increased depth for flexural strength if dimensions are insufficient.
+        
+        **3. Punching Shear (Economical Approach):**
+        * **Action:** The physical mass of the cap **IS USED** for shear resistance.
+        * **Check 1:** Punching at Column Face (Using $d_{{total}}$).
+        * **Check 2:** Punching at Cap Edge (Using $d_{{slab}}$).
+        """)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
