@@ -19,7 +19,6 @@ def inject_custom_css():
     <style>
         .report-container { font-family: 'Segoe UI', Tahoma, Helvetica, sans-serif; }
         
-        /* Main Container */
         .step-container {
             background-color: #ffffff;
             border-radius: 8px;
@@ -29,11 +28,10 @@ def inject_custom_css():
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
-        /* Headers */
         .step-title {
             font-size: 1.3rem;
             font-weight: 700;
-            color: #0d47a1; /* Strong Blue */
+            color: #0d47a1; 
             margin-bottom: 20px;
             padding-bottom: 10px;
             border-bottom: 2px solid #e3f2fd;
@@ -132,8 +130,15 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     else:
         h_total = h_slab_base
 
-    # Effective Depth (d)
-    d = h_total - cover - 1.0 
+    # ==========================================
+    # 🔴 UPDATED: Dynamic Effective Depth (d)
+    # ==========================================
+    # Get bar diameter from input (default to 12mm if missing)
+    d_bar_mm = mat_props.get('d_bar', 12.0)
+    d_bar_cm = d_bar_mm / 10.0 # Convert to cm
+    
+    # Calculate d
+    d = h_total - cover - (d_bar_cm / 2)
     
     # --- 2. Extract Analysis Results & Alpha ---
     beta = max(c1,c2)/min(c1,c2)
@@ -141,30 +146,30 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     sqrt_fc = math.sqrt(fc)
     
     # ==========================================
-    # 🔴 LOGIC: Dynamic b0 & English Explanation
+    # 🔴 UPDATED: Alpha Display Logic (LaTeX)
     # ==========================================
     if alpha_s >= 40:
         # --- INTERIOR ---
-        pos_title = "Interior Column Condition"
+        pos_title = "Interior Column"
         pos_desc = "The critical section is continuous on all 4 sides."
         b0_latex_eq = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
-        b0_latex_sub = fr"b_0 = 2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
+        b0_latex_sub = fr"b_0 = 2({c1} + {d:.2f}) + 2({c2} + {d:.2f})"
         b0_calc = 2*(c1 + d) + 2*(c2 + d)
         
     elif alpha_s >= 30:
         # --- EDGE ---
-        pos_title = "Edge Column Condition"
+        pos_title = "Edge Column"
         pos_desc = "Shear resistance is effective on 3 sides only (1 side is exterior)."
         b0_latex_eq = r"b_0 = 2(c_1 + d/2) + (c_2 + d)"
-        b0_latex_sub = fr"b_0 = 2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
+        b0_latex_sub = fr"b_0 = 2({c1} + {d/2:.2f}) + ({c2} + {d:.2f})"
         b0_calc = 2*(c1 + d/2) + (c2 + d)
         
     else:
         # --- CORNER ---
-        pos_title = "Corner Column Condition"
-        pos_desc = "At the corner, the slab exists only on the inner sides. Thus, shear resistance is limited to **2 sides** (L-shape). The outer sides have no concrete."
+        pos_title = "Corner Column"
+        pos_desc = "Shear resistance is limited to **2 sides** (L-shape). The outer sides have no concrete."
         b0_latex_eq = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
-        b0_latex_sub = fr"b_0 = ({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
+        b0_latex_sub = fr"b_0 = ({c1} + {d/2:.2f}) + ({c2} + {d/2:.2f})"
         b0_calc = (c1 + d/2) + (c2 + d/2)
         
     b0 = b0_calc
@@ -178,16 +183,19 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         
         with col1:
             st.markdown('<div class="sub-header">A. Effective Depth (d)</div>', unsafe_allow_html=True)
-            st.write("Depth from compression face to reinforcement centroid.")
-            st.latex(r"d = h - \text{Cover} - \phi_{bar}/2")
-            st.latex(fr"d = {h_total:.0f} - {cover:.1f} - 1.0 = \mathbf{{{d:.2f}}} \text{{ cm}}")
+            st.write(f"Using Bar Diameter: $\phi${d_bar_mm:.0f} mm")
+            st.latex(r"d = h - \text{Cover} - \frac{d_{bar}}{2}")
+            st.latex(fr"d = {h_total:.0f} - {cover:.1f} - \frac{{{d_bar_cm}}}{{2}}")
+            st.latex(fr"d = \mathbf{{{d:.2f}}} \text{{ cm}}")
             
             st.markdown('<div class="sub-header">B. Concrete Strength</div>', unsafe_allow_html=True)
             st.latex(fr"\sqrt{{f'_c}} = \sqrt{{{fc}}} = \mathbf{{{sqrt_fc:.2f}}} \text{{ ksc}}")
 
         with col2:
             st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
-            st.write(f"**Type:** {pos_title} ($\alpha_s={alpha_s}$)")
+            # Use LaTeX for Alpha S
+            st.write(f"**Type:** {pos_title}")
+            st.latex(fr"\alpha_s = {alpha_s}")
             st.info(f"ℹ️ {pos_desc}")
             
             st.latex(b0_latex_eq)
@@ -195,7 +203,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.markdown(f"<div class='calc-result-box'>b0 = {b0:.2f} cm</div>", unsafe_allow_html=True)
             
             st.markdown('<div class="sub-header">D. Shape Factor</div>', unsafe_allow_html=True)
-            st.latex(fr"\beta = \frac{{\text{{Long Side}}}}{{\text{{Short Side}}}} = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
+            st.latex(fr"\beta = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
             
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -219,6 +227,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         # --- Eq 2 ---
         with eq2:
             st.markdown("**2. Size Effect**")
+            # Fixed alpha_s display in LaTeX
             st.latex(r"V_{c2} = 0.27 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d") 
             term_peri_val = (alpha_s * d / b0) + 2
             val_vc2 = 0.27 * term_peri_val * sqrt_fc * b0 * d 
@@ -244,8 +253,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         render_step_header(3, "Shear Demand Calculation ($V_u$)")
         st.markdown("""
         <div class="meaning-text">
-        This section demonstrates how <b>Vu</b> is derived using the <b>Tributary Area Method</b>.
-        <br>Formula: Total Factored Load on the tributary area minus the load inside the critical perimeter.
+        Derivation of <b>Vu</b> using <b>Tributary Area Method</b>:
+        <br>Formula: Total Factored Load on tributary area minus load inside critical perimeter.
         </div>
         """, unsafe_allow_html=True)
 
@@ -268,7 +277,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         # 4. Vu Calculation
         vu_calc = wu_val * (area_trib - area_crit)
         
-        # Use value from result if available (to match exact input), otherwise use calc
+        # Use value from result if available
         vu_display = res.get('Vu', vu_calc)
 
         col_L, col_R = st.columns(2)
@@ -310,7 +319,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         phi = mat_props.get('phi_shear', 0.85)
         phi_vn = phi * vc_min
         
-        passed = vu_display <= phi_vn + 1.0 # Tolerance
+        passed = vu_display <= phi_vn + 1.0 
         
         c1, c2 = st.columns(2)
         with c1:
@@ -384,8 +393,15 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
 
     # Prep Data
     sqrt_fc = math.sqrt(fc)
-    d_slab = h_slab - mat_props.get('cover', 2.5) - 1.0 
+    
+    # ==========================================
+    # 🔴 UPDATED: One-Way Shear (d)
+    # ==========================================
+    d_bar_mm = mat_props.get('d_bar', 12.0)
+    d_bar_cm = d_bar_mm / 10.0
+    d_slab = h_slab - mat_props.get('cover', 2.5) - (d_bar_cm/2)
     d_meter = d_slab / 100.0
+    
     bw = 100.0 # Unit Strip
     
     # Load Calc
@@ -508,6 +524,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     render_step_header("B", "Minimum Reinforcement ($A_{s,min}$)")
     
     req_as = res_min_rebar['As_min']
+    
+    # Use d_bar from mat_props for consistency
     bar_dia = mat_props.get('d_bar', 12.0)
     
     # Calculate suggested spacing
