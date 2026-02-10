@@ -140,19 +140,63 @@ with st.sidebar.expander("3. Loads & Factors", expanded=False):
     phi_shear = c_phi1.number_input("φ Shear", value=0.85)
     phi_bend = c_phi2.number_input("φ Bending", value=0.90)
 
-# --- Section 4: Reinforcement ---
+
+# --- Section 4: Reinforcement (UPDATED) ---
 with st.sidebar.expander("4. Reinforcement", expanded=False):
-    # Simplified Rebar Selection
-    st.markdown("**Design Reinforcement**")
-    rebar_db = st.selectbox("Main Bar Diameter (mm)", [10, 12, 16, 20, 25], index=1)
+    st.markdown("### 🛠️ Rebar Configuration")
     
-    # Pack configuration for auto-mode (can be expanded later)
-    rebar_cfg = {
-        'cs_top_db': rebar_db, 'cs_top_spa': 20,
-        'cs_bot_db': rebar_db, 'cs_bot_spa': 25,
-        'ms_top_db': rebar_db, 'ms_top_spa': 25,
-        'ms_bot_db': rebar_db, 'ms_bot_spa': 30
-    }
+    # Checkbox เพื่อเปิดโหมดละเอียด
+    use_detailed_rebar = st.checkbox("🔧 Advanced/Zone Control", value=False, help="กำหนดขนาดเหล็กและระยะเรียงแยกตามโซน (Column/Middle Strip)")
+
+    if not use_detailed_rebar:
+        # --- SIMPLE MODE (แบบเดิม) ---
+        st.caption("🔹 Global Settings (Apply to All)")
+        base_db = st.selectbox("Main Bar Diameter (mm)", [10, 12, 16, 20, 25, 28, 32], index=1)
+        base_spa = st.number_input("Typical Spacing (cm)", value=20.0, step=5.0)
+
+        # สร้าง Config แบบเหมารวม
+        rebar_cfg = {
+            'cs_top_db': base_db, 'cs_top_spa': base_spa,
+            'cs_bot_db': base_db, 'cs_bot_spa': base_spa,
+            'ms_top_db': base_db, 'ms_top_spa': base_spa,
+            'ms_bot_db': base_db, 'ms_bot_spa': base_spa
+        }
+        
+        st.info(f"Setting: DB{base_db}@{base_spa:.0f}cm (All Zones)")
+
+    else:
+        # --- ADVANCED MODE (แยกโซน) ---
+        st.markdown("---")
+        st.caption("📍 **Column Strip (แถบเสา)**")
+        c_cs1, c_cs2 = st.columns(2)
+        with c_cs1:
+            st.markdown("Top (-)")
+            cs_top_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=2, key="cs_t_d")
+            cs_top_spa = st.number_input("Spa.", value=15.0, step=2.5, key="cs_t_s")
+        with c_cs2:
+            st.markdown("Bot (+)")
+            cs_bot_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="cs_b_d")
+            cs_bot_spa = st.number_input("Spa.", value=20.0, step=2.5, key="cs_b_s")
+
+        st.markdown("---")
+        st.caption("📍 **Middle Strip (แถบกลาง)**")
+        c_ms1, c_ms2 = st.columns(2)
+        with c_ms1:
+            st.markdown("Top (-)")
+            ms_top_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="ms_t_d")
+            ms_top_spa = st.number_input("Spa.", value=20.0, step=2.5, key="ms_t_s")
+        with c_ms2:
+            st.markdown("Bot (+)")
+            ms_bot_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="ms_b_d")
+            ms_bot_spa = st.number_input("Spa.", value=25.0, step=2.5, key="ms_b_s")
+
+        # Pack ใส่ Dictionary ตาม Key ที่ tab_efm.py รอรับอยู่
+        rebar_cfg = {
+            'cs_top_db': cs_top_db, 'cs_top_spa': cs_top_spa,
+            'cs_bot_db': cs_bot_db, 'cs_bot_spa': cs_bot_spa,
+            'ms_top_db': ms_top_db, 'ms_top_spa': ms_top_spa,
+            'ms_bot_db': ms_bot_db, 'ms_bot_spa': ms_bot_spa
+        }
 
 # =========================================================
 # 3. CONTROLLER & ANALYSIS
