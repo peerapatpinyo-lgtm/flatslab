@@ -455,146 +455,108 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+
 # ==========================================
 # 3. SLAB THICKNESS CHECK (ACI 318)
 # ==========================================
 def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     """
-    is_structural_drop: รับค่า True/False (Drop Panel ต้องหนา >= h/4 และยื่น >= L/6 ตามมาตรฐาน)
-    Lx, Ly: Span Center-to-Center (m)
+    Render Slab Thickness Check based on ACI 318
+    Input:
+    - Lx, Ly: Center-to-Center Span (m)
+    - mat_props: Dictionary containing 'cx', 'cy' (column size in cm), 'fy', 'h_slab'
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    # ใช้ Header แบบ Markdown ธรรมดาเพื่อลด Dependency
     st.markdown("### 📏 Slab Thickness Check (ACI 318)")
 
-    # --- 1. Get Inputs & Convert Units ---
+    # --- 1. SETUP PARAMETERS ---
     h_slab = mat_props.get('h_slab', 20.0)
-    fy_ksc = mat_props.get('fy', 4000) # Input unit: ksc
+    fy_ksc = mat_props.get('fy', 4000)
     
-    # ดึงขนาดเสาเพื่อหา Clear Span (สมมติว่าเป็นเสาสี่เหลี่ยม)
-    c1_cm = mat_props.get('cx', 50.0) # size x (cm)
-    c2_cm = mat_props.get('cy', 50.0) # size y (cm)
+    # แปลงหน่วย Fy (ksc -> MPa)
+    fy_mpa = fy_ksc * 0.0980665
     
-    # Convert ksc to MPa (1 ksc ≈ 0.0980665 MPa)
-    fy_mpa = fy_ksc * 0.0980665 
-    
-    # --- 2. Calculate Clear Span (Ln) ---
-    # ACI ใช้ระยะผิวถึงผิว (Clear Span) ไม่ใช่ Center-to-Center
-    # แปลงขนาดเสาเป็นเมตร
-    c1_m = c1_cm / 100.0
-    c2_m = c2_cm / 100.0
-    
-    # หา Clear Span ในแต่ละทิศทาง
-    ln_x = Lx - c1_m
-    ln_y = Ly - c2_m
-    
-    # ใช้ค่าที่ยาวที่สุดในการคำนวณ (Control Case)
-    Ln = max(ln_x, ln_y)
+    # ดึงขนาดเสา (ถ้าไม่มีให้ Default 50cm)
+    c1 = mat_props.get('cx', 50.0) / 100.0 # แปลง cm -> m
+    c2 = mat_props.get('cy', 50.0) / 100.0 # แปลง cm -> m
 
-    # --- 3. Select Panel Condition ---
-    # UI เลือกตำแหน่งพื้น
+    # --- 2. CALCULATE CLEAR SPAN (Ln) ---
+    # จุดเปลี่ยนสำคัญ: คำนวณระยะ Clear Span (ผิวถึงผิว)
+    ln_x = Lx - c1
+    ln_y = Ly - c2
+    Ln = max(ln_x, ln_y) # ใช้ค่าที่ยาวที่สุดเป็นตัวควบคุม
+    
+    # (Optional) ตัวแปรสำหรับโชว์ใน LaTeX ว่าใช้ด้านไหน
+    span_label = "L_x - c_1" if ln_x >= ln_y else "L_y - c_2"
+    span_val_show = Lx if ln_x >= ln_y else Ly
+    col_val_show = c1 if ln_x >= ln_y else c2
+
+    # --- 3. UI: SELECT PANEL TYPE ---
     col_layout = st.radio(
         "Select Panel Position:",
-        ["Interior Panel (พื้นภายใน)", 
-         "Exterior Panel (พื้นภายนอก - ไม่มีคานขอบ)", 
-         "Exterior Panel (พื้นภายนอก - มีคานขอบ)"],
+        ["Interior Panel", "Exterior (No Edge Beam)", "Exterior (With Edge Beam)"],
         horizontal=True,
-        key="panel_pos_radio_thick"
+        key="thick_check_radio"
     )
 
-    # --- 4. Determine Denominator (ตัวหาร) ---
-    # อ้างอิง ACI 318 Table 8.3.1.1
-    limit_denominator = 0
-    system_type = ""
-
+    # --- 4. DETERMINE DENOMINATOR ---
+    denom = 30 # Default safety
     if "Interior" in col_layout:
-        if is_structural_drop:
-            limit_denominator = 36 # Flat Slab with Drop
-            system_type = "Interior + Drop Panel"
-        else:
-            limit_denominator = 33 # Flat Plate
-            system_type = "Interior Flat Plate"
-            
-    elif "Exterior" in col_layout and "ไม่มี" in col_layout: # No Edge Beam
-        if is_structural_drop:
-            limit_denominator = 33
-            system_type = "Exterior + Drop Panel (No Beam)"
-        else:
-            limit_denominator = 30
-            system_type = "Exterior Flat Plate (No Beam)"
-            
-    else: # Exterior with Edge Beam (Assume Alpha_f >= 0.8)
-        if is_structural_drop:
-            limit_denominator = 36 
-            system_type = "Exterior + Drop Panel (With Beam)"
-        else:
-            limit_denominator = 33
-            system_type = "Exterior Flat Plate (With Beam)"
+        denom = 36 if is_structural_drop else 33
+    elif "No Edge Beam" in col_layout:
+        denom = 33 if is_structural_drop else 30
+    else: # With Edge Beam
+        denom = 36 if is_structural_drop else 33
 
-    # --- 5. Calculate Minimum Thickness (h_min) ---
-    # Formula: h_min = (Ln * (0.8 + fy/1400)) / Denominator
-    
-    # Correction Factor for Steel Grade (fy must be in MPa)
-    # ACI 318: For fy other than 420 MPa, multiply by (0.8 + fy/1400)
+    # --- 5. CALCULATION (ACI FORMULA) ---
+    # Factor เหล็กเสริม
     steel_term = 0.8 + (fy_mpa / 1400.0)
     
-    # คำนวณความหนา (หน่วยเมตร แล้วแปลงเป็น cm)
-    h_min_calc = (Ln * steel_term / limit_denominator) * 100 
+    # คำนวณความหนา (m -> cm)
+    h_min_calc = (Ln * steel_term / denom) * 100
     
-    # Check Absolute Minimums (ACI 318)
-    # - Slabs without drop panels: 125 mm
-    # - Slabs with drop panels: 100 mm
+    # Absolute Minimum (ACI)
     abs_min = 10.0 if is_structural_drop else 12.5
+    h_req = max(h_min_calc, abs_min)
     
-    # ความหนาขั้นต่ำสุดท้าย (เลือกค่ามากสุดระหว่าง คำนวณ vs ขั้นต่ำยอมรับได้)
-    h_min_final = max(h_min_calc, abs_min)
-    
-    # ตรวจสอบว่าผ่านหรือไม่
-    pass_h = h_slab >= h_min_final
+    # Check Result
+    passed = h_slab >= h_req
 
-    # --- DISPLAY RESULTS ---
-    st.write(f"**Analysis Parameters:** System: `{system_type}`")
-    st.write(f"Longest Clear Span ($L_n$): `{Ln:.2f} m` | Steel $f_y$: `{fy_ksc:.0f} ksc` ({fy_mpa:.1f} MPa)")
+    # --- 6. DISPLAY RESULTS (โชว์ให้เห็นชัดๆ ว่าคำนวณมายังไง) ---
     
-    # Display Calculation Formula
-    st.markdown("##### Calculation Detail:")
-    st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{limit_denominator}}}")
-    st.latex(fr"h_{{min}} = \frac{{{Ln:.2f}({steel_term:.3f})}}{{{limit_denominator}}} \times 100 = \mathbf{{{h_min_calc:.2f}}} \text{{ cm}}")
-
-    # Final Result Table
+    # ส่วนที่ 1: แสดงการหา Ln (Clear Span)
+    st.markdown("**1️⃣ Determine Clear Span ($L_n$)**")
+    st.markdown(f"ระยะ Center-to-Center: `{span_val_show:.2f} m` | หักขนาดเสา: `{col_val_show:.2f} m`")
+    st.latex(fr"L_n = \text{{max}}(L - c) = {span_val_show:.2f} - {col_val_show:.2f} = \mathbf{{{Ln:.2f}}} \text{{ m}}")
+    
+    # ส่วนที่ 2: แสดงสูตร ACI
+    st.markdown("**2️⃣ Minimum Thickness Calculation**")
+    st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{denom}}}")
+    st.latex(fr"h_{{min}} = \frac{{{Ln:.2f}({steel_term:.3f})}}{{{denom}}} \times 100 = \mathbf{{{h_min_calc:.2f}}} \text{{ cm}}")
+    
+    # ส่วนที่ 3: สรุปผล
     st.markdown("---")
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+    res_col1, res_col2 = st.columns(2)
     
-    # Headers
-    c1.markdown("**Check Item**")
-    c2.markdown("**Required ($h_{min}$)**")
-    c3.markdown("**Provided ($h_{slab}$)**")
-    c4.markdown("**Result**")
-    
-    # Values
-    c1.write("Slab Thickness (ACI 318)")
-    
-    # Logic การแสดงผลข้อความ Min
-    req_text = f"{h_min_final:.2f} cm"
-    if h_min_calc < abs_min:
-        req_text += f" (Gov. by Min {abs_min} cm)"
+    with res_col1:
+        st.write("#### Required")
+        # Logic การโชว์ข้อความ
+        if h_min_calc < abs_min:
+            st.error(f"{abs_min:.2f} cm (Limit)")
+            st.caption(f"*Calc: {h_min_calc:.2f} cm < Min {abs_min}*")
+        else:
+            st.error(f"{h_min_calc:.2f} cm")
+            
+    with res_col2:
+        st.write("#### Provided")
+        st.success(f"{h_slab:.2f} cm")
         
-    c2.warning(f"Min: {req_text}") 
-    c3.info(f"{h_slab:.2f} cm")
-    
-    if pass_h:
-        c4.success("PASS")
+    # Verdict
+    if passed:
+        st.success(f"✅ **PASS**: ความหนาพื้นเพียงพอ (Slab OK)")
     else:
-        c4.error("FAIL")
-    
-    if not pass_h:
-        st.error(f"⚠️ ความหนาพื้นไม่พอ! ต้องการอย่างน้อย **{h_min_final:.2f} cm**")
-        st.markdown(f"""
-        <small style="color:gray">
-        *Note: คำนวณโดยใช้ Clear Span ($L_n$) = {Ln:.2f} ม. และ Denominator = {limit_denominator}
-        </small>
-        """, unsafe_allow_html=True)
-        
+        st.error(f"❌ **FAIL**: ความหนาพื้นไม่พอ (Increase Thickness)")
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     
