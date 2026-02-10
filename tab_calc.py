@@ -7,7 +7,7 @@ import math
 try:
     from calculations import check_min_reinforcement, check_long_term_deflection
 except ImportError:
-    # Dummy Fallback functions
+    # Dummy Fallback functions for testing purely UI
     def check_min_reinforcement(h): return {'As_min': 0.0018*100*h}
     def check_long_term_deflection(*args): 
         return {
@@ -114,7 +114,7 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. LOGIC RENDERER (NEW)
+# 2. LOGIC RENDERER (NEW SECTION)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     """
@@ -460,7 +460,6 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
 
     st.markdown(f"**Controlling Span:** {axis_name}, $L={ln_select:.2f}$ m.")
     
-
     # Data Prep
     sqrt_fc = math.sqrt(fc)
     d_bar_mm = mat_props.get('d_bar', 12.0)
