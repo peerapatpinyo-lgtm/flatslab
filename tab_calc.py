@@ -100,6 +100,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 def render_step_header(number, text):
+    # Note: text must use HTML tags for subscript/superscript, not LaTeX ($), because unsafe_allow_html is True
     st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
@@ -210,7 +211,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 2: Nominal Capacity ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        render_step_header(2, "Nominal Shear Capacity ($V_c$)")
+        # Use HTML subscript for Vc
+        render_step_header(2, "Nominal Shear Capacity (V<sub>c</sub>)")
         st.write("The capacity is governed by the minimum of the three ACI/EIT formulas:")
         
         eq1, eq2, eq3 = st.columns(3)
@@ -250,7 +252,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 3: Demand Calculation (Detailed Vu) ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        render_step_header(3, "Shear Demand Calculation ($V_u$)")
+        # Use HTML subscript for Vu
+        render_step_header(3, "Shear Demand Calculation (V<sub>u</sub>)")
         st.markdown("""
         <div class="meaning-text">
         Derivation of <b>Vu</b> using <b>Tributary Area Method</b>:
@@ -283,7 +286,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         col_L, col_R = st.columns(2)
         
         with col_L:
-            st.markdown('<div class="sub-header">A. Factored Load ($w_u$)</div>', unsafe_allow_html=True)
+            # Use HTML subscript for wu
+            st.markdown('<div class="sub-header">A. Factored Load (w<sub>u</sub>)</div>', unsafe_allow_html=True)
             st.latex(fr"w_u = {f_dl:.1f}(DL) + {f_ll:.1f}(LL)")
             st.latex(fr"w_u = {f_dl:.1f}({w_sw+loads['SDL']:.0f}) + {f_ll:.1f}({loads['LL']:.0f})")
             st.markdown(f"<div class='calc-result-box'>wu = {wu_val:,.0f} kg/m²</div>", unsafe_allow_html=True)
@@ -295,7 +299,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.latex(fr"= {b1_m:.2f} \times {b2_m:.2f} = {area_crit:.3f} \text{{ m}}^2")
 
         with col_R:
-            st.markdown('<div class="sub-header">C. Factored Shear Force ($V_u$)</div>', unsafe_allow_html=True)
+            # Use HTML subscript for Vu
+            st.markdown('<div class="sub-header">C. Factored Shear Force (V<sub>u</sub>)</div>', unsafe_allow_html=True)
             st.write("**Calculation Formula:**")
             st.latex(r"V_u = w_u \times (A_{trib} - A_{crit})")
             
@@ -423,7 +428,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     c_cap, c_dem = st.columns(2)
     
     with c_cap:
-        render_step_header("A", "Capacity ($\phi V_c$)")
+        # Use HTML entity for Phi and subscript for Vc
+        render_step_header("A", "Capacity (&phi;V<sub>c</sub>)")
         st.markdown('<div class="meaning-text">Per 1.0 m strip width.</div>', unsafe_allow_html=True)
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
         st.write("**Substitute:**")
@@ -433,7 +439,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         st.latex(fr"\phi V_c = {phi_shear} \times {vc_nominal:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
 
     with c_dem:
-        render_step_header("B", "Demand ($V_u$ at $d$)")
+        # Use HTML subscript for Vu and d
+        render_step_header("B", "Demand (V<sub>u</sub> at d)")
         st.markdown('<div class="meaning-text">Shear at distance d from support.</div>', unsafe_allow_html=True)
         
         st.latex(fr"w_u = \mathbf{{{wu_calc:,.0f}}} \text{{ kg/m}}^2")
@@ -463,7 +470,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     col_def_1, col_def_2 = st.columns([1.5, 1])
     
     with col_def_1:
-        render_step_header(1, "Minimum Thickness ($h_{min}$)")
+        # Use HTML subscript for h_min
+        render_step_header(1, "Minimum Thickness (h<sub>min</sub>)")
         st.markdown('<div class="meaning-text">ACI Table for Exterior Panel (No Drop).</div>', unsafe_allow_html=True)
         st.latex(r"h_{min} = L_{max} / 33")
         st.latex(fr"h_{{min}} = ({max_span:.2f} \times 100) / 33 = \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
@@ -521,7 +529,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
 
     # 4.2 Minimum Reinforcement
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    render_step_header("B", "Minimum Reinforcement ($A_{s,min}$)")
+    # Use HTML subscript for As,min
+    render_step_header("B", "Minimum Reinforcement (A<sub>s,min</sub>)")
     
     req_as = res_min_rebar['As_min']
     
