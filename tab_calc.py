@@ -455,16 +455,13 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-
 # ==========================================
-# 3. SLAB THICKNESS CHECK (ACI 318)
+# 3. SLAB THICKNESS CHECK (ACI 318) - CORRECTED Ln
 # ==========================================
 def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     """
     Render Slab Thickness Check based on ACI 318
-    Input:
-    - Lx, Ly: Center-to-Center Span (m)
-    - mat_props: Dictionary containing 'cx', 'cy' (column size in cm), 'fy', 'h_slab'
+    FIX: Uses Clear Span (Ln) instead of Center-to-Center (Lx/Ly)
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     st.markdown("### 📏 Slab Thickness Check (ACI 318)")
@@ -473,34 +470,40 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     h_slab = mat_props.get('h_slab', 20.0)
     fy_ksc = mat_props.get('fy', 4000)
     
-    # แปลงหน่วย Fy (ksc -> MPa)
+    # แปลงหน่วย Fy (ksc -> MPa) เพื่อใช้ในสูตร ACI
+    # 1 ksc approx 0.098 MPa
     fy_mpa = fy_ksc * 0.0980665
     
-    # ดึงขนาดเสา (ถ้าไม่มีให้ Default 50cm)
-    c1 = mat_props.get('cx', 50.0) / 100.0 # แปลง cm -> m
-    c2 = mat_props.get('cy', 50.0) / 100.0 # แปลง cm -> m
-
-    # --- 2. CALCULATE CLEAR SPAN (Ln) ---
-    # จุดเปลี่ยนสำคัญ: คำนวณระยะ Clear Span (ผิวถึงผิว)
-    ln_x = Lx - c1
-    ln_y = Ly - c2
-    Ln = max(ln_x, ln_y) # ใช้ค่าที่ยาวที่สุดเป็นตัวควบคุม
+    # ดึงขนาดเสา (ถ้าไม่มีให้ Default 50cm เพื่อความปลอดภัย)
+    c1_cm = mat_props.get('cx', 50.0) 
+    c2_cm = mat_props.get('cy', 50.0)
     
-    # (Optional) ตัวแปรสำหรับโชว์ใน LaTeX ว่าใช้ด้านไหน
-    span_label = "L_x - c_1" if ln_x >= ln_y else "L_y - c_2"
-    span_val_show = Lx if ln_x >= ln_y else Ly
-    col_val_show = c1 if ln_x >= ln_y else c2
+    # แปลงเป็นหน่วยเมตร
+    c1_m = c1_cm / 100.0
+    c2_m = c2_cm / 100.0
+
+    # --- 2. CALCULATE CLEAR SPAN (Ln) - CRITICAL FIX ---
+    # หักระยะเสาออกจากระยะ Center-to-Center
+    ln_x = Lx - c1_m
+    ln_y = Ly - c2_m
+    
+    # เลือกค่าที่วิกฤตที่สุด (Longest Clear Span)
+    Ln = max(ln_x, ln_y) 
+    
+    # เลือกขนาดเสาที่สอดคล้องกับด้านที่ยาวที่สุด (เพื่อนำไปแสดงผล)
+    used_span_L = Lx if ln_x >= ln_y else Ly
+    used_col_c = c1_m if ln_x >= ln_y else c2_m
 
     # --- 3. UI: SELECT PANEL TYPE ---
     col_layout = st.radio(
         "Select Panel Position:",
         ["Interior Panel", "Exterior (No Edge Beam)", "Exterior (With Edge Beam)"],
         horizontal=True,
-        key="thick_check_radio"
+        key="thick_check_radio_fixed"
     )
 
     # --- 4. DETERMINE DENOMINATOR ---
-    denom = 30 # Default safety
+    denom = 33 # Default
     if "Interior" in col_layout:
         denom = 36 if is_structural_drop else 33
     elif "No Edge Beam" in col_layout:
@@ -509,56 +512,59 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
         denom = 36 if is_structural_drop else 33
 
     # --- 5. CALCULATION (ACI FORMULA) ---
-    # Factor เหล็กเสริม
+    # Factor เหล็กเสริม (ACI 318: 0.8 + fy/1400)
     steel_term = 0.8 + (fy_mpa / 1400.0)
     
-    # คำนวณความหนา (m -> cm)
-    h_min_calc = (Ln * steel_term / denom) * 100
+    # สูตร: h = (Ln * steel_term) / denominator
+    h_min_calc = (Ln * steel_term / denom) * 100 # หน่วย cm
     
     # Absolute Minimum (ACI)
     abs_min = 10.0 if is_structural_drop else 12.5
     h_req = max(h_min_calc, abs_min)
     
-    # Check Result
     passed = h_slab >= h_req
 
-    # --- 6. DISPLAY RESULTS (โชว์ให้เห็นชัดๆ ว่าคำนวณมายังไง) ---
+    # --- 6. DISPLAY RESULTS ---
     
-    # ส่วนที่ 1: แสดงการหา Ln (Clear Span)
-    st.markdown("**1️⃣ Determine Clear Span ($L_n$)**")
-    st.markdown(f"ระยะ Center-to-Center: `{span_val_show:.2f} m` | หักขนาดเสา: `{col_val_show:.2f} m`")
-    st.latex(fr"L_n = \text{{max}}(L - c) = {span_val_show:.2f} - {col_val_show:.2f} = \mathbf{{{Ln:.2f}}} \text{{ m}}")
+    # Section A: แสดงที่มาของ Ln (Clear Span) ให้เห็นชัดเจน
+    st.info(f"💡 **Engineering Note:** คำนวณโดยใช้ระยะ Clear Span ($L_n$) โดยหักขนาดเสา {used_col_c*100:.0f} cm ออกแล้ว")
     
-    # ส่วนที่ 2: แสดงสูตร ACI
-    st.markdown("**2️⃣ Minimum Thickness Calculation**")
-    st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{denom}}}")
-    st.latex(fr"h_{{min}} = \frac{{{Ln:.2f}({steel_term:.3f})}}{{{denom}}} \times 100 = \mathbf{{{h_min_calc:.2f}}} \text{{ cm}}")
-    
-    # ส่วนที่ 3: สรุปผล
-    st.markdown("---")
-    res_col1, res_col2 = st.columns(2)
-    
-    with res_col1:
-        st.write("#### Required")
-        # Logic การโชว์ข้อความ
-        if h_min_calc < abs_min:
-            st.error(f"{abs_min:.2f} cm (Limit)")
-            st.caption(f"*Calc: {h_min_calc:.2f} cm < Min {abs_min}*")
-        else:
-            st.error(f"{h_min_calc:.2f} cm")
-            
-    with res_col2:
-        st.write("#### Provided")
-        st.success(f"{h_slab:.2f} cm")
+    col_A, col_B = st.columns(2)
+    with col_A:
+        st.markdown("**1. Find Clear Span ($L_n$)**")
+        st.latex(fr"L_n = L_{{center}} - \text{{Column Size}}")
+        # แสดงตัวเลขการลบกันจริงๆ
+        st.latex(fr"L_n = {used_span_L:.2f} - {used_col_c:.2f} = \mathbf{{{Ln:.2f}}} \text{{ m}}")
         
-    # Verdict
-    if passed:
-        st.success(f"✅ **PASS**: ความหนาพื้นเพียงพอ (Slab OK)")
-    else:
-        st.error(f"❌ **FAIL**: ความหนาพื้นไม่พอ (Increase Thickness)")
+    with col_B:
+        st.markdown("**2. Minimum Thickness ($h_{min}$)**")
+        st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{denom}}}")
+        # แสดงการแทนค่า Ln ที่ถูกต้องในสูตร
+        st.latex(fr"h_{{min}} = \frac{{\mathbf{{{Ln:.2f}}} ({steel_term:.3f})}}{{{denom}}} \times 100")
+
+    # Section B: สรุปผล
+    st.markdown("---")
+    res_c1, res_c2, res_c3 = st.columns([1.5, 1.5, 1])
+    
+    res_c1.markdown(f"### Calculated: {h_min_calc:.2f} cm")
+    res_c1.caption(f"From Formula (using Ln={Ln:.2f}m)")
+    
+    res_c2.markdown(f"### Provided: {h_slab:.2f} cm")
+    
+    # Check Limit
+    final_status = "PASS" if passed else "FAIL"
+    color_status = "green" if passed else "red"
+    
+    res_c3.markdown(f"### :{color_status}[{final_status}]")
+
+    # Warning กรณีไม่ผ่าน
+    if not passed:
+        if h_min_calc < abs_min:
+             st.warning(f"⚠️ Calculation gives {h_min_calc:.2f} cm, but ACI requires Absolute Min {abs_min} cm.")
+        else:
+             st.error(f"❌ Thickness insufficient. Required {h_min_calc:.2f} cm.")
 
     st.markdown('</div>', unsafe_allow_html=True)
-
     
 # ==========================================
 # 4. MAIN RENDERER
