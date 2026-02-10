@@ -31,41 +31,59 @@ def inject_custom_css():
         
         /* Headers */
         .step-title {
-            font-size: 1.15rem;
+            font-size: 1.2rem;
             font-weight: 700;
-            color: #0277bd;
+            color: #1565c0; /* Darker Blue */
             margin-bottom: 20px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #b3e5fc;
+            border-bottom: 2px solid #90caf9;
             display: flex;
             align-items: center;
         }
         
         .step-num {
-            background-color: #0277bd;
+            background-color: #1565c0;
             color: white;
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             text-align: center;
-            line-height: 28px;
-            font-size: 0.9rem;
+            line-height: 32px;
+            font-size: 1rem;
             margin-right: 12px;
+            font-weight: bold;
         }
         
         .sub-header {
-            font-weight: 600;
-            color: #546e7a;
-            margin-top: 15px;
-            margin-bottom: 5px;
-            text-decoration: underline;
-            text-decoration-color: #cfd8dc;
+            font-weight: 700;
+            color: #455a64;
+            margin-top: 20px;
+            margin-bottom: 8px;
+            font-size: 1rem;
+            border-left: 4px solid #cfd8dc;
+            padding-left: 10px;
         }
 
-        .calc-result {
-            font-weight: bold;
+        .meaning-text {
+            font-size: 0.9rem;
+            color: #616161;
+            font-style: italic;
+            margin-bottom: 10px;
+            background-color: #f5f5f5;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .calc-result-box {
+            background-color: #e3f2fd;
             color: #0d47a1;
-            padding: 5px 0;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            border: 1px solid #bbdefb;
+            margin-top: 10px;
         }
         
         .verdict-box {
@@ -86,12 +104,13 @@ def render_step_header(number, text):
     st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. DETAILED RENDERERS (LOGIC FIXED)
+# 2. DETAILED RENDERERS (FULL EXPANSION MODE)
 # ==========================================
 
 def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
-    Render detailed punching shear calculation with correct DYNAMIC b0 calculation.
+    Render detailed punching shear calculation with FULL substitution steps.
+    No abbreviations.
     """
     if not res:
         st.error(f"No data available for {label}")
@@ -101,140 +120,153 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     
     # --- 1. Extract Basic Material & Geometry ---
     fc = mat_props['fc']
-    # Determine which slab thickness to use (Drop panel or Slab)
-    # If the label implies drop panel area, we might need adjustments, 
-    # but usually 'd' passed in 'res' or derived from props should match the section.
-    # For simplicity here, we re-calculate d based on section context
-    
-    # Note: app.py passes 'cx' and 'cy' in mat_props
     c1 = mat_props.get('cx', 50.0) 
     c2 = mat_props.get('cy', 50.0)
-    
     cover = mat_props.get('cover', 2.5)
-    h_slab_base = mat_props['h_slab']
     
-    # Check if this is a check inside a drop panel
-    is_drop_check = "Drop" in label or "Face" in label # Assume Face check is usually thickest part if Drop exists
+    # Thickness logic
+    h_slab_base = mat_props['h_slab']
+    is_drop_check = "Drop" in label or "Face" in label
     if mat_props.get('has_drop') and is_drop_check and "Panel Edge" not in label:
         h_total = h_slab_base + mat_props.get('h_drop', 0)
     else:
         h_total = h_slab_base
 
-    # Effective Depth (d) - Conservative approx
+    # Effective Depth (d)
     d = h_total - cover - 1.0 
     
-    # --- 2. Extract Analysis Results & Check Alpha ---
+    # --- 2. Extract Analysis Results & Alpha ---
     beta = max(c1,c2)/min(c1,c2)
-    
-    # ---------------------------------------------------------
-    # 🔴 KEY FIX: Get Alpha_s from mat_props (passed from app.py)
-    # ---------------------------------------------------------
-    alpha_s = mat_props.get('alpha_s', 40) # Default to 40 (Interior) if missing
-    
+    alpha_s = mat_props.get('alpha_s', 40) # 40=Int, 30=Edge, 20=Corner
     gamma_v = res.get('gamma_v', 0.4)
     Munbal = res.get('Munbal', 0.0)
     sqrt_fc = math.sqrt(fc)
     
     # ==========================================
-    # 🔴 ENGINEERING LOGIC FIX: Dynamic b0
+    # 🔴 LOGIC: Dynamic b0 & Detailed Formula
     # ==========================================
-    # Logic:
-    # Interior (40): 4 sides
-    # Edge (30): 3 sides (User formula: 2(c1+d/2) + (c2+d)) -> Assumes c2 is the side parallel to edge
-    # Corner (20): 2 sides (User formula: (c1+d/2) + (c2+d/2))
-    
     if alpha_s >= 40:
         # --- INTERIOR ---
-        pos_text = "Interior Column (4 Sides)"
+        pos_title = "Interior Column (เสากลาง)"
+        pos_desc = "พื้นที่รับแรงเฉือนครบ 4 ด้าน (4 Sides Effective)"
+        # Formula
+        b0_latex_eq = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
+        # Substitution
+        b0_latex_sub = fr"b_0 = 2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
+        b0_latex_step = fr"b_0 = 2({c1+d:.1f}) + 2({c2+d:.1f})"
+        # Calc
         b0_calc = 2*(c1 + d) + 2*(c2 + d)
-        
-        b0_latex_formula = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
-        b0_sub = fr"2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
         
     elif alpha_s >= 30:
         # --- EDGE ---
-        pos_text = "Edge Column (3 Sides)"
-        # Formula: 2 perpendicular sides (c1) + 1 parallel side (c2)
-        b0_calc = 2*(c1 + d/2) + (c2 + d) 
-        
-        b0_latex_formula = r"b_0 = 2(c_1 + d/2) + (c_2 + d)"
-        b0_sub = fr"2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
+        pos_title = "Edge Column (เสาขอบ)"
+        pos_desc = "พื้นที่รับแรงหายไป 1 ด้าน (รับแรง 3 ด้าน: 2 ด้านตั้งฉาก + 1 ด้านขนาน)"
+        # Formula
+        b0_latex_eq = r"b_0 = 2(c_1 + d/2) + (c_2 + d)"
+        # Substitution
+        b0_latex_sub = fr"b_0 = 2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
+        b0_latex_step = fr"b_0 = 2({c1+d/2:.1f}) + ({c2+d:.1f})"
+        # Calc
+        b0_calc = 2*(c1 + d/2) + (c2 + d)
         
     else:
         # --- CORNER ---
-        pos_text = "Corner Column (2 Sides)"
+        pos_title = "Corner Column (เสาเข้ามุม) - Critical Case 🔥"
+        pos_desc = "พื้นที่รับแรงหายไป 2 ด้าน (รับแรงเพียง 2 ด้าน) ทำให้ความยาวรอบรูปน้อยที่สุด"
+        # Formula
+        b0_latex_eq = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
+        # Substitution
+        b0_latex_sub = fr"b_0 = ({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
+        b0_latex_step = fr"b_0 = ({c1+d/2:.1f}) + ({c2+d/2:.1f})"
+        # Calc
         b0_calc = (c1 + d/2) + (c2 + d/2)
         
-        b0_latex_formula = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
-        b0_sub = fr"({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
-        
-    # Force use of calculated b0
     b0 = b0_calc
 
     # --- Step 1: Geometry & Parameters ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        render_step_header(1, "Geometry & Parameters Calculation")
+        render_step_header(1, "Geometry & Parameters (ค่าพารามิเตอร์พื้นฐาน)")
         
-        # 
-        
+        # Display Input Parameters first
+        st.info(f"**Parameters:** $c_1={c1}$ cm, $c_2={c2}$ cm, $h={h_total}$ cm, Cover={cover} cm")
+
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown('<div class="sub-header">A. Effective Depth (d)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="meaning-text">ความลึกประสิทธิผล = ความหนา - ระยะหุ้ม - รัศมีเหล็กเสริม</div>', unsafe_allow_html=True)
             st.latex(r"d = h - \text{Cover} - \phi_{bar}/2")
-            st.latex(fr"d = {h_total:.0f} - {cover:.1f} - 1.0 = \mathbf{{{d:.2f}}} \text{{ cm}}")
+            st.latex(fr"d = {h_total:.0f} - {cover:.1f} - 1.0")
+            st.latex(fr"d = \mathbf{{{d:.2f}}} \text{{ cm}}")
             
             st.markdown('<div class="sub-header">B. Concrete Strength</div>', unsafe_allow_html=True)
             st.latex(fr"\sqrt{{f'_c}} = \sqrt{{{fc}}} = \mathbf{{{sqrt_fc:.2f}}} \text{{ ksc}}")
 
         with col2:
             st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
-            st.markdown(f"Position: **{pos_text}** ($\alpha_s={alpha_s}$)")
+            st.markdown(f"**Position:** {pos_title} ($\alpha_s={alpha_s}$)")
+            st.markdown(f"<span style='font-size:0.9rem; color:#d32f2f'>{pos_desc}</span>", unsafe_allow_html=True)
             
-            st.latex(b0_latex_formula)
-            st.latex(fr"= {b0_sub}")
-            st.latex(fr"b_0 = \mathbf{{{b0:.2f}}} \text{{ cm}}")
+            # Show Full Calculation Steps
+            st.latex(b0_latex_eq)
+            st.latex(b0_latex_sub)
+            st.latex(b0_latex_step)
+            st.markdown(f"<div class='calc-result-box'>b0 = {b0:.2f} cm</div>", unsafe_allow_html=True)
             
-            st.markdown('<div class="sub-header">D. Ratio Parameters</div>', unsafe_allow_html=True)
-            st.latex(fr"\beta = {beta:.2f}, \quad \gamma_v = {gamma_v:.3f}")
+            st.markdown('<div class="sub-header">D. Shape Factors</div>', unsafe_allow_html=True)
+            st.latex(fr"\beta = \frac{{\text{{Long Side}}}}{{\text{{Short Side}}}} = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
             
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Step 2: Nominal Capacity ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        render_step_header(2, "Nominal Shear Strength (Vc)")
-        st.write("Calculated based on ACI 318 / EIT Standard (Min of 3 equations):")
+        render_step_header(2, "Nominal Shear Strength ($V_c$) Calculation")
+        st.write("คำนวณกำลังรับแรงเฉือนตาม ACI 318 / EIT Standard โดยเลือกค่าน้อยที่สุดจาก 3 สมการ:")
         
         eq1, eq2, eq3 = st.columns(3)
         
         # --- Eq 1: Rectangularity Effect ---
         with eq1:
-            st.markdown("**Case 1: Shape (Beta)**")
+            st.markdown("**Case 1: Shape Effect**")
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
+            
             term_beta = 1 + (2/beta)
             val_vc1 = 0.53 * term_beta * sqrt_fc * b0 * d
+            
+            st.markdown("**Substitute:**")
+            st.latex(fr"= 0.53 \left(1 + \frac{{2}}{{{beta:.2f}}}\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.latex(fr"= 0.53 ({term_beta:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
-            st.markdown(f"<div class='calc-result'>= {val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='calc-result-box'>{val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 2: Perimeter Effect ---
+        # --- Eq 2: Size Effect ---
         with eq2:
-            st.markdown("**Case 2: Size (Alpha)**")
+            st.markdown("**Case 2: Size Effect**")
             st.latex(r"V_{c2} = 0.27 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d") 
+            
             term_peri_val = (alpha_s * d / b0) + 2
             val_vc2 = 0.27 * term_peri_val * sqrt_fc * b0 * d 
-            st.latex(fr"= 0.27 ({term_peri_val:.2f}) ({sqrt_fc:.2f}) ...")
-            st.markdown(f"<div class='calc-result'>= {val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
+            
+            st.markdown("**Substitute:**")
+            st.latex(fr"= 0.27 \left(\frac{{{alpha_s} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
+            st.latex(fr"= 0.27 ({term_peri_val:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
+            st.markdown(f"<div class='calc-result-box'>{val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
         # --- Eq 3: Basic Shear ---
         with eq3:
-            st.markdown("**Case 3: Basic (Max)**")
+            st.markdown("**Case 3: Basic Limit**")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
+            
             val_vc3 = 1.06 * sqrt_fc * b0 * d
+            
+            st.markdown("**Substitute:**")
             st.latex(fr"= 1.06 ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
-            st.markdown(f"<div class='calc-result'>= {val_vc3:,.0f} kg</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='calc-result-box'>{val_vc3:,.0f} kg</div>", unsafe_allow_html=True)
         
+        st.markdown("---")
+        vc_min = min(val_vc1, val_vc2, val_vc3)
+        st.success(f"📌 **Controlling Value (Minimum):** $V_c = {vc_min:,.0f}$ kg")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Step 3: Demand & Design Check ---
@@ -242,83 +274,60 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # Factors from mat_props
+        # Factors
         f_dl = mat_props.get('factor_dl', 1.4)
         f_ll = mat_props.get('factor_ll', 1.7)
         phi = mat_props.get('phi_shear', 0.85)
         
-        # Load Calc for display
-        # Calculate slab weight for display (approx)
+        # Loads
         h_m = h_total / 100.0
         w_sw = h_m * 2400
         wu_display = (f_dl * (w_sw + loads['SDL'])) + (f_ll * loads['LL'])
         
-        # Variables for Check
+        # Values
         vu = res.get('Vu', 0)
-        vc_min = min(val_vc1, val_vc2, val_vc3)
         phi_vn = phi * vc_min
         
-        is_stress_check = res.get("check_type") == "stress"
-        
-        col_L, col_R = st.columns([1.8, 1])
+        col_L, col_R = st.columns([1.5, 1])
         
         with col_L:
-            st.markdown('<div class="sub-header">A. Factored Loads</div>', unsafe_allow_html=True)
-            st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL) \approx \mathbf{{{wu_display:,.0f}}} \text{{ kg/m}}^2")
+            st.markdown('<div class="sub-header">A. Factored Loads ($w_u$)</div>', unsafe_allow_html=True)
+            st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL)")
+            st.latex(fr"w_u = {f_dl:.2f}({w_sw+loads['SDL']:.0f}) + {f_ll:.2f}({loads['LL']:.0f})")
+            st.latex(fr"w_u = \mathbf{{{wu_display:,.0f}}} \text{{ kg/m}}^2")
             
-            if is_stress_check and Munbal > 10:
-                st.warning("⚠️ **Combined Stress Check (Shear + Moment Transfer)**")
-                st.latex(r"v_{u,max} = \frac{V_u}{A_c} + \frac{\gamma_v M_u c}{J_c}")
-                
-                v_act = res.get('stress_actual', 0)
-                # Calculate Capacity in Stress Unit
-                v_c_ksc = vc_min / (b0 * d)
-                phi_v_c_ksc = phi * v_c_ksc
-                
-                st.write(f"Parameters: $V_u={vu:,.0f}$ kg, $M_{{unbal}}={Munbal:,.0f}$ kg-m")
-                st.latex(fr"v_{{actual}} = \mathbf{{{v_act:.2f}}} \text{{ ksc}}")
-                st.latex(fr"\phi v_c = {phi} \times {v_c_ksc:.2f} = \mathbf{{{phi_v_c_ksc:.2f}}} \text{{ ksc}}")
-                
-                demand_val = v_act
-                capacity_val = phi_v_c_ksc
-                unit = "ksc"
-                
-            else:
-                st.markdown("For direct shear force check:")
-                st.latex(r"V_u \approx w_u \times (A_{trib} - A_{critical})")
-                st.latex(fr"V_u = \mathbf{{{vu:,.0f}}} \text{{ kg}}")
-                
-                st.markdown("---")
-                st.latex(fr"\phi V_n = {phi} \times V_{{c,min}}")
-                st.latex(fr"= {phi} \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
-                
-                demand_val = vu
-                capacity_val = phi_vn
-                unit = "kg"
+            st.markdown('<div class="sub-header">B. Factored Shear Force ($V_u$)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="meaning-text">แรงเฉือนที่เกิดขึ้นจริงจากการวิเคราะห์ (Analysis Result)</div>', unsafe_allow_html=True)
+            st.latex(fr"V_u = \mathbf{{{vu:,.0f}}} \text{{ kg}}")
+            
+            st.markdown('<div class="sub-header">C. Design Capacity ($\phi V_n$)</div>', unsafe_allow_html=True)
+            st.latex(fr"\phi V_n = \phi \times V_{{c,min}}")
+            st.latex(fr"= {phi} \times {vc_min:,.0f}")
+            st.latex(fr"= \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
 
         with col_R:
-            if capacity_val > 0:
-                ratio = demand_val / capacity_val
+            st.markdown('<div class="sub-header">D. Conclusion</div>', unsafe_allow_html=True)
+            if phi_vn > 0:
+                ratio = vu / phi_vn
             else:
                 ratio = 999
             
-            passed = demand_val <= capacity_val + 1.0 # Tolerance 1kg
-            status_text = "PASS" if passed else "FAIL"
+            passed = vu <= phi_vn + 1.0 # Tolerance
+            status_text = "PASS (ปลอดภัย)" if passed else "FAIL (อันตราย)"
             cls = "pass" if passed else "fail"
-            color_vu = "black" if passed else "red"
+            color_vu = "green" if passed else "red"
             
             st.markdown(f"""
             <div class="verdict-box {cls}">
-                <div style="font-size:1rem; opacity:0.8;">Capacity Ratio</div>
-                <div style="font-size:2.5rem; line-height:1.2;">{ratio:.2f}</div>
+                <div style="font-size:1rem; opacity:0.8;">Demand / Capacity Ratio</div>
+                <div style="font-size:2.8rem; line-height:1.2;">{ratio:.2f}</div>
                 <div style="font-size:1.2rem; margin-top:5px;">{status_text}</div>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            st.latex(fr"Demand \quad vs \quad Cap.")
-            st.latex(fr"{demand_val:,.2f} \quad {'\leq' if passed else '>'} \quad \textcolor{{{color_vu}}}{{{capacity_val:,.2f}}}")
-            st.caption(f"Unit: {unit}")
+            st.latex(fr"V_u \quad {'\leq' if passed else '>'} \quad \phi V_n")
+            st.markdown(f"<div style='text-align:center; font-weight:bold; color:{color_vu}'>{vu:,.0f} {'≤' if passed else '>'} {phi_vn:,.0f}</div>", unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -328,16 +337,12 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     inject_custom_css()
     
-    st.title("📑 Detailed Calculation Report")
+    st.title("📑 Detailed Calculation Report (Full Breakdown)")
     
     # Check if Phi values are present to show in header
-    p_shear = mat_props.get('phi_shear')
+    p_shear = mat_props.get('phi_shear', 0.85)
     
-    ref_text = "Reference: ACI 318 / EIT Standard (WSD/SDM Adapted)"
-    if p_shear:
-        ref_text += f" | Factors: φ_shear={p_shear}"
-    
-    st.caption(ref_text)
+    st.info(f"💡 **Design Standard:** ACI 318 / EIT Standard (WSD/SDM Adapted) | **Load Factors:** DL={mat_props.get('factor_dl')}, LL={mat_props.get('factor_ll')} | **Reduction Factor:** $\phi_v$={p_shear}")
     st.markdown("---")
     
     # -----------------------------------------------------
@@ -353,7 +358,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     res_deflection = check_long_term_deflection(w_service, max(Lx, Ly), h_slab, fc, res_min_rebar['As_min'])
 
     # --- 1. PUNCHING SHEAR ---
-    st.header("1. Punching Shear Analysis")
+    st.header("1. Punching Shear Analysis (แรงเฉือนเจาะทะลุ)")
     
     # Logic: Check if result is Dual (with Drop Panel) or Single (No Drop Panel)
     if punch_res.get('is_dual') or 'check_1' in punch_res:
@@ -367,14 +372,13 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         res_2 = punch_res.get('check_2')
         if res_2:
             with tab2: 
-                # Note: Outer section usually behaves like a flat plate check effectively
                 render_punching_detailed(res_2, mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
         # --- SINGLE CHECK (Flat Plate) ---
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
     # --- 2. ONE-WAY SHEAR ---
-    st.header("2. One-Way Shear Analysis")
+    st.header("2. One-Way Shear Analysis (แรงเฉือนทางเดียว)")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
     if Lx >= Ly:
@@ -384,61 +388,54 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         ln_select = Ly
         axis_name = "Y-Direction (Ly)"
 
-    st.info(f"👉 **Controlling Span:** {axis_name}, $L={ln_select:.2f}$ m (Center-to-Center).")
+    st.markdown(f"**Controlling Span:** {axis_name}, $L={ln_select:.2f}$ m.")
 
     # Prep Data
     sqrt_fc = math.sqrt(fc)
-    
-    # --- ENGINEERING CALCULATION ---
-    # 1. Geometry
-    d_slab = h_slab - mat_props.get('cover', 2.5) - 1.0 # cm
+    d_slab = h_slab - mat_props.get('cover', 2.5) - 1.0 
     d_meter = d_slab / 100.0
     bw = 100.0 # Unit Strip
-    
-    # 2. Factors
     f_dl = mat_props.get('factor_dl', 1.4)
     f_ll = mat_props.get('factor_ll', 1.7)
     phi_shear = mat_props.get('phi_shear', 0.85)
     
-    # 3. Calculate Wu
+    # Load Calc
     h_m_one = h_slab / 100.0
     w_sw_one = h_m_one * 2400
-    w_sdl_one = loads['SDL']
-    w_ll_one = loads['LL']
+    wu_calc = (f_dl * (w_sw_one + loads['SDL'])) + (f_ll * loads['LL'])
+    # Vu Calculation logic
+    dist_critical = (ln_select / 2) - d_meter
+    vu_one_calc = wu_calc * dist_critical
     
-    # Total Factored Load
-    wu_calc = (f_dl * (w_sw_one + w_sdl_one)) + (f_ll * w_ll_one)
-    
-    # 4. Calculate Vu at critical section d
-    vu_one_calc = wu_calc * ((ln_select / 2) - d_meter)
-    
-    # 5. Capacity
     vc_nominal = 0.53 * sqrt_fc * bw * d_slab
     phi_vc = phi_shear * vc_nominal
     
     c_cap, c_dem = st.columns(2)
     
     with c_cap:
-        render_step_header("A", "Capacity (φVc)")
-        st.markdown(r"Unit strip $b_w = 100$ cm")
+        render_step_header("A", "Capacity ($\phi V_c$)")
+        st.markdown('<div class="meaning-text">คิดต่อความกว้างแถบ 1 เมตร (Unit Strip, $b_w=100$ cm)</div>', unsafe_allow_html=True)
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
+        st.markdown("**Substitute:**")
         st.latex(fr"= 0.53 ({sqrt_fc:.2f}) (100) ({d_slab:.2f})")
-        st.markdown(f"Nominal $V_c =$ **{vc_nominal:,.0f}** kg/m")
+        st.latex(fr"V_c = {vc_nominal:,.0f} \text{{ kg/m}}")
         st.markdown("---")
         st.latex(fr"\phi V_c = {phi_shear} \times {vc_nominal:,.0f} = \mathbf{{{phi_vc:,.0f}}} \text{{ kg/m}}")
 
     with c_dem:
-        render_step_header("B", "Demand (Vu at d)")
+        render_step_header("B", "Demand ($V_u$ at $d$)")
+        st.markdown('<div class="meaning-text">แรงเฉือนที่ระยะ d จากขอบ (Critical Section)</div>', unsafe_allow_html=True)
         
-        st.write("Load Calculation:")
+        st.write("1. Ultimate Load ($w_u$):")
         st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL) = \mathbf{{{wu_calc:,.0f}}} \text{{ kg/m}}^2")
         
-        st.write(f"Critical section at d ({d_meter:.2f} m) from support")
-        st.latex(fr"V_u = w_u (L/2 - d)")
-        st.latex(fr"V_u = {wu_calc:,.0f} \left(\frac{{{ln_select:.2f}}}{{2}} - {d_meter:.2f}\right)")
+        st.write(f"2. Shear Force ($V_u$):")
+        st.latex(r"V_u = w_u \times (\frac{L}{2} - d_{meter})")
+        st.latex(fr"= {wu_calc:,.0f} \times \left(\frac{{{ln_select:.2f}}}{{2}} - {d_meter:.3f}\right)")
+        st.latex(fr"= {wu_calc:,.0f} \times ({ln_select/2:.3f} - {d_meter:.3f})")
         
-        color_vu_one = "black" if vu_one_calc <= phi_vc else "red"
-        st.latex(fr"V_u = \textcolor{{{color_vu_one}}}{{\mathbf{{{vu_one_calc:,.0f}}}}} \text{{ kg/m}}")
+        color_vu_one = "green" if vu_one_calc <= phi_vc else "red"
+        st.markdown(f"<div class='calc-result-box' style='color:{color_vu_one}'>Vu = {vu_one_calc:,.0f} kg/m</div>", unsafe_allow_html=True)
     
     st.markdown("---")
     
@@ -446,39 +443,38 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     status_one = "PASS" if passed_one else "FAIL"
     icon = "✅" if passed_one else "❌"
     
-    st.markdown(f"**Conclusion:** $V_u$ ({vu_one_calc:,.0f}) {'≤' if passed_one else '>'} $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
+    st.markdown(f"### Conclusion: $V_u$ ({vu_one_calc:,.0f}) {'≤' if passed_one else '>'} $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 3. DEFLECTION (Initial L/33) ---
+    # --- 3. DEFLECTION ---
     st.header("3. Deflection Control (Thickness)")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
     max_span = max(Lx, Ly)
-    h_provided = h_slab
+    val_h_min = (max_span * 100) / 33
     
     col_def_1, col_def_2 = st.columns([1.5, 1])
     
     with col_def_1:
-        render_step_header(1, "Minimum Thickness (ACI Table)")
-        st.write("For Flat Plate without drop panels (Exterior):")
+        render_step_header(1, "Minimum Thickness Check")
+        st.markdown('<div class="meaning-text">ตรวจสอบความหนาขั้นต่ำตามตาราง ACI (Exterior, No Drop)</div>', unsafe_allow_html=True)
         st.latex(r"h_{min} = \frac{L_{max}}{33}")
-        
-        val_h_min = (max_span * 100) / 33
-        st.latex(fr"h_{{min}} = \frac{{{max_span:.2f} \times 100}}{{33}} = \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
+        st.latex(fr"h_{{min}} = \frac{{{max_span:.2f} \times 100}}{{33}} = \frac{{{max_span*100:.1f}}}{{33}}")
+        st.latex(fr"= \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
         
     with col_def_2:
-        render_step_header(2, "Check")
-        st.markdown(f"**Provided:** {h_provided:.0f} cm")
+        render_step_header(2, "Verdict")
+        st.markdown(f"**Provided Thickness:** {h_slab:.0f} cm")
         
-        passed_def = h_provided >= val_h_min - 0.5 # Tolerance 0.5cm
+        passed_def = h_slab >= val_h_min - 0.5 
         status_def = "PASS" if passed_def else "CHECK REQ."
         cls_def = "pass" if passed_def else "fail"
         
         st.markdown(f"""
         <div class="verdict-box {cls_def}">
-            <div style="font-size:0.9rem;">h_prov ≥ h_min</div>
+            <div style="font-size:0.9rem;">Comparison</div>
             <div style="font-size:1.5rem; margin:10px 0;">
-                {h_provided:.0f} {'≥' if passed_def else '<'} {val_h_min:.2f}
+                {h_slab:.0f} {'≥' if passed_def else '<'} {val_h_min:.2f}
             </div>
             <div>{status_def}</div>
         </div>
@@ -486,7 +482,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
             
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 4. ADVANCED SERVICEABILITY ---
+    # --- 4. DETAILING ---
     st.header("4. Advanced Serviceability & Detailing")
     
     # 4.1 Long Term Deflection
@@ -535,7 +531,8 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         spacing = 30
         
     st.latex(r"A_{s,min} = 0.0018 b h")
-    st.latex(fr"A_{{s,min}} = \mathbf{{{req_as:.2f}}} \text{{ cm}}^2/\text{{m}}")
+    st.latex(fr"A_{{s,min}} = 0.0018 \times 100 \times {h_slab:.0f}")
+    st.latex(fr"= \mathbf{{{req_as:.2f}}} \text{{ cm}}^2/\text{{m}}")
     
-    st.info(f"💡 **Detailing:** Use **DB{bar_dia:.0f} @ {math.floor(spacing):.0f} cm** (c/c) to satisfy min requirement.")
+    st.success(f"💡 **Detailing Recommendation:** Use **DB{bar_dia:.0f} @ {math.floor(spacing):.0f} cm** (c/c)")
     st.markdown('</div>', unsafe_allow_html=True)
