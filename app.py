@@ -141,7 +141,7 @@ with st.sidebar.expander("3. Loads & Factors", expanded=False):
     phi_bend = c_phi2.number_input("φ Bending", value=0.90)
 
 
-# --- Section 4: Reinforcement (UPDATED) ---
+# --- Section 4: Reinforcement (FIXED) ---
 with st.sidebar.expander("4. Reinforcement", expanded=False):
     st.markdown("### 🛠️ Rebar Configuration")
     
@@ -149,12 +149,14 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
     use_detailed_rebar = st.checkbox("🔧 Advanced/Zone Control", value=False, help="กำหนดขนาดเหล็กและระยะเรียงแยกตามโซน (Column/Middle Strip)")
 
     if not use_detailed_rebar:
-        # --- SIMPLE MODE (แบบเดิม) ---
+        # --- SIMPLE MODE ---
         st.caption("🔹 Global Settings (Apply to All)")
         base_db = st.selectbox("Main Bar Diameter (mm)", [10, 12, 16, 20, 25, 28, 32], index=1)
         base_spa = st.number_input("Typical Spacing (cm)", value=20.0, step=5.0)
 
-        # สร้าง Config แบบเหมารวม
+        # [FIX] กำหนดค่า rebar_db เพื่อให้บรรทัด 233 ไม่ Error
+        rebar_db = base_db 
+
         rebar_cfg = {
             'cs_top_db': base_db, 'cs_top_spa': base_spa,
             'cs_bot_db': base_db, 'cs_bot_spa': base_spa,
@@ -165,7 +167,7 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
         st.info(f"Setting: DB{base_db}@{base_spa:.0f}cm (All Zones)")
 
     else:
-        # --- ADVANCED MODE (แยกโซน) ---
+        # --- ADVANCED MODE ---
         st.markdown("---")
         st.caption("📍 **Column Strip (แถบเสา)**")
         c_cs1, c_cs2 = st.columns(2)
@@ -190,13 +192,16 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
             ms_bot_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="ms_b_d")
             ms_bot_spa = st.number_input("Spa.", value=25.0, step=2.5, key="ms_b_s")
 
-        # Pack ใส่ Dictionary ตาม Key ที่ tab_efm.py รอรับอยู่
+        # [FIX] ใช้ค่า Top Column Strip เป็นตัวแทนหลักไปก่อน (เพื่อกัน Error)
+        rebar_db = cs_top_db 
+
         rebar_cfg = {
             'cs_top_db': cs_top_db, 'cs_top_spa': cs_top_spa,
             'cs_bot_db': cs_bot_db, 'cs_bot_spa': cs_bot_spa,
             'ms_top_db': ms_top_db, 'ms_top_spa': ms_top_spa,
             'ms_bot_db': ms_bot_db, 'ms_bot_spa': ms_bot_spa
         }
+
 
 # =========================================================
 # 3. CONTROLLER & ANALYSIS
