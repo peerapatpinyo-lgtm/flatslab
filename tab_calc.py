@@ -452,7 +452,116 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         """, unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
+# ==========================================
+# 3. SLAB THICKNESS CHECK (ACI 318)
+# ==========================================
+def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
+    """
+    is_structural_drop: รับค่า True/False มาจากผลลัพธ์ของฟังก์ชัน Drop Panel ก่อนหน้า
+    """
+    st.markdown('<div class="step-container">', unsafe_allow_html=True)
+    render_step_header("📏", "Slab Thickness Check (ACI 318 Deflection Control)")
 
+    # 1. Get Inputs
+    h_slab = mat_props.get('h_slab', 20.0)
+    fy = mat_props.get('fy', 4000) # ksc -> need check unit based on your system
+    # สมมติ input fy เป็น ksc, แปลงเป็น MPa เพื่อเข้าสูตร ACI
+    # 1 ksc approx 0.098 MPa. Let's assume user inputs ksc.
+    fy_mpa = fy * 0.0980665 
+    
+    # 2. Select Panel Condition (User Interaction for Logic)
+    # ในโปรแกรมจริงอาจจะ Auto Detect แต่ถ้าทำ Quick Check ให้เลือกเอา
+    col_layout = st.radio(
+        "Select Panel Position:",
+        ["Interior Panel (พื้นภายใน)", "Exterior Panel (พื้นภายนอก - ไม่มีคานขอบ)", "Exterior Panel (พื้นภายนอก - มีคานขอบ)"],
+        horizontal=True
+    )
+
+    # 3. Determine Denominator (ตัวหาร) based on ACI Table
+    # ACI 318 Table 8.3.1.1
+    # is_structural_drop ส่งผลต่อตัวหาร (ถ้ามี Drop Panel จะใช้เกณฑ์ Flat Slab แทน Flat Plate)
+    
+    limit_denominator = 0
+    system_type = ""
+
+    if "Interior" in col_layout:
+        if is_structural_drop:
+            limit_denominator = 36 # Flat Slab with Drop
+            system_type = "Interior + Drop Panel"
+        else:
+            limit_denominator = 33 # Flat Plate
+            system_type = "Interior Flat Plate"
+            
+    elif "Exterior" in col_layout and "ไม่มี" in col_layout: # No Edge Beam
+        if is_structural_drop:
+            limit_denominator = 33
+            system_type = "Exterior + Drop Panel (No Beam)"
+        else:
+            limit_denominator = 30
+            system_type = "Exterior Flat Plate (No Beam)"
+            
+    else: # Exterior with Edge Beam
+        if is_structural_drop:
+            limit_denominator = 36 # Value slightly varies based on stiffness, assume close to interior
+            system_type = "Exterior + Drop Panel (With Beam)"
+        else:
+            limit_denominator = 33
+            system_type = "Exterior Flat Plate (With Beam)"
+
+    # 4. Calculate Minimum Thickness (h_min)
+    # Formula: h_min = (Ln * (0.8 + fy/1400)) / Denominator
+    # Note: Ln is clear span. Assume Ln approx Lx for conservative check or Lx - col_size
+    
+    # Assume Ln = Longest span
+    Ln = max(Lx, Ly) 
+    
+    # Correction Factor for Steel Grade (fy in MPa)
+    steel_correction = 0.8 + (fy_mpa / 1400.0)
+    
+    h_min_req = (Ln * steel_correction / limit_denominator) * 100 # Convert m to cm
+    
+    # Check Absolute Minimums (ACI)
+    abs_min = 10.0 if is_structural_drop else 12.5 # 10cm for Drop, 12.5cm for Plate
+    h_min_final = max(h_min_req, abs_min)
+    
+    pass_h = h_slab >= h_min_final
+
+    # --- DISPLAY RESULTS ---
+    st.write(f"**Analysis Parameters:** System: `{system_type}` | Steel $f_y$: `{fy:.0f} ksc` ({fy_mpa:.1f} MPa)")
+    
+    # Display Calculation Formula
+    st.markdown("##### Calculation Detail:")
+    st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{limit_denominator}}}")
+    st.latex(fr"h_{{min}} = \frac{{{Ln:.2f}({steel_correction:.3f})}}{{{limit_denominator}}} \times 100 = \mathbf{{{h_min_req:.2f}}} \text{{ cm}}")
+
+    # Final Result Table
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+    c1.markdown("**Check**")
+    c2.markdown("**Required ($h_{min}$)**")
+    c3.markdown("**Provided ($h_{slab}$)**")
+    c4.markdown("**Result**")
+    st.markdown("---")
+    
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+    c1.write("Slab Thickness Check")
+    
+    # Show Max of calc vs absolute min
+    req_text = f"{h_min_final:.2f} cm"
+    if h_min_req < abs_min:
+        req_text += f" (Min. {abs_min} cm)"
+        
+    c2.error(f"Min: {req_text}") 
+    c3.info(f"{h_slab:.2f} cm")
+    
+    if pass_h:
+        c4.success("PASS")
+    else:
+        c4.error("FAIL")
+    
+    if not pass_h:
+        st.warning(f"⚠️ Slab thickness is insufficient! Try increasing thickness to **{h_min_final:.2f} cm** or adding Drop Panels to increase the denominator.")
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 # ==========================================
 # 4. MAIN RENDERER
 # ==========================================
