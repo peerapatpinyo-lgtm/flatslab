@@ -1,9 +1,15 @@
-# tab_calc.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-from calculations import check_min_reinforcement, check_long_term_deflection
+
+# Try importing helper functions, provide fallback if missing
+try:
+    from calculations import check_min_reinforcement, check_long_term_deflection
+except ImportError:
+    # Dummy Fallback functions to prevent crash if file is missing
+    def check_min_reinforcement(h): return {'As_min': 0.0018*100*h}
+    def check_long_term_deflection(*args): return {'status': 'N/A', 'Delta_Total': 0.0, 'Limit_240': 0.0, 'Delta_Immediate':0, 'Delta_LongTerm':0}
 
 # ==========================================
 # 1. VISUAL STYLING (CSS)
@@ -80,7 +86,7 @@ def render_step_header(number, text):
     st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. DETAILED RENDERERS (ENGINEERING LOGIC FIXED)
+# 2. DETAILED RENDERERS (LOGIC FIXED)
 # ==========================================
 
 def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
@@ -95,33 +101,50 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     
     # --- 1. Extract Basic Material & Geometry ---
     fc = mat_props['fc']
-    h_slab = mat_props['h_slab']
-    cover = mat_props['cover']
+    # Determine which slab thickness to use (Drop panel or Slab)
+    # If the label implies drop panel area, we might need adjustments, 
+    # but usually 'd' passed in 'res' or derived from props should match the section.
+    # For simplicity here, we re-calculate d based on section context
     
-    # Get Column Size (Default to 50x50 if missing from props)
-    c1 = mat_props.get('c1', 50.0) 
-    c2 = mat_props.get('c2', 50.0)
+    # Note: app.py passes 'cx' and 'cy' in mat_props
+    c1 = mat_props.get('cx', 50.0) 
+    c2 = mat_props.get('cy', 50.0)
     
-    # Calculate d (Effective Depth) explicitly
-    # Using 1.0 cm as approx half-bar diameter (DB20) to be conservative
-    d = h_slab - cover - 1.0 
+    cover = mat_props.get('cover', 2.5)
+    h_slab_base = mat_props['h_slab']
+    
+    # Check if this is a check inside a drop panel
+    is_drop_check = "Drop" in label or "Face" in label # Assume Face check is usually thickest part if Drop exists
+    if mat_props.get('has_drop') and is_drop_check and "Panel Edge" not in label:
+        h_total = h_slab_base + mat_props.get('h_drop', 0)
+    else:
+        h_total = h_slab_base
+
+    # Effective Depth (d) - Conservative approx
+    d = h_total - cover - 1.0 
     
     # --- 2. Extract Analysis Results & Check Alpha ---
-    # Note: We prioritize recalculating b0 here for display accuracy
-    beta = res.get('beta', max(c1,c2)/min(c1,c2))
-    alpha_s = res.get('alpha_s', 40) # 40=Int, 30=Edge, 20=Corner
+    beta = max(c1,c2)/min(c1,c2)
+    
+    # ---------------------------------------------------------
+    # 🔴 KEY FIX: Get Alpha_s from mat_props (passed from app.py)
+    # ---------------------------------------------------------
+    alpha_s = mat_props.get('alpha_s', 40) # Default to 40 (Interior) if missing
+    
     gamma_v = res.get('gamma_v', 0.4)
     Munbal = res.get('Munbal', 0.0)
-    
     sqrt_fc = math.sqrt(fc)
     
     # ==========================================
     # 🔴 ENGINEERING LOGIC FIX: Dynamic b0
     # ==========================================
-    # Recalculate b0 based on alpha_s (Column Position)
+    # Logic:
+    # Interior (40): 4 sides
+    # Edge (30): 3 sides (User formula: 2(c1+d/2) + (c2+d)) -> Assumes c2 is the side parallel to edge
+    # Corner (20): 2 sides (User formula: (c1+d/2) + (c2+d/2))
     
     if alpha_s >= 40:
-        # Case: Interior Column (4 Sides)
+        # --- INTERIOR ---
         pos_text = "Interior Column (4 Sides)"
         b0_calc = 2*(c1 + d) + 2*(c2 + d)
         
@@ -129,24 +152,23 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         b0_sub = fr"2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
         
     elif alpha_s >= 30:
-        # Case: Edge Column (3 Sides)
-        # Assumes c1 is perpendicular to edge, c2 is parallel (or vice versa, resulting perim is similar for square)
-        # Formula: 2 sides + 1 front face
+        # --- EDGE ---
         pos_text = "Edge Column (3 Sides)"
+        # Formula: 2 perpendicular sides (c1) + 1 parallel side (c2)
         b0_calc = 2*(c1 + d/2) + (c2 + d) 
         
-        b0_latex_formula = r"b_0 = 2(c_{side} + d/2) + (c_{front} + d)"
+        b0_latex_formula = r"b_0 = 2(c_1 + d/2) + (c_2 + d)"
         b0_sub = fr"2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
         
     else:
-        # Case: Corner Column (2 Sides)
+        # --- CORNER ---
         pos_text = "Corner Column (2 Sides)"
         b0_calc = (c1 + d/2) + (c2 + d/2)
         
         b0_latex_formula = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
         b0_sub = fr"({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
         
-    # FORCE UPDATE: Use the calculated b0 for consistency in the report
+    # Force use of calculated b0
     b0 = b0_calc
 
     # --- Step 1: Geometry & Parameters ---
@@ -154,12 +176,14 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(1, "Geometry & Parameters Calculation")
         
+        # 
+        
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown('<div class="sub-header">A. Effective Depth (d)</div>', unsafe_allow_html=True)
-            st.latex(r"d = h_{slab} - \text{Cover} - \phi_{bar}/2")
-            st.latex(fr"d = {h_slab:.0f} - {cover:.0f} - 1.0 = \mathbf{{{d:.2f}}} \text{{ cm}}")
+            st.latex(r"d = h - \text{Cover} - \phi_{bar}/2")
+            st.latex(fr"d = {h_total:.0f} - {cover:.1f} - 1.0 = \mathbf{{{d:.2f}}} \text{{ cm}}")
             
             st.markdown('<div class="sub-header">B. Concrete Strength</div>', unsafe_allow_html=True)
             st.latex(fr"\sqrt{{f'_c}} = \sqrt{{{fc}}} = \mathbf{{{sqrt_fc:.2f}}} \text{{ ksc}}")
@@ -218,20 +242,14 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(3, "Design Check & Demand Calculation")
         
-        # Factors
+        # Factors from mat_props
         f_dl = mat_props.get('factor_dl', 1.4)
         f_ll = mat_props.get('factor_ll', 1.7)
-        
-        # Determine Phi
-        if 'phi_shear' in mat_props:
-            phi = mat_props['phi_shear']
-        elif 'phi' in mat_props:
-            phi = mat_props['phi']
-        else:
-            phi = 0.85 # Default EIT
+        phi = mat_props.get('phi_shear', 0.85)
         
         # Load Calc for display
-        h_m = h_slab / 100.0
+        # Calculate slab weight for display (approx)
+        h_m = h_total / 100.0
         w_sw = h_m * 2400
         wu_display = (f_dl * (w_sw + loads['SDL'])) + (f_ll * loads['LL'])
         
@@ -349,12 +367,13 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         res_2 = punch_res.get('check_2')
         if res_2:
             with tab2: 
+                # Note: Outer section usually behaves like a flat plate check effectively
                 render_punching_detailed(res_2, mat_props, loads, Lx, Ly, "d/2 from Drop Panel Edge")
     else:
         # --- SINGLE CHECK (Flat Plate) ---
         render_punching_detailed(punch_res, mat_props, loads, Lx, Ly, "d/2 from Column Face")
 
-    # --- 2. ONE-WAY SHEAR (Verified) ---
+    # --- 2. ONE-WAY SHEAR ---
     st.header("2. One-Way Shear Analysis")
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     
@@ -372,18 +391,14 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     
     # --- ENGINEERING CALCULATION ---
     # 1. Geometry
-    d_slab = h_slab - mat_props['cover'] - 1.0 # cm
+    d_slab = h_slab - mat_props.get('cover', 2.5) - 1.0 # cm
     d_meter = d_slab / 100.0
     bw = 100.0 # Unit Strip
     
     # 2. Factors
     f_dl = mat_props.get('factor_dl', 1.4)
     f_ll = mat_props.get('factor_ll', 1.7)
-    
-    if 'phi_shear' in mat_props:
-        phi_shear = mat_props['phi_shear']
-    else:
-        phi_shear = 0.85
+    phi_shear = mat_props.get('phi_shear', 0.85)
     
     # 3. Calculate Wu
     h_m_one = h_slab / 100.0
@@ -395,11 +410,9 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     wu_calc = (f_dl * (w_sw_one + w_sdl_one)) + (f_ll * w_ll_one)
     
     # 4. Calculate Vu at critical section d
-    # Note: Conservative use of L/2 instead of ln/2 (clear span)
     vu_one_calc = wu_calc * ((ln_select / 2) - d_meter)
     
     # 5. Capacity
-    # Vc = 0.53 * sqrt(fc) * bw * d (For ksc units)
     vc_nominal = 0.53 * sqrt_fc * bw * d_slab
     phi_vc = phi_shear * vc_nominal
     
@@ -493,7 +506,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
 
     with c_lt_2:
         limit_240 = res_deflection['Limit_240']
-        pass_lt = res_deflection['status'] == "PASS"
+        pass_lt = res_deflection.get('status', 'N/A') == "PASS"
         cls_lt = "pass" if pass_lt else "fail"
         
         st.markdown(f"""
@@ -502,7 +515,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
             <div style="font-size:1.5rem; margin:10px 0;">
                 {d_total:.2f} cm
             </div>
-            <div>{res_deflection['status']}</div>
+            <div>{res_deflection.get('status', 'N/A')}</div>
         </div>
         """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
