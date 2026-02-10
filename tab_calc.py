@@ -114,7 +114,7 @@ def render_step_header(number, text):
 
 
 # ==========================================
-# 2. LOGIC RENDERER (UPDATED: LaTeX Calculation Display)
+# 2. LOGIC RENDERER (UPDATED: Full Equation Display)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     
@@ -163,52 +163,59 @@ def render_structural_logic(mat_props, Lx, Ly):
     pass_thick = h_drop >= limit_h
     is_structural = pass_dim_x and pass_dim_y and pass_thick
     
-    # --- RENDER TABLE WITH EXPLICIT CALCULATION (LaTeX) ---
+    # --- RENDER TABLE WITH FULL EQUATIONS ---
     st.write("**Checking dimensions against ACI 318 Requirements:**")
     
-    # สร้าง List ของข้อมูล และ สูตร LaTeX ที่จะแสดง
-    # สังเกตตรง "Formula" ผมใส่ค่าตัวเลขลงไปในสมการเลยครับ
+    # Define Data Rows with LaTeX for BOTH Required and Provided
     results = [
         {
             "Check": "Min. Extension X ($L_x/3$)", 
-            "Formula": fr"\frac{{{Lx:.2f}}}{{3}} = {limit_L_x:.2f}",  # แสดง 8.00/3 = 2.67
-            "Actual": f"{w_drop_x:.2f} m", 
+            # Required: Show formula and result
+            "Req_Latex": fr"\frac{{{Lx:.2f}}}{{3}} = \mathbf{{{limit_L_x:.2f}}} \text{{ m}}",  
+            # Provided: Show Variable = Value
+            "Prov_Latex": fr"w_{{drop,x}} = \mathbf{{{w_drop_x:.2f}}} \text{{ m}}", 
             "Status": pass_dim_x
         },
         {
             "Check": "Min. Extension Y ($L_y/3$)", 
-            "Formula": fr"\frac{{{Ly:.2f}}}{{3}} = {limit_L_y:.2f}", 
-            "Actual": f"{w_drop_y:.2f} m", 
+            "Req_Latex": fr"\frac{{{Ly:.2f}}}{{3}} = \mathbf{{{limit_L_y:.2f}}} \text{{ m}}", 
+            "Prov_Latex": fr"w_{{drop,y}} = \mathbf{{{w_drop_y:.2f}}} \text{{ m}}",
             "Status": pass_dim_y
         },
         {
             "Check": "Min. Projection ($h_s/4$)", 
-            "Formula": fr"\frac{{{h_slab:.0f}}}{{4}} = {limit_h:.2f}", 
-            "Actual": f"{h_drop:.2f} cm", 
+            "Req_Latex": fr"\frac{{{h_slab:.0f}}}{{4}} = \mathbf{{{limit_h:.2f}}} \text{{ cm}}", 
+            "Prov_Latex": fr"h_{{drop}} = \mathbf{{{h_drop:.2f}}} \text{{ cm}}",
             "Status": pass_thick
         },
     ]
     
-    # ปรับขนาด Columns ให้ช่อง Calculation กว้างขึ้น (c2)
-    # c1=ชื่อ, c2=สูตรคำนวณ, c3=ค่าจริง, c4=ผลลัพธ์
-    c1, c2, c3, c4 = st.columns([2, 2.5, 1.5, 1])
+    # Layout Columns
+    # c1: Criteria Name
+    # c2: Required (Calculation)
+    # c3: Provided (Variable Definition)
+    # c4: Result Status
+    c1, c2, c3, c4 = st.columns([1.8, 2.2, 2.2, 1])
     
-    # Header
     c1.markdown("**Criteria**")
-    c2.markdown("**Required (Calculation)**") 
-    c3.markdown("**Provided**")
+    c2.markdown("**Required (Limit)**")
+    c3.markdown("**Provided (Input)**")
     c4.markdown("**Result**")
     st.markdown("---")
 
-    # Loop แสดงผล
     for r in results:
-        c1, c2, c3, c4 = st.columns([2, 2.5, 1.5, 1])
+        c1, c2, c3, c4 = st.columns([1.8, 2.2, 2.2, 1])
         
+        # Column 1: Criteria Name
         c1.write(r["Check"])
-        # ใช้ latex เพื่อแสดงเศษส่วนให้เห็นชัดๆ
-        c2.latex(r["Formula"]) 
-        c3.write(r["Actual"])
         
+        # Column 2: Required Calculation (LaTeX)
+        c2.latex(r["Req_Latex"])
+        
+        # Column 3: Provided Input (LaTeX showing variable name)
+        c3.latex(r["Prov_Latex"])
+        
+        # Column 4: Status Button
         if r["Status"]:
             c4.success("PASS")
         else:
