@@ -331,48 +331,97 @@ class FlatSlabDesign:
         }
 
 # ==========================================
-# 1. PUNCHING SHEAR (UPDATED WITH OPENINGS & PHI)
+# 1. PUNCHING SHEAR (UPDATED WITH CORRECT GEOMETRY FOR EDGE/CORNER)
 # ==========================================
 def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     """
     Helper to calculate Ac, Jc, and gamma_v
-    Updated: รองรับการหัก Opening ออกจาก b0
+    Updated: รองรับ b0, Centroid และ Jc ตามประเภทเสา (Interior/Edge/Corner)
+    Note: c1, c2, d are in cm.
     """
-    # 1. Base Dimensions
-    b1 = c1 + d 
-    b2 = c2 + d 
+    # Initialize variables
+    bo = 0.0
+    Ac = 0.0
+    Jc = 0.0
+    c_AB = 0.0
+    
+    # --- 1. Geometry Based on Column Type ---
+    if col_type == "interior":
+        # 4 Sides (สมมาตร)
+        b1 = c1 + d 
+        b2 = c2 + d
+        bo = 2 * (b1 + b2)
+        c_AB = b1 / 2.0
+        # Jc for Interior Box
+        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
 
-    if col_type == "edge":
-        b2 = c2 + d/2.0
+    elif col_type == "edge":
+        # 3 Sides (U-Shape)
+        # Assume Edge is parallel to c2 (y-axis), so c1 is perpendicular
+        b1 = c1 + d/2.0  # Side perpendicular to edge
+        b2 = c2 + d      # Side parallel to edge
+        bo = 2*b1 + b2
+        
+        # Find Centroid (x_cc) from inner face (face touching column)
+        # Moment of area about inner face / Total Area (Linear approx)
+        # Side 1 (top): len=b1, arm=b1/2
+        # Side 2 (bot): len=b1, arm=b1/2
+        # Side 3 (face): len=b2, arm=0
+        x_cc = (2 * b1 * (b1/2.0)) / bo
+        c_AB = x_cc # Distance from centroid to inner face (Max stress point)
+        
+        # Jc Calculation (Parallel Axis Theorem)
+        # I_face (parallel part): Own I + Area * dist^2
+        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
+        
+        # I_sides (perpendicular parts): 2 * [ Own I + Area * dist^2 ]
+        # dist for sides is (b1/2 - x_cc)
+        I_sides = 2.0 * ( (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2) )
+        
+        Jc = I_face + I_sides
+
     elif col_type == "corner":
+        # 2 Sides (L-Shape)
         b1 = c1 + d/2.0
         b2 = c2 + d/2.0
+        bo = b1 + b2
+        
+        # Find Centroid
+        # Side 1 (perp): len=b1, arm=b1/2
+        # Side 2 (para): len=b2, arm=0 (relative to axis of b2)
+        x_cc = (b1 * (b1/2.0)) / bo
+        c_AB = x_cc
+        
+        # Jc (Simplified)
+        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
+        I_side = (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2)
+        Jc = I_face + I_side
 
-    # 2. Base Perimeter (bo)
-    if col_type == "interior": base_bo = 2*(b1 + b2)
-    elif col_type == "edge": base_bo = 2*b1 + b2
-    else: base_bo = b1 + b2
-    
-    # 3. Handle Opening Deduction
+    else:
+        # Fallback to interior
+        b1 = c1 + d 
+        b2 = c2 + d
+        bo = 2 * (b1 + b2)
+        c_AB = b1 / 2.0
+        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
+
+    # --- 2. Handle Opening Deduction ---
     deduction = 0
     if open_w > 0:
         limit_dist = 4 * d
         if open_dist < limit_dist:
-            deduction = min(open_w, base_bo * 0.30)
+            # Simple deduction logic: Reduce effective bo
+            deduction = min(open_w, bo * 0.30)
     
-    bo = base_bo - deduction
-    
-    # 4. Properties
-    Ac = bo * d
-    
-    # Jc (Polar Moment of Inertia)
-    Jc = (d * b1**3)/6 + (d**3 * b1)/6 + (d * b2 * b1**2)/2
+    bo_eff = bo - deduction
+    Ac = bo_eff * d
 
+    # Gamma factors
+    # For Edge/Corner, b1 and b2 used for gamma should be the effective widths
     gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
     gamma_v = 1 - gamma_f
-    c_AB = b1 / 2.0
 
-    return Ac, Jc, gamma_v, c_AB, bo, deduction
+    return Ac, Jc, gamma_v, c_AB, bo_eff, deduction
 
 def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0, phi=0.85):
     """
@@ -391,6 +440,7 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     
     # Stress Calc
     stress_direct = Vu / Ac
+    # Use calculated Jc and c_AB (which now varies by col_type)
     stress_moment = (gamma_v * abs(Munbal_cm) * c_AB) / Jc
     vu_max = stress_direct + stress_moment 
 
@@ -404,6 +454,8 @@ def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, ope
     if col_type == "interior": alpha_s = 40
     elif col_type == "edge": alpha_s = 30
     else: alpha_s = 20
+    
+    # Note: vc_size depends on bo, which is now correctly calculated for Edge/Corner
     vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
 
     vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
@@ -447,6 +499,9 @@ def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, dr
     res1["case"] = "Inside Drop (d_drop)" 
     
     # Case 2: At Drop Panel Edge (Outside Drop)
+    # Note: When checking outside drop, the geometry effectively becomes "Interior" 
+    # relative to the drop panel perimeter usually, unless the drop panel itself is at the edge.
+    # For safety/simplicity, we pass col_type. Ideally, check if drop extends to edge.
     Vu2 = w_u * (Lx * Ly) * 0.90 
     res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5, phi=phi)
     res2["case"] = "Outside Drop (d_slab)" 
