@@ -112,8 +112,9 @@ def render_step_header(number, text):
     else:
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
+
 # ==========================================
-# 2. LOGIC RENDERER (UPDATED: SHOW CALC FORMULA)
+# 2. LOGIC RENDERER (UPDATED: LaTeX Calculation Display)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     
@@ -135,7 +136,7 @@ def render_structural_logic(mat_props, Lx, Ly):
     raw_x = get_dim(['drop_w', 'drop_width_x', 'drop_width', 'width', 'drop_x'])
     raw_y = get_dim(['drop_l', 'drop_width_y', 'drop_length', 'length', 'drop_y'])
 
-    # Auto Unit Conversion: ถ้าค่า > 10 เดาว่าเป็น cm ให้หาร 100
+    # Auto Unit Conversion
     w_drop_x = raw_x / 100.0 if raw_x > 10 else raw_x
     w_drop_y = raw_y / 100.0 if raw_y > 10 else raw_y
 
@@ -162,36 +163,57 @@ def render_structural_logic(mat_props, Lx, Ly):
     pass_thick = h_drop >= limit_h
     is_structural = pass_dim_x and pass_dim_y and pass_thick
     
-    # --- RENDER TABLE WITH CALCULATION ---
+    # --- RENDER TABLE WITH EXPLICIT CALCULATION (LaTeX) ---
     st.write("**Checking dimensions against ACI 318 Requirements:**")
     
-    # Prepare calculation strings for display
-    calc_Lx_str = f"{Lx:.2f}/3 = **{limit_L_x:.2f}**"
-    calc_Ly_str = f"{Ly:.2f}/3 = **{limit_L_y:.2f}**"
-    calc_h_str  = f"{h_slab:.0f}/4 = **{limit_h:.2f}**"
-
+    # สร้าง List ของข้อมูล และ สูตร LaTeX ที่จะแสดง
+    # สังเกตตรง "Formula" ผมใส่ค่าตัวเลขลงไปในสมการเลยครับ
     results = [
-        {"Check": "Min. Extension X ($L_x/3$)", "Calc": calc_Lx_str, "Actual": f"{w_drop_x:.2f}", "Unit": "m", "Status": pass_dim_x},
-        {"Check": "Min. Extension Y ($L_y/3$)", "Calc": calc_Ly_str, "Actual": f"{w_drop_y:.2f}", "Unit": "m", "Status": pass_dim_y},
-        {"Check": "Min. Projection ($h_s/4$)", "Calc": calc_h_str,  "Actual": f"{h_drop:.2f}",   "Unit": "cm", "Status": pass_thick},
+        {
+            "Check": "Min. Extension X ($L_x/3$)", 
+            "Formula": fr"\frac{{{Lx:.2f}}}{{3}} = {limit_L_x:.2f}",  # แสดง 8.00/3 = 2.67
+            "Actual": f"{w_drop_x:.2f} m", 
+            "Status": pass_dim_x
+        },
+        {
+            "Check": "Min. Extension Y ($L_y/3$)", 
+            "Formula": fr"\frac{{{Ly:.2f}}}{{3}} = {limit_L_y:.2f}", 
+            "Actual": f"{w_drop_y:.2f} m", 
+            "Status": pass_dim_y
+        },
+        {
+            "Check": "Min. Projection ($h_s/4$)", 
+            "Formula": fr"\frac{{{h_slab:.0f}}}{{4}} = {limit_h:.2f}", 
+            "Actual": f"{h_drop:.2f} cm", 
+            "Status": pass_thick
+        },
     ]
     
-    # Layout Columns (Adjusted widths for Calc column)
-    c1, c2, c3, c4, c5 = st.columns([2.5, 2.5, 1.2, 0.8, 0.8])
-    c1.markdown("**Criteria**")
-    c2.markdown("**Required (Calc)**")
-    c3.markdown("**Provided**")
-    c4.markdown("**Unit**")
-    c5.markdown("**Res**")
+    # ปรับขนาด Columns ให้ช่อง Calculation กว้างขึ้น (c2)
+    # c1=ชื่อ, c2=สูตรคำนวณ, c3=ค่าจริง, c4=ผลลัพธ์
+    c1, c2, c3, c4 = st.columns([2, 2.5, 1.5, 1])
     
+    # Header
+    c1.markdown("**Criteria**")
+    c2.markdown("**Required (Calculation)**") 
+    c3.markdown("**Provided**")
+    c4.markdown("**Result**")
     st.markdown("---")
+
+    # Loop แสดงผล
     for r in results:
-        c1, c2, c3, c4, c5 = st.columns([2.5, 2.5, 1.2, 0.8, 0.8])
+        c1, c2, c3, c4 = st.columns([2, 2.5, 1.5, 1])
+        
         c1.write(r["Check"])
-        c2.markdown(r["Calc"]) # Display Formula here
+        # ใช้ latex เพื่อแสดงเศษส่วนให้เห็นชัดๆ
+        c2.latex(r["Formula"]) 
         c3.write(r["Actual"])
-        c4.write(r["Unit"])
-        c5.write("✅" if r["Status"] else "❌")
+        
+        if r["Status"]:
+            c4.success("PASS")
+        else:
+            c4.error("FAIL")
+            
     st.markdown("---")
     
     # --- ENGINEERING CONCLUSION ---
@@ -219,9 +241,7 @@ def render_structural_logic(mat_props, Lx, Ly):
         * **Action:** Support reinforcement is calculated using slab thickness ($h_{{slab}}$) only.
         
         **3. Punching Shear (Economical Approach):**
-        * **Action:** The physical mass of the cap **IS USED** for shear resistance.
-          - Check 1: Punching at Column Face (Using $d_{{total}}$).
-          - Check 2: Punching at Cap Edge (Using $d_{{slab}}$).
+        * **Action:** The physical mass of the cap **IS USED** for shear resistance (Check at Face & Edge).
         """)
 
     st.markdown('</div>', unsafe_allow_html=True)
