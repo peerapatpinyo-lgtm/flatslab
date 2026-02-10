@@ -8,8 +8,17 @@ try:
     from calculations import check_min_reinforcement, check_long_term_deflection
 except ImportError:
     # Dummy Fallback functions to prevent crash if file is missing
-    def check_min_reinforcement(h): return {'As_min': 0.0018*100*h}
-    def check_long_term_deflection(*args): return {'status': 'N/A', 'Delta_Total': 0.0, 'Limit_240': 0.0, 'Delta_Immediate':0, 'Delta_LongTerm':0}
+    def check_min_reinforcement(h): 
+        return {'As_min': 0.0018 * 100 * h}
+    
+    def check_long_term_deflection(*args): 
+        return {
+            'status': 'N/A', 
+            'Delta_Total': 0.0, 
+            'Limit_240': 0.0, 
+            'Delta_Immediate': 0, 
+            'Delta_LongTerm': 0
+        }
 
 # ==========================================
 # 1. VISUAL STYLING (CSS)
