@@ -87,7 +87,6 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     """
     Render detailed punching shear calculation.
     """
-    # Safety check: if res is None or empty, stop rendering
     if not res:
         st.error(f"No data available for {label}")
         return
@@ -101,10 +100,10 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     
     # From Result Dictionary
     d = res.get('d', 0)
-    b0 = res.get('b0', res.get('bo', 0)) # Handle alias
+    b0 = res.get('b0', res.get('bo', 0))
     beta = res.get('beta', 2.0)
     alpha_s = res.get('alpha_s', 40)
-    gamma_v = res.get('gamma_v', 0.4) # For moment transfer
+    gamma_v = res.get('gamma_v', 0.4)
     Munbal = res.get('Munbal', 0.0)
     
     sqrt_fc = math.sqrt(fc)
@@ -112,13 +111,13 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # Identify Column Position for Display
     if alpha_s >= 40:
         pos_text = "Interior Column (4 Sides)"
-        b0_latex = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
+        b0_latex_formula = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
     elif alpha_s >= 30:
         pos_text = "Edge Column (3 Sides)"
-        b0_latex = r"b_0 = 2(c_{edge} + d/2) + (c_{face} + d)"
+        b0_latex_formula = r"b_0 = 2(c_{edge} + d/2) + (c_{face} + d)"
     else:
         pos_text = "Corner Column (2 Sides)"
-        b0_latex = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
+        b0_latex_formula = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
     
     # --- Step 1: Geometry & Parameters ---
     with st.container():
@@ -139,9 +138,10 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         with c2:
             st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
             st.markdown(f"Condition: **{pos_text}**")
-            st.write("Perimeter at distance $d/2$ from support:")
             
-            st.latex(b0_latex)
+            # Show formula
+            st.latex(b0_latex_formula)
+            # Show value
             st.latex(fr"b_0 = \mathbf{{{b0:.2f}}} \text{{ cm}}")
             
             st.markdown('<div class="sub-header">D. Parameters</div>', unsafe_allow_html=True)
@@ -170,16 +170,22 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         # --- Eq 2 ---
         with eq2:
+            # FIX: Changed coefficient from 0.53 to 0.27 (Standard ACI Metric/EIT)
+            # Logic: 0.27 * 2 approx 0.53 (Start at half of max)
             st.markdown("**Case 2: Perimeter**")
-            st.latex(r"V_{c2} = 0.53 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d")
+            st.markdown(f"Using $\\alpha_s={alpha_s}$")
+            st.latex(r"V_{c2} = 0.27 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d") 
+            
             term_peri_val = (alpha_s * d / b0) + 2
-            val_vc2 = 0.53 * term_peri_val * sqrt_fc * b0 * d
-            st.latex(fr"= 0.53 \left(\frac{{{alpha_s} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
+            # Use 0.27 instead of 0.53 to allow this equation to govern correctly
+            val_vc2 = 0.27 * term_peri_val * sqrt_fc * b0 * d 
+            
+            st.latex(fr"= 0.27 \left(\frac{{{alpha_s} \cdot {d:.1f}}}{{{b0:.0f}}} + 2\right) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result'>= {val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
         # --- Eq 3 ---
         with eq3:
-            st.markdown("**Case 3: Basic**")
+            st.markdown("**Case 3: Basic (Max)**")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
             val_vc3 = 1.06 * sqrt_fc * b0 * d
             st.latex(fr"= 1.06 ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
@@ -196,8 +202,6 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         f_dl = mat_props.get('factor_dl', loads.get('factor_dl', 1.4))
         f_ll = mat_props.get('factor_ll', loads.get('factor_ll', 1.7))
         
-        # [CRITICAL UPDATE] Explicitly get phi_shear
-        # Priority: phi_shear -> phi (generic) -> default based on load factors
         if 'phi_shear' in mat_props:
             phi = mat_props['phi_shear']
             std_ref = f"User Input (φ_shear={phi})"
@@ -205,7 +209,6 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             phi = mat_props['phi']
             std_ref = f"User Input (φ={phi})"
         else:
-            # Fallback
             if f_dl < 1.3:
                 phi = 0.75
                 std_ref = "ACI 318-05+"
@@ -219,15 +222,12 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         ll = loads['LL']
         w_dead_total = w_sw + sdl
         
-        # Calculate Wu for display using the linked factors
         wu_display = (f_dl * w_dead_total) + (f_ll * ll)
         
-        # Load from Result
         vu = res.get('Vu', 0)
         vc_min = min(val_vc1, val_vc2, val_vc3)
         phi_vn = phi * vc_min
         
-        # Logic Switch: Force vs Stress
         is_stress_check = res.get("check_type") == "stress"
         
         col_L, col_R = st.columns([1.8, 1])
@@ -236,15 +236,11 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.markdown('<div class="sub-header">A. Factored Shear Demand</div>', unsafe_allow_html=True)
             st.write("Using Load Factors:")
             
-            # Show formula with actual factors used
             st.latex(fr"w_u = {f_dl:.2f}(DL) + {f_ll:.2f}(LL)")
-            st.latex(fr"w_u = {f_dl:.2f}(\underbrace{{{w_sw:.0f}}}_{{SW}} + \underbrace{{{sdl}}}_{{SDL}}) + {f_ll:.2f}({ll})")
             st.latex(fr"w_u = \mathbf{{{wu_display:,.0f}}} \text{{ kg/m}}^2")
             
             if is_stress_check and Munbal > 10:
-                # STRESS BASED DISPLAY (Advanced)
                 st.warning("⚠️ **Moment Transfer Detected:** Checking Combined Shear Stress")
-                
                 st.latex(r"v_{u,max} = \frac{V_u}{A_c} + \frac{\gamma_v M_u c}{J_c}")
                 
                 v_act = res.get('stress_actual', 0)
@@ -258,15 +254,15 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 st.write(f"Ref: {std_ref}")
                 st.latex(r"\phi v_c = \phi \times \min(\text{Eq1, Eq2, Eq3})")
                 
-                st.latex(fr"\phi v_c = {phi} \times v_{{c,nom}} = \mathbf{{{v_allow:.2f}}} \text{{ ksc}}")
+                # Use local calc for consistency
+                v_c_local = vc_min / (b0 * d)
+                st.latex(fr"\phi v_c = {phi} \times {v_c_local:.2f} = \mathbf{{{phi * v_c_local:.2f}}} \text{{ ksc}}")
                 
-                # Setup vars for verdict
                 demand_val = v_act
-                capacity_val = v_allow
+                capacity_val = phi * v_c_local
                 unit = "ksc"
                 
             else:
-                # FORCE BASED DISPLAY (Legacy/Simple)
                 st.latex(r"V_u \approx w_u \times (A_{trib} - A_{critical})")
                 st.latex(fr"V_u = \mathbf{{{vu:,.0f}}} \text{{ kg}}")
                 
@@ -276,14 +272,11 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
                 st.latex(fr"\phi V_n = {phi} \times V_{{c,min}}")
                 st.latex(fr"= {phi} \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
                 
-                # Setup vars for verdict
                 demand_val = vu
                 capacity_val = phi_vn
                 unit = "kg"
 
         with col_R:
-            status = res.get('status', 'N/A')
-            # Re-evaluate status based on linked phi to be safe
             if capacity_val > 0:
                 ratio = demand_val / capacity_val
             else:
