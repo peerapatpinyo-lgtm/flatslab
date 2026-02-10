@@ -3,21 +3,26 @@ import numpy as np
 import math
 
 # ==========================================
-# HELPER: FLEXURAL DESIGN FUNCTION
+# PART 1: HELPER FUNCTIONS (CORE LOGIC)
 # ==========================================
+
 def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
     """
     คำนวณปริมาณเหล็กเสริมรับแรงดัด (Slab Flexural Design)
+    Returns: Dictionary with design results
     """
     Mu_kgcm = abs(Mu_kgm) * 100.0 
 
+    # Case: No Moment
     if Mu_kgcm == 0:
         return {"As_req": 0, "rho": 0, "spacing": 0, "txt": "-"}
 
+    # Case: Invalid Depth
     if d_cm <= 0:
         return {"As_req": 999, "rho": 999, "spacing": 0, "txt": "Error (d<=0)", "status": "FAIL"}
 
-    # ใช้ค่า phi ที่รับเข้ามาในการคำนวณ Rn
+    # --- Flexural Design (USD Method) ---
+    # Rn = Mu / (phi * b * d^2)
     Rn = Mu_kgcm / (phi * b_cm * (d_cm**2))
     
     term = 1 - (2 * Rn) / (0.85 * fc)
@@ -30,24 +35,28 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
     rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term))
     As_req = rho_req * b_cm * d_cm
 
-    # Minimum Reinforcement (Temp & Shrinkage)
+    # --- Minimum Reinforcement (Temp & Shrinkage) ---
     As_min = 0.0018 * b_cm * h_cm
     As_design = max(As_req, As_min)
     
-    # Calculate Spacing
+    # --- Calculate Spacing ---
     A_bar = 3.1416 * (d_bar_mm/10.0)**2 / 4.0
     
     if As_design > 0:
         spacing_theoretical_cm = (A_bar / As_design) * b_cm
+        
         # Max Spacing per ACI (2h or 45cm)
         s_max = min(2 * h_cm, 45.0)
         s_final = min(spacing_theoretical_cm, s_max)
         
         # Round spacing down to nearest 0.5cm (Practical for construction)
-        s_show_m = math.floor(s_final * 2) / 2.0 / 100.0 
+        # Example: 18.78 -> 18.5
+        s_final_rounded = math.floor(s_final * 2) / 2.0 
         
-        if s_show_m < 0.05: # < 5 cm is too tight
-            txt = f"Too Tight! (DB{d_bar_mm}@{s_show_m:.2f})"
+        s_show_m = s_final_rounded / 100.0 
+        
+        if s_final_rounded < 5.0: # < 5 cm is too tight
+            txt = f"Too Tight! (DB{d_bar_mm}@{s_show_m:.2f}m)"
         else:
             txt = f"DB{d_bar_mm} @ {s_show_m:.2f} m"
     else:
@@ -59,14 +68,383 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
         "As_calc": As_req,
         "As_min": As_min,
         "As_design": As_design,
-        "spacing_cm": s_final,
+        "spacing_cm": s_final if As_design > 0 else 45.0,
         "txt": txt,
-        "rho_percent": (As_design / (b_cm*d_cm)) * 100
+        "rho_percent": (As_design / (b_cm*d_cm)) * 100 if d_cm > 0 else 0
     }
 
+def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
+    """
+    Helper to calculate Ac, Jc, and gamma_v for Punching Shear
+    Note: c1, c2, d are in cm.
+    """
+    # Initialize variables
+    bo = 0.0
+    Ac = 0.0
+    Jc = 0.0
+    c_AB = 0.0
+    
+    # --- 1. Geometry Based on Column Type ---
+    if col_type == "interior":
+        # 4 Sides (Symmetric)
+        b1 = c1 + d 
+        b2 = c2 + d
+        bo = 2 * (b1 + b2)
+        c_AB = b1 / 2.0
+        # Jc for Interior Box
+        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
+
+    elif col_type == "edge":
+        # 3 Sides (U-Shape)
+        # Assume Edge is parallel to c2 (y-axis), so c1 is perpendicular direction
+        b1 = c1 + d/2.0  # Side perpendicular to edge
+        b2 = c2 + d      # Side parallel to edge
+        bo = 2*b1 + b2
+        
+        # Find Centroid (x_cc) from inner face
+        x_cc = (2 * b1 * (b1/2.0)) / bo
+        c_AB = x_cc # Distance from centroid to inner face (Max stress point)
+        
+        # Jc Calculation (Parallel Axis Theorem)
+        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
+        I_sides = 2.0 * ( (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2) )
+        Jc = I_face + I_sides
+
+    elif col_type == "corner":
+        # 2 Sides (L-Shape)
+        b1 = c1 + d/2.0
+        b2 = c2 + d/2.0
+        bo = b1 + b2
+        
+        # Find Centroid
+        x_cc = (b1 * (b1/2.0)) / bo
+        c_AB = x_cc
+        
+        # Jc (Simplified)
+        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
+        I_side = (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2)
+        Jc = I_face + I_side
+
+    else:
+        # Fallback to interior
+        b1 = c1 + d 
+        b2 = c2 + d
+        bo = 2 * (b1 + b2)
+        c_AB = b1 / 2.0
+        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
+
+    # --- 2. Handle Opening Deduction ---
+    deduction = 0
+    if open_w > 0:
+        limit_dist = 4 * d
+        if open_dist < limit_dist:
+            # Simple deduction logic: Reduce effective bo
+            deduction = min(open_w, bo * 0.30)
+    
+    bo_eff = bo - deduction
+    Ac = bo_eff * d
+
+    # Gamma factors
+    # For Edge/Corner, b1 and b2 used for gamma should be effective widths approximation
+    # Using simplified code approximation here
+    gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
+    gamma_v = 1 - gamma_f
+
+    return Ac, Jc, gamma_v, c_AB, bo_eff, deduction
+
+def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0, phi=0.85):
+    """
+    Calculates Punching Shear Stress vs Capacity
+    """
+    try:
+        Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
+    except ValueError:
+        return {"status": "ERROR", "ratio": 999, "Note": "Invalid Input"}
+
+    Ac, Jc, gamma_v, c_AB, bo, deduc_len = calculate_section_properties(c1, c2, d, col_type, open_w, open_dist)
+
+    if Ac <= 0: return {"status": "FAIL", "ratio": 999, "note": "Ac <= 0 (Opening too big?)"}
+
+    Munbal_cm = Munbal * 100.0
+    
+    # Stress Calculation (Direct + Moment Transfer)
+    stress_direct = Vu / Ac
+    
+    if Jc > 0:
+        stress_moment = (gamma_v * abs(Munbal_cm) * c_AB) / Jc
+    else:
+        stress_moment = 0
+        
+    vu_max = stress_direct + stress_moment 
+
+    # Capacity
+    sqrt_fc = np.sqrt(fc)
+    
+    vc_stress_nominal = 1.06 * sqrt_fc 
+    beta = max(c1, c2) / min(c1, c2) if min(c1, c2) > 0 else 1.0
+    vc_beta = 0.27 * (2 + 4/beta) * sqrt_fc
+    
+    if col_type == "interior": alpha_s = 40
+    elif col_type == "edge": alpha_s = 30
+    else: alpha_s = 20
+    
+    if bo > 0:
+        vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
+    else:
+        vc_size = vc_stress_nominal
+
+    vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
+    
+    # Apply Phi
+    phi_vc_stress = phi * vc_final_stress
+
+    if phi_vc_stress > 0:
+        ratio = vu_max / phi_vc_stress
+    else:
+        ratio = 999.0
+        
+    status = "OK" if ratio <= 1.0 else "FAIL"
+    
+    # Create note string
+    note_txt = f"Munbal: {Munbal:,.0f} kg-m | ϕ={phi}"
+    if deduc_len > 0:
+        note_txt += f" | Op.Deduct: {deduc_len:.1f} cm"
+
+    return {
+        "Vu": Vu, "Munbal": Munbal, "d": d, "bo": bo, "Ac": Ac,
+        "deduction": deduc_len,
+        "gamma_v": gamma_v, "Jc": Jc,
+        "stress_actual": vu_max, "stress_allow": phi_vc_stress,
+        "phi_Vc": phi_vc_stress * Ac, "Vc_nominal": vc_final_stress * Ac, 
+        "ratio": ratio, "status": status,
+        "note": note_txt
+    }
+
+def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0, phi=0.85):
+    """
+    Handle Drop Panel (Check 2 perimeters: Inside Drop & Outside Drop)
+    """
+    # Case 1: At Column Face (Inside Drop) - Uses d_drop
+    Vu1 = w_u * (Lx * Ly) * 0.95 
+    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal, phi=phi) 
+    res1["case"] = "Inside Drop (d_drop)" 
+    
+    # Case 2: At Drop Panel Edge (Outside Drop) - Uses d_slab
+    # Note: Outside drop generally acts as "interior" geometry relative to the slab unless the drop is huge.
+    # We maintain col_type but use drop dimensions as the "column" size.
+    Vu2 = w_u * (Lx * Ly) * 0.90 
+    res2 = check_punching_shear(Vu2, fc, drop_w*100, drop_l*100, d_slab, col_type, Munbal * 0.5, phi=phi)
+    res2["case"] = "Outside Drop (d_slab)" 
+    
+    if res1['ratio'] > res2['ratio']:
+        res1['is_dual'] = True; res1['other_case'] = res2 
+        return res1
+    else:
+        res2['is_dual'] = True; res2['other_case'] = res1
+        return res2
+
+def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc, phi=0.85):
+    """
+    Check One-Way Shear (Beam Shear)
+    """
+    d_m = d_eff_cm / 100.0 
+    w_line_strip = w_u_area * 1.0 
+    Vu_critical = Vu_face_kg - (w_line_strip * d_m)
+    if Vu_critical < 0: Vu_critical = 0
+    
+    Vc = 0.53 * np.sqrt(fc) * 100.0 * d_eff_cm
+    
+    # Apply Phi
+    phi_Vc = phi * Vc
+    
+    if phi_Vc > 0: ratio = Vu_critical / phi_Vc
+    else: ratio = 999.0
+        
+    status = "OK" if ratio <= 1.0 else "FAIL"
+    return {
+        "Vu_face": Vu_face_kg, "dist_d": d_m, "Vu_critical": Vu_critical,
+        "Vc": Vc, "phi_Vc": phi_Vc, "ratio": ratio, "status": status
+    }
+
+def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
+    rho_min = 0.0018
+    As_min = rho_min * b_width * h_slab 
+    return {"rho_min": rho_min, "As_min": As_min, "note": "ACI 318 Temp/Shrinkage"}
+
+def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
+    """
+    Approximate Long Term Deflection Check
+    """
+    Ec = 15100 * np.sqrt(fc) 
+    L_cm = L * 100.0
+    w_line_kg_cm = (w_service * (b/100.0)) / 100.0 
+    
+    Ig = b * (h**3) / 12.0
+    Ie = 0.4 * Ig # Simplified Effective Inertia
+    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
+    
+    Lambda_LT = 2.0
+    Delta_LT = Delta_immediate * Lambda_LT
+    Delta_Total = Delta_immediate + Delta_LT
+    
+    # General limit L/240
+    Limit_240 = L_cm / 240.0
+    status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
+    
+    return {
+        "Delta_Immediate": Delta_immediate,
+        "Delta_LongTerm": Delta_LT,
+        "Delta_Total": Delta_Total, 
+        "Limit_240": Limit_240, 
+        "status": status
+    }
+
+def check_ddm_limitations(L1, L2, num_spans=3, L_adjacent=None):
+    """
+    ตรวจสอบเงื่อนไขบังคับของ DDM ตามมาตรฐาน ACI 318
+    Returns: (is_valid, warnings_list)
+    """
+    warnings = []
+    is_valid = True
+
+    # 1. Check Number of Spans (Must have at least 3 continuous spans)
+    if num_spans < 3:
+        warnings.append(f"Warning: Number of spans ({num_spans}) < 3. DDM allows only for >= 3 continuous spans.")
+        # We assume valid for calculation sake but warn user
+    
+    # 2. Check Aspect Ratio (Long/Short <= 2.0)
+    ratio = max(L1, L2) / min(L1, L2)
+    if ratio > 2.0:
+        warnings.append(f"Violation: Panel Aspect Ratio {ratio:.2f} > 2.0. ACI prohibits DDM (Use EFM).")
+        is_valid = False
+
+    # 3. Check Adjacent Span Difference (<= 1/3)
+    # Only applicable if L_adjacent is provided
+    if L_adjacent is not None and L_adjacent > 0:
+        longer = max(L1, L_adjacent)
+        shorter = min(L1, L_adjacent)
+        diff_ratio = (longer - shorter) / longer
+        if diff_ratio > 0.333: # 1/3
+            warnings.append(f"Violation: Adjacent span difference {diff_ratio*100:.1f}% > 33%. ACI prohibits DDM.")
+            is_valid = False
+
+    return is_valid, warnings
 
 # ==========================================
-# 0. THE "BRAIN" CLASS (MVC Controller Logic)
+# PART 2: EFM STIFFNESS & ANALYSIS
+# ==========================================
+
+def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, drop_l=0):
+    c1=float(c1); c2=float(c2); L1=float(L1); L2=float(L2); lc=float(lc); h_slab=float(h_slab); fc=float(fc)
+    
+    if h_drop is None or h_drop <= h_slab or drop_w <= 0:
+        h_drop = h_slab
+        has_drop = False
+    else:
+        h_drop = float(h_drop)
+        drop_w = float(drop_w)
+        has_drop = True
+
+    E_c = 15100 * np.sqrt(fc) 
+    
+    # 1. Column Stiffness (Kc)
+    # Ic = b * h^3 / 12 -> Here c2 is width, c1 is depth in direction of analysis
+    Ic = c2 * (c1**3) / 12.0 
+    lc_cm = lc * 100.0
+    Kc = 4 * E_c * Ic / lc_cm
+    Sum_Kc = 2 * Kc
+    
+    # 2. Slab Stiffness (Ks)
+    Is = (L2*100.0) * (h_slab**3) / 12.0
+    L1_cm = L1 * 100.0
+    Ks = 4 * E_c * Is / L1_cm
+    
+    # 3. Torsional Stiffness (Kt)
+    def get_C(x, y): return (1 - 0.63 * x / y) * (x**3 * y) / 3.0
+    y = c1 
+    C_slab = get_C(h_slab, y)
+    
+    if has_drop:
+        C_drop = get_C(h_drop, y)
+        len_total = L2 * 100.0
+        len_drop = min(drop_w * 100.0, len_total)
+        len_slab = max(0, len_total - len_drop)
+        if C_drop > 0 and C_slab > 0:
+            term_drop = len_drop / C_drop
+            term_slab = len_slab / C_slab
+            C_eff = len_total / (term_drop + term_slab)
+        else: C_eff = C_slab
+    else: C_eff = C_slab
+        
+    term_geom = (1 - c2/(L2*100.0))
+    if term_geom <= 0: term_geom = 0.01
+    denom = (L2*100.0 * term_geom**3)
+    
+    if denom > 0: Kt = 2 * 9 * E_c * C_eff / denom 
+    else: Kt = 0
+    
+    # 4. Equivalent Stiffness (Kec)
+    if Kt > 0 and Sum_Kc > 0:
+        Kec = 1 / (1/Sum_Kc + 1/Kt)
+    else: Kec = 0
+        
+    return Ks, Sum_Kc, Kt, Kec
+
+def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
+    W_total = w_u * L_width # kg/m
+    FEM = (W_total * L_span**2) / 12.0 # kg-m
+    
+    if is_edge_span:
+        # Edge Span: Exterior node connects to Col (Kec) + Slab (Ks)
+        sum_K1 = Kec + Ks
+        DF1_slab = Ks / sum_K1 if sum_K1 > 0 else 0
+        
+        # Interior node: Slab + Slab(next) + Col
+        sum_K2 = Kec + 2*Ks 
+        DF2_slab = Ks / sum_K2 if sum_K2 > 0 else 0
+    else:
+        # Interior Span: Symmetric
+        sum_K = Kec + 2*Ks
+        DF1_slab = Ks / sum_K if sum_K > 0 else 0
+        DF2_slab = Ks / sum_K if sum_K > 0 else 0
+    
+    # Moment Distribution (3 Cycles)
+    M12 = -FEM 
+    M21 = +FEM 
+    
+    for i in range(3):
+        # Balance
+        Bal1 = -1 * (M12) * DF1_slab
+        Bal2 = -1 * (M21) * DF2_slab
+        
+        M12 += Bal1
+        M21 += Bal2
+        
+        # Carry Over
+        CO12 = Bal2 * 0.5 
+        CO21 = Bal1 * 0.5 
+        
+        M12 += CO12
+        M21 += CO21
+        
+    M_neg_left = abs(M12)
+    M_neg_right = abs(M21)
+    
+    M_simple = (W_total * L_span**2) / 8.0
+    M_pos = M_simple - (M_neg_left + M_neg_right)/2.0
+    
+    return {
+        "FEM": FEM,
+        "DF_left": DF1_slab,
+        "DF_right": DF2_slab,
+        "M_neg_left": M_neg_left,
+        "M_neg_right": M_neg_right,
+        "M_pos": M_pos,
+        "M_simple": M_simple
+    }
+
+# ==========================================
+# PART 3: MAIN CONTROLLER CLASS
 # ==========================================
 class FlatSlabDesign:
     """
@@ -256,11 +634,19 @@ class FlatSlabDesign:
         d_slab = self._get_eff_depth(self.h_slab)
         d_total = self._get_eff_depth(self.h_slab + self.h_drop)
 
-        # 2. Shear Analysis (One-way)
+        # 2. DDM Limitations Check
+        # Assumes valid if num_spans/L_adj are missing (simplified for single panel app)
+        ddm_valid, ddm_warn = check_ddm_limitations(
+            self.Lx, self.Ly, 
+            num_spans=self.inputs.get('num_spans', 3), 
+            L_adjacent=self.inputs.get('L_adjacent', None)
+        )
+
+        # 3. Shear Analysis (One-way)
         shear_res = self._analyze_oneway(w_u, d_slab)
 
         # ============================================================
-        # 3. RUN EFM FIRST (Move Up) -> To Get Unbalanced Moments
+        # 4. RUN EFM FIRST (Move Up) -> To Get Unbalanced Moments
         # ============================================================
         efm_res = self._analyze_efm(w_u)
         
@@ -281,7 +667,7 @@ class FlatSlabDesign:
         Munbal_design = max(abs(Munbal_x), abs(Munbal_y))
 
         # ============================================================
-        # 4. PUNCHING ANALYSIS (Updated with Openings, EFM Moment & Dynamic Phi)
+        # 5. PUNCHING ANALYSIS (Updated with Openings, EFM Moment & Dynamic Phi)
         # ============================================================
         op_w = self.inputs.get('open_w', 0.0)
         op_dist = self.inputs.get('open_dist', 0.0)
@@ -311,10 +697,10 @@ class FlatSlabDesign:
                 phi=phi_s
             )
 
-        # 5. DDM Analysis
+        # 6. DDM Analysis
         ddm_res = self._analyze_ddm_moments(w_u)
         
-        # 6. Serviceability
+        # 7. Serviceability
         h_min = max(self.Lx, self.Ly)*100 / 33.0
         deflection_res = check_long_term_deflection(
             w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
@@ -327,391 +713,11 @@ class FlatSlabDesign:
             "shear_punching": punch_res,
             "ddm": ddm_res,
             "efm": efm_res,
-            "checks": {"h_min": h_min, "deflection": deflection_res, "code_ref": self.factors.get('code_ref', '-')}
+            "checks": {
+                "h_min": h_min, 
+                "deflection": deflection_res, 
+                "code_ref": self.factors.get('code_ref', '-'),
+                "ddm_valid": ddm_valid,
+                "ddm_warnings": ddm_warn
+            }
         }
-
-# ==========================================
-# 1. PUNCHING SHEAR (UPDATED WITH CORRECT GEOMETRY FOR EDGE/CORNER)
-# ==========================================
-def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
-    """
-    Helper to calculate Ac, Jc, and gamma_v
-    Updated: รองรับ b0, Centroid และ Jc ตามประเภทเสา (Interior/Edge/Corner)
-    Note: c1, c2, d are in cm.
-    """
-    # Initialize variables
-    bo = 0.0
-    Ac = 0.0
-    Jc = 0.0
-    c_AB = 0.0
-    
-    # --- 1. Geometry Based on Column Type ---
-    if col_type == "interior":
-        # 4 Sides (สมมาตร)
-        b1 = c1 + d 
-        b2 = c2 + d
-        bo = 2 * (b1 + b2)
-        c_AB = b1 / 2.0
-        # Jc for Interior Box
-        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
-
-    elif col_type == "edge":
-        # 3 Sides (U-Shape)
-        # Assume Edge is parallel to c2 (y-axis), so c1 is perpendicular
-        b1 = c1 + d/2.0  # Side perpendicular to edge
-        b2 = c2 + d      # Side parallel to edge
-        bo = 2*b1 + b2
-        
-        # Find Centroid (x_cc) from inner face (face touching column)
-        # Moment of area about inner face / Total Area (Linear approx)
-        # Side 1 (top): len=b1, arm=b1/2
-        # Side 2 (bot): len=b1, arm=b1/2
-        # Side 3 (face): len=b2, arm=0
-        x_cc = (2 * b1 * (b1/2.0)) / bo
-        c_AB = x_cc # Distance from centroid to inner face (Max stress point)
-        
-        # Jc Calculation (Parallel Axis Theorem)
-        # I_face (parallel part): Own I + Area * dist^2
-        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
-        
-        # I_sides (perpendicular parts): 2 * [ Own I + Area * dist^2 ]
-        # dist for sides is (b1/2 - x_cc)
-        I_sides = 2.0 * ( (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2) )
-        
-        Jc = I_face + I_sides
-
-    elif col_type == "corner":
-        # 2 Sides (L-Shape)
-        b1 = c1 + d/2.0
-        b2 = c2 + d/2.0
-        bo = b1 + b2
-        
-        # Find Centroid
-        # Side 1 (perp): len=b1, arm=b1/2
-        # Side 2 (para): len=b2, arm=0 (relative to axis of b2)
-        x_cc = (b1 * (b1/2.0)) / bo
-        c_AB = x_cc
-        
-        # Jc (Simplified)
-        I_face = (b2 * d**3)/12.0 + (b2 * d) * (x_cc**2)
-        I_side = (b1 * d**3)/12.0 + (d * b1**3)/12.0 + (b1 * d) * ((b1/2.0 - x_cc)**2)
-        Jc = I_face + I_side
-
-    else:
-        # Fallback to interior
-        b1 = c1 + d 
-        b2 = c2 + d
-        bo = 2 * (b1 + b2)
-        c_AB = b1 / 2.0
-        Jc = (d * b1**3)/6.0 + (d**3 * b1)/6.0 + (d * b2 * b1**2)/2.0
-
-    # --- 2. Handle Opening Deduction ---
-    deduction = 0
-    if open_w > 0:
-        limit_dist = 4 * d
-        if open_dist < limit_dist:
-            # Simple deduction logic: Reduce effective bo
-            deduction = min(open_w, bo * 0.30)
-    
-    bo_eff = bo - deduction
-    Ac = bo_eff * d
-
-    # Gamma factors
-    # For Edge/Corner, b1 and b2 used for gamma should be the effective widths
-    gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
-    gamma_v = 1 - gamma_f
-
-    return Ac, Jc, gamma_v, c_AB, bo_eff, deduction
-
-def check_punching_shear(Vu, fc, c1, c2, d, col_type="interior", Munbal=0.0, open_w=0, open_dist=0, phi=0.85):
-    """
-    Updated: รับค่า phi จากภายนอก
-    """
-    try:
-        Vu = float(Vu); fc = float(fc); c1 = float(c1); c2 = float(c2); d = float(d); Munbal = float(Munbal)
-    except ValueError:
-        return {"status": "ERROR", "ratio": 999, "Note": "Invalid Input"}
-
-    Ac, Jc, gamma_v, c_AB, bo, deduc_len = calculate_section_properties(c1, c2, d, col_type, open_w, open_dist)
-
-    if Ac <= 0: return {"status": "FAIL", "ratio": 999, "note": "Ac <= 0 (Opening too big?)"}
-
-    Munbal_cm = Munbal * 100.0
-    
-    # Stress Calc
-    stress_direct = Vu / Ac
-    # Use calculated Jc and c_AB (which now varies by col_type)
-    stress_moment = (gamma_v * abs(Munbal_cm) * c_AB) / Jc
-    vu_max = stress_direct + stress_moment 
-
-    # Capacity
-    sqrt_fc = np.sqrt(fc)
-    
-    vc_stress_nominal = 1.06 * sqrt_fc 
-    beta = max(c1, c2) / min(c1, c2)
-    vc_beta = 0.27 * (2 + 4/beta) * sqrt_fc
-    
-    if col_type == "interior": alpha_s = 40
-    elif col_type == "edge": alpha_s = 30
-    else: alpha_s = 20
-    
-    # Note: vc_size depends on bo, which is now correctly calculated for Edge/Corner
-    vc_size = 0.27 * ((alpha_s * d / bo) + 2) * sqrt_fc
-
-    vc_final_stress = min(vc_stress_nominal, vc_beta, vc_size)
-    
-    # Apply Phi
-    phi_vc_stress = phi * vc_final_stress
-
-    if phi_vc_stress > 0:
-        ratio = vu_max / phi_vc_stress
-    else:
-        ratio = 999.0
-        
-    status = "OK" if ratio <= 1.0 else "FAIL"
-    
-    # Create note string
-    note_txt = f"Munbal: {Munbal:,.0f} kg-m | ϕ={phi}"
-    if deduc_len > 0:
-        note_txt += f" | Op.Deduct: {deduc_len:.1f} cm"
-
-    return {
-        "Vu": Vu, "Munbal": Munbal, "d": d, "bo": bo, "Ac": Ac,
-        "deduction": deduc_len,
-        "gamma_v": gamma_v, "Jc": Jc,
-        "stress_actual": vu_max, "stress_allow": phi_vc_stress,
-        "phi_Vc": phi_vc_stress * Ac, "Vc_nominal": vc_final_stress * Ac, 
-        "ratio": ratio, "status": status,
-        "note": note_txt
-    }
-
-# ==========================================
-# 2. DUAL CASE PUNCHING (UPDATED)
-# ==========================================
-def check_punching_dual_case(w_u, Lx, Ly, fc, c1, c2, d_drop, d_slab, drop_w, drop_l, col_type, Munbal=0.0, phi=0.85):
-    """
-    Handle Drop Panel (Check 2 perimeters)
-    Updated: Pass phi to sub-checks
-    """
-    # Case 1: At Column Face (Inside Drop)
-    Vu1 = w_u * (Lx * Ly) * 0.95 
-    res1 = check_punching_shear(Vu1, fc, c1, c2, d_drop, col_type, Munbal, phi=phi) 
-    res1["case"] = "Inside Drop (d_drop)" 
-    
-    # Case 2: At Drop Panel Edge (Outside Drop)
-    # Note: When checking outside drop, the geometry effectively becomes "Interior" 
-    # relative to the drop panel perimeter usually, unless the drop panel itself is at the edge.
-    # For safety/simplicity, we pass col_type. Ideally, check if drop extends to edge.
-    Vu2 = w_u * (Lx * Ly) * 0.90 
-    res2 = check_punching_shear(Vu2, fc, drop_w, drop_l, d_slab, col_type, Munbal * 0.5, phi=phi)
-    res2["case"] = "Outside Drop (d_slab)" 
-    
-    if res1['ratio'] > res2['ratio']:
-        res1['is_dual'] = True; res1['other_case'] = res2 
-        return res1
-    else:
-        res2['is_dual'] = True; res2['other_case'] = res1
-        return res2
-
-# ==========================================
-# 3. SERVICEABILITY CHECKS
-# ==========================================
-def check_min_reinforcement(h_slab, b_width=100.0, fy=4000.0):
-    rho_min = 0.0018
-    As_min = rho_min * b_width * h_slab 
-    return {"rho_min": rho_min, "As_min": As_min, "note": "ACI 318 Temp/Shrinkage"}
-
-def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
-    Ec = 15100 * np.sqrt(fc) 
-    L_cm = L * 100.0
-    w_line_kg_cm = (w_service * (b/100.0)) / 100.0 
-    
-    Ig = b * (h**3) / 12.0
-    Ie = 0.4 * Ig 
-    Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
-    
-    Lambda_LT = 2.0
-    Delta_LT = Delta_immediate * Lambda_LT
-    Delta_Total = Delta_immediate + Delta_LT
-    
-    # General limit L/240 (can be L/480 for sensitive partitions)
-    Limit_240 = L_cm / 240.0
-    status = "PASS" if Delta_Total <= Limit_240 else "FAIL"
-    
-    return {
-        "Delta_Immediate": Delta_immediate,
-        "Delta_LongTerm": Delta_LT,
-        "Delta_Total": Delta_Total, 
-        "Limit_240": Limit_240, 
-        "status": status
-    }
-
-# ==========================================
-# 4. EFM STIFFNESS & ANALYSIS
-# ==========================================
-def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, drop_l=0):
-    c1=float(c1); c2=float(c2); L1=float(L1); L2=float(L2); lc=float(lc); h_slab=float(h_slab); fc=float(fc)
-    
-    if h_drop is None or h_drop <= h_slab or drop_w <= 0:
-        h_drop = h_slab
-        has_drop = False
-    else:
-        h_drop = float(h_drop)
-        drop_w = float(drop_w)
-        has_drop = True
-
-    E_c = 15100 * np.sqrt(fc) 
-    
-    # 1. Column Stiffness (Kc)
-    Ic = c2 * (c1**3) / 12.0 
-    lc_cm = lc * 100.0
-    Kc = 4 * E_c * Ic / lc_cm
-    Sum_Kc = 2 * Kc
-    
-    # 2. Slab Stiffness (Ks)
-    Is = (L2*100.0) * (h_slab**3) / 12.0
-    L1_cm = L1 * 100.0
-    Ks = 4 * E_c * Is / L1_cm
-    
-    # 3. Torsional Stiffness (Kt)
-    def get_C(x, y): return (1 - 0.63 * x / y) * (x**3 * y) / 3.0
-    y = c1 
-    C_slab = get_C(h_slab, y)
-    
-    if has_drop:
-        C_drop = get_C(h_drop, y)
-        len_total = L2 * 100.0
-        len_drop = min(drop_w * 100.0, len_total)
-        len_slab = max(0, len_total - len_drop)
-        if C_drop > 0 and C_slab > 0:
-            term_drop = len_drop / C_drop
-            term_slab = len_slab / C_slab
-            C_eff = len_total / (term_drop + term_slab)
-        else: C_eff = C_slab
-    else: C_eff = C_slab
-        
-    term_geom = (1 - c2/(L2*100.0))
-    if term_geom <= 0: term_geom = 0.01
-    denom = (L2*100.0 * term_geom**3)
-    
-    if denom > 0: Kt = 2 * 9 * E_c * C_eff / denom 
-    else: Kt = 0
-    
-    # 4. Equivalent Stiffness (Kec)
-    if Kt > 0 and Sum_Kc > 0:
-        Kec = 1 / (1/Sum_Kc + 1/Kt)
-    else: Kec = 0
-        
-    return Ks, Sum_Kc, Kt, Kec
-
-def solve_efm_distribution(Kec, Ks, w_u, L_span, L_width, is_edge_span=False):
-    W_total = w_u * L_width # kg/m
-    FEM = (W_total * L_span**2) / 12.0 # kg-m
-    
-    if is_edge_span:
-        # Edge Span: Exterior node connects to Col (Kec) + Slab (Ks)
-        sum_K1 = Kec + Ks
-        DF1_slab = Ks / sum_K1
-        
-        # Interior node: Slab + Slab(next) + Col
-        sum_K2 = Kec + 2*Ks 
-        DF2_slab = Ks / sum_K2
-    else:
-        # Interior Span: Symmetric
-        sum_K = Kec + 2*Ks
-        DF1_slab = Ks / sum_K
-        DF2_slab = Ks / sum_K
-    
-    # Moment Distribution (3 Cycles)
-    M12 = -FEM 
-    M21 = +FEM 
-    
-    for i in range(3):
-        # Balance
-        Bal1 = -1 * (M12) * DF1_slab
-        Bal2 = -1 * (M21) * DF2_slab
-        
-        M12 += Bal1
-        M21 += Bal2
-        
-        # Carry Over
-        CO12 = Bal2 * 0.5 
-        CO21 = Bal1 * 0.5 
-        
-        M12 += CO12
-        M21 += CO21
-        
-    M_neg_left = abs(M12)
-    M_neg_right = abs(M21)
-    
-    M_simple = (W_total * L_span**2) / 8.0
-    M_pos = M_simple - (M_neg_left + M_neg_right)/2.0
-    
-    return {
-        "FEM": FEM,
-        "DF_left": DF1_slab,
-        "DF_right": DF2_slab,
-        "M_neg_left": M_neg_left,
-        "M_neg_right": M_neg_right,
-        "M_pos": M_pos,
-        "M_simple": M_simple
-    }
-
-# ==========================================
-# 5. ONE-WAY SHEAR (UPDATED WITH PHI)
-# ==========================================
-def check_oneway_shear(Vu_face_kg, w_u_area, L_clear_m, d_eff_cm, fc, phi=0.85):
-    """
-    Updated: รับค่า phi จากภายนอก
-    """
-    d_m = d_eff_cm / 100.0 
-    w_line_strip = w_u_area * 1.0 
-    Vu_critical = Vu_face_kg - (w_line_strip * d_m)
-    if Vu_critical < 0: Vu_critical = 0
-    
-    Vc = 0.53 * np.sqrt(fc) * 100.0 * d_eff_cm
-    
-    # Apply Phi
-    phi_Vc = phi * Vc
-    
-    if phi_Vc > 0: ratio = Vu_critical / phi_Vc
-    else: ratio = 999.0
-        
-    status = "OK" if ratio <= 1.0 else "FAIL"
-    return {
-        "Vu_face": Vu_face_kg, "dist_d": d_m, "Vu_critical": Vu_critical,
-        "Vc": Vc, "phi_Vc": phi_Vc, "ratio": ratio, "status": status
-    }
-
-# ==========================================
-# 6. DDM LIMITATIONS CHECK
-# ==========================================
-def check_ddm_limitations(L1, L2, num_spans, L_adjacent):
-    """
-    ตรวจสอบเงื่อนไขบังคับของ DDM ตามมาตรฐาน ACI 318
-    Returns: (is_valid, warnings_list)
-    """
-    warnings = []
-    is_valid = True
-
-    # 1. ตรวจสอบจำนวนช่วงเสา (Must have at least 3 continuous spans)
-    if num_spans < 3:
-        warnings.append(f"❌ จำนวนช่วงเสาต่อเนื่อง ({num_spans}) น้อยกว่า 3 ช่วง (ACI ห้ามใช้ DDM)")
-        is_valid = False
-
-    # 2. ตรวจสอบอัตราส่วนความยาวด้านยาวต่อด้านสั้น (Aspect Ratio <= 2.0)
-    ratio = max(L1, L2) / min(L1, L2)
-    if ratio > 2.0:
-        warnings.append(f"❌ อัตราส่วนแผ่นพื้น {ratio:.2f} > 2.0 (ACI ห้ามใช้ DDM ให้ใช้ EFM)")
-        is_valid = False
-
-    # 3. ตรวจสอบความยาวช่วงที่ติดกัน (Adjacent Span Difference <= 1/3)
-    if L_adjacent > 0:
-        longer = max(L1, L_adjacent)
-        shorter = min(L1, L_adjacent)
-        diff_ratio = (longer - shorter) / longer
-        if diff_ratio > 0.333: # 1/3
-            warnings.append(f"❌ ความยาวช่วงเสาต่างกัน {diff_ratio*100:.1f}% (>33%) (ACI ห้ามใช้ DDM)")
-            is_valid = False
-
-    return is_valid, warnings
