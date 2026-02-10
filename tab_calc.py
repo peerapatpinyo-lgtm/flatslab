@@ -113,7 +113,7 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. LOGIC RENDERER (FINAL PROFESSIONAL VERSION)
+# 2. LOGIC RENDERER (UPDATED: SHOW CALC FORMULA)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     
@@ -125,9 +125,7 @@ def render_structural_logic(mat_props, Lx, Ly):
     h_drop = mat_props.get('h_drop', 0)
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
-    # ---------------------------------------------------------
-    # SMART FETCH: ดึงค่าจาก app.py (ไม่ว่าหน่วยจะเป็น cm หรือ m)
-    # ---------------------------------------------------------
+    # Smart Fetch Data
     def get_dim(keys_to_check):
         for key in keys_to_check:
             val = mat_props.get(key, 0)
@@ -140,7 +138,6 @@ def render_structural_logic(mat_props, Lx, Ly):
     # Auto Unit Conversion: ถ้าค่า > 10 เดาว่าเป็น cm ให้หาร 100
     w_drop_x = raw_x / 100.0 if raw_x > 10 else raw_x
     w_drop_y = raw_y / 100.0 if raw_y > 10 else raw_y
-    # ---------------------------------------------------------
 
     # CASE 1: FLAT PLATE (NO DROP)
     if not has_drop:
@@ -165,21 +162,36 @@ def render_structural_logic(mat_props, Lx, Ly):
     pass_thick = h_drop >= limit_h
     is_structural = pass_dim_x and pass_dim_y and pass_thick
     
-    # Render Results Table
+    # --- RENDER TABLE WITH CALCULATION ---
     st.write("**Checking dimensions against ACI 318 Requirements:**")
+    
+    # Prepare calculation strings for display
+    calc_Lx_str = f"{Lx:.2f}/3 = **{limit_L_x:.2f}**"
+    calc_Ly_str = f"{Ly:.2f}/3 = **{limit_L_y:.2f}**"
+    calc_h_str  = f"{h_slab:.0f}/4 = **{limit_h:.2f}**"
+
     results = [
-        {"Check": "Min. Extension X ($L_x/3$)", "Limit": f"≥ {limit_L_x:.2f} m", "Actual": f"{w_drop_x:.2f} m", "Status": pass_dim_x},
-        {"Check": "Min. Extension Y ($L_y/3$)", "Limit": f"≥ {limit_L_y:.2f} m", "Actual": f"{w_drop_y:.2f} m", "Status": pass_dim_y},
-        {"Check": "Min. Projection ($h_s/4$)", "Limit": f"≥ {limit_h:.2f} cm", "Actual": f"{h_drop:.2f} cm", "Status": pass_thick},
+        {"Check": "Min. Extension X ($L_x/3$)", "Calc": calc_Lx_str, "Actual": f"{w_drop_x:.2f}", "Unit": "m", "Status": pass_dim_x},
+        {"Check": "Min. Extension Y ($L_y/3$)", "Calc": calc_Ly_str, "Actual": f"{w_drop_y:.2f}", "Unit": "m", "Status": pass_dim_y},
+        {"Check": "Min. Projection ($h_s/4$)", "Calc": calc_h_str,  "Actual": f"{h_drop:.2f}",   "Unit": "cm", "Status": pass_thick},
     ]
     
-    c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
-    c1.markdown("**Criteria**"); c2.markdown("**Required**"); c3.markdown("**Provided**"); c4.markdown("**Result**")
+    # Layout Columns (Adjusted widths for Calc column)
+    c1, c2, c3, c4, c5 = st.columns([2.5, 2.5, 1.2, 0.8, 0.8])
+    c1.markdown("**Criteria**")
+    c2.markdown("**Required (Calc)**")
+    c3.markdown("**Provided**")
+    c4.markdown("**Unit**")
+    c5.markdown("**Res**")
+    
     st.markdown("---")
     for r in results:
-        c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
-        c1.write(r["Check"]); c2.write(r["Limit"]); c3.write(r["Actual"])
-        c4.write("✅" if r["Status"] else "❌")
+        c1, c2, c3, c4, c5 = st.columns([2.5, 2.5, 1.2, 0.8, 0.8])
+        c1.write(r["Check"])
+        c2.markdown(r["Calc"]) # Display Formula here
+        c3.write(r["Actual"])
+        c4.write(r["Unit"])
+        c5.write("✅" if r["Status"] else "❌")
     st.markdown("---")
     
     # --- ENGINEERING CONCLUSION ---
@@ -188,15 +200,9 @@ def render_structural_logic(mat_props, Lx, Ly):
         st.markdown("""
         **Engineering Consequence Analysis:**
         
-        1.  **Stiffness Modification (Improved):** * The thickened section meets ACI requirements.
-            * **Action:** The software **includes** the Drop Panel inertia ($I_{drop}$) in the Equivalent Frame Analysis.
-            * **Result:** Increased stiffness at supports reduces calculated deflection.
-            
-        2.  **Flexural Design (Economical):**
-            * **Action:** Negative moment reinforcement at support is calculated using the full effective depth ($d = h_{slab} + h_{drop} - cover$).
-            * **Result:** Reduces the area of steel ($A_s$) required at the column strip.
-            
-        3.  **Shear Capacity:** * Provides maximum protection against Punching Shear at the column face.
+        1.  **Stiffness Modification (Improved):** The software **includes** the Drop Panel inertia ($I_{drop}$) in the Equivalent Frame Analysis.
+        2.  **Flexural Design (Economical):** Negative moment reinforcement uses full effective depth ($d = h_{slab} + h_{drop} - cover$).
+        3.  **Shear Capacity:** Provides maximum protection against Punching Shear at the column face.
         """)
     else:
         st.warning("### ⚠️ Conclusion: SHEAR CAP ONLY (Not a Structural Drop)")
@@ -208,16 +214,14 @@ def render_structural_logic(mat_props, Lx, Ly):
         **1. Stiffness & Frame Analysis (Conservative Approach):**
         * **Action:** The software **IGNORES** the cap thickness for stiffness calculations.
         * **Model:** Treated as a uniform Flat Plate ($h = {h_slab}$ cm).
-        * **Reasoning:** Modeling a small cap as a rigid support would artificially attract negative moment and underestimate positive moment at mid-span. We ignore it to ensure the mid-span reinforcement is **Safe**.
         
         **2. Flexural Reinforcement:**
         * **Action:** Support reinforcement is calculated using slab thickness ($h_{{slab}}$) only.
-        * **Reasoning:** ACI Code prohibits using the increased depth for flexural strength if dimensions are insufficient.
         
         **3. Punching Shear (Economical Approach):**
         * **Action:** The physical mass of the cap **IS USED** for shear resistance.
-        * **Check 1:** Punching at Column Face (Using $d_{{total}}$).
-        * **Check 2:** Punching at Cap Edge (Using $d_{{slab}}$).
+          - Check 1: Punching at Column Face (Using $d_{{total}}$).
+          - Check 2: Punching at Cap Edge (Using $d_{{slab}}$).
         """)
 
     st.markdown('</div>', unsafe_allow_html=True)
