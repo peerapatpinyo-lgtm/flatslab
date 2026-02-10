@@ -17,7 +17,7 @@ except ImportError:
 def inject_custom_css():
     st.markdown("""
     <style>
-        .report-container { font-family: 'Segoe UI', Tahoma, sans-serif; }
+        .report-container { font-family: 'Segoe UI', Tahoma, Helvetica, sans-serif; }
         
         /* Main Container */
         .step-container {
@@ -26,23 +26,23 @@ def inject_custom_css():
             padding: 25px;
             margin-bottom: 25px;
             border: 1px solid #e0e0e0;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
         /* Headers */
         .step-title {
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             font-weight: 700;
-            color: #1565c0; /* Darker Blue */
+            color: #0d47a1; /* Strong Blue */
             margin-bottom: 20px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #90caf9;
+            border-bottom: 2px solid #e3f2fd;
             display: flex;
             align-items: center;
         }
         
         .step-num {
-            background-color: #1565c0;
+            background-color: #0d47a1;
             color: white;
             width: 32px;
             height: 32px;
@@ -56,33 +56,34 @@ def inject_custom_css():
         
         .sub-header {
             font-weight: 700;
-            color: #455a64;
+            color: #37474f;
             margin-top: 20px;
             margin-bottom: 8px;
             font-size: 1rem;
-            border-left: 4px solid #cfd8dc;
+            border-left: 4px solid #b0bec5;
             padding-left: 10px;
         }
 
         .meaning-text {
-            font-size: 0.9rem;
-            color: #616161;
+            font-size: 0.95rem;
+            color: #546e7a;
             font-style: italic;
-            margin-bottom: 10px;
-            background-color: #f5f5f5;
-            padding: 8px;
+            margin-bottom: 15px;
+            background-color: #eceff1;
+            padding: 10px;
             border-radius: 4px;
+            border-left: 3px solid #b0bec5;
         }
 
         .calc-result-box {
-            background-color: #e3f2fd;
-            color: #0d47a1;
-            padding: 10px;
-            border-radius: 5px;
+            background-color: #e1f5fe;
+            color: #01579b;
+            padding: 12px;
+            border-radius: 6px;
             text-align: center;
             font-weight: bold;
             font-size: 1.1rem;
-            border: 1px solid #bbdefb;
+            border: 1px solid #81d4fa;
             margin-top: 10px;
         }
         
@@ -93,10 +94,10 @@ def inject_custom_css():
             font-weight: bold;
             border: 1px solid #ddd;
         }
-        .pass { background-color: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
-        .fail { background-color: #ffebee; color: #c62828; border-color: #ef9a9a; }
+        .pass { background-color: #e8f5e9; color: #1b5e20; border-color: #a5d6a7; }
+        .fail { background-color: #ffebee; color: #b71c1c; border-color: #ef9a9a; }
         
-        hr { margin: 25px 0; border: 0; border-top: 1px dashed #cfd8dc; }
+        hr { margin: 25px 0; border: 0; border-top: 1px solid #eceff1; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -104,7 +105,7 @@ def render_step_header(number, text):
     st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. DETAILED RENDERERS (FULL ENGLISH)
+# 2. DETAILED RENDERERS (ENGLISH ONLY)
 # ==========================================
 
 def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
@@ -115,7 +116,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.error(f"No data available for {label}")
         return
 
-    st.markdown(f"#### 📍 Critical Section: {label}")
+    st.markdown(f"#### 📍 Section: {label}")
     
     # --- 1. Extract Basic Material & Geometry ---
     fc = mat_props['fc']
@@ -140,31 +141,28 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     sqrt_fc = math.sqrt(fc)
     
     # ==========================================
-    # 🔴 LOGIC: Dynamic b0 & Explanation
+    # 🔴 LOGIC: Dynamic b0 & English Explanation
     # ==========================================
     if alpha_s >= 40:
         # --- INTERIOR ---
-        pos_title = "Interior Column"
-        pos_desc = "Concrete resists shear on all 4 sides."
-        # Formula
+        pos_title = "Interior Column Condition"
+        pos_desc = "The critical section is continuous on all 4 sides."
         b0_latex_eq = r"b_0 = 2(c_1 + d) + 2(c_2 + d)"
         b0_latex_sub = fr"b_0 = 2({c1} + {d:.1f}) + 2({c2} + {d:.1f})"
         b0_calc = 2*(c1 + d) + 2*(c2 + d)
         
     elif alpha_s >= 30:
         # --- EDGE ---
-        pos_title = "Edge Column"
-        pos_desc = "Concrete resists shear on 3 sides (1 side is outside the slab)."
-        # Formula
+        pos_title = "Edge Column Condition"
+        pos_desc = "Shear resistance is effective on 3 sides only (1 side is exterior)."
         b0_latex_eq = r"b_0 = 2(c_1 + d/2) + (c_2 + d)"
         b0_latex_sub = fr"b_0 = 2({c1} + {d/2:.1f}) + ({c2} + {d:.1f})"
         b0_calc = 2*(c1 + d/2) + (c2 + d)
         
     else:
         # --- CORNER ---
-        pos_title = "Corner Column (Critical)"
-        pos_desc = "Concrete resists shear on only 2 sides. The outer corner has no concrete to resist shear, resulting in the smallest perimeter ($b_0$)."
-        # Formula
+        pos_title = "Corner Column Condition"
+        pos_desc = "At the corner, the slab exists only on the inner sides. Thus, shear resistance is limited to **2 sides** (L-shape). The outer sides have no concrete."
         b0_latex_eq = r"b_0 = (c_1 + d/2) + (c_2 + d/2)"
         b0_latex_sub = fr"b_0 = ({c1} + {d/2:.1f}) + ({c2} + {d/2:.1f})"
         b0_calc = (c1 + d/2) + (c2 + d/2)
@@ -176,13 +174,11 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(1, "Geometry & Parameters")
         
-        st.info(f"**Parameters:** $c_1={c1}$ cm, $c_2={c2}$ cm, $h={h_total}$ cm, Cover={cover} cm")
-
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown('<div class="sub-header">A. Effective Depth (d)</div>', unsafe_allow_html=True)
-            st.markdown('<div class="meaning-text">Depth from top fiber to reinforcement centroid.</div>', unsafe_allow_html=True)
+            st.write("Depth from compression face to reinforcement centroid.")
             st.latex(r"d = h - \text{Cover} - \phi_{bar}/2")
             st.latex(fr"d = {h_total:.0f} - {cover:.1f} - 1.0 = \mathbf{{{d:.2f}}} \text{{ cm}}")
             
@@ -191,15 +187,15 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         with col2:
             st.markdown('<div class="sub-header">C. Critical Perimeter (b0)</div>', unsafe_allow_html=True)
-            st.markdown(f"**Type:** {pos_title} ($\alpha_s={alpha_s}$)")
-            st.markdown(f"<span style='font-size:0.9rem; color:#d32f2f'>{pos_desc}</span>", unsafe_allow_html=True)
+            st.write(f"**Type:** {pos_title} ($\alpha_s={alpha_s}$)")
+            st.info(f"ℹ️ {pos_desc}")
             
             st.latex(b0_latex_eq)
             st.latex(b0_latex_sub)
             st.markdown(f"<div class='calc-result-box'>b0 = {b0:.2f} cm</div>", unsafe_allow_html=True)
             
-            st.markdown('<div class="sub-header">D. Shape Factors</div>', unsafe_allow_html=True)
-            st.latex(fr"\beta = \frac{{\text{{Long}}}}{{\text{{Short}}}} = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
+            st.markdown('<div class="sub-header">D. Shape Factor</div>', unsafe_allow_html=True)
+            st.latex(fr"\beta = \frac{{\text{{Long Side}}}}{{\text{{Short Side}}}} = \frac{{{max(c1,c2)}}}{{{min(c1,c2)}}} = {beta:.2f}")
             
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -207,48 +203,39 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
         render_step_header(2, "Nominal Shear Capacity ($V_c$)")
-        st.write("Calculated as the minimum of the following three ACI 318 equations:")
+        st.write("The capacity is governed by the minimum of the three ACI/EIT formulas:")
         
         eq1, eq2, eq3 = st.columns(3)
         
-        # --- Eq 1: Shape ---
+        # --- Eq 1 ---
         with eq1:
-            st.markdown("**Case 1: Shape Effect**")
+            st.markdown("**1. Rectangularity Effect**")
             st.latex(r"V_{c1} = 0.53 \left(1 + \frac{2}{\beta}\right) \sqrt{f'_c} b_0 d")
-            
             term_beta = 1 + (2/beta)
             val_vc1 = 0.53 * term_beta * sqrt_fc * b0 * d
-            
-            st.markdown("**Substitute:**")
             st.latex(fr"= 0.53 ({term_beta:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result-box'>{val_vc1:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 2: Size ---
+        # --- Eq 2 ---
         with eq2:
-            st.markdown("**Case 2: Size Effect**")
+            st.markdown("**2. Size Effect**")
             st.latex(r"V_{c2} = 0.27 \left(\frac{\alpha_s d}{b_0} + 2\right) \sqrt{f'_c} b_0 d") 
-            
             term_peri_val = (alpha_s * d / b0) + 2
             val_vc2 = 0.27 * term_peri_val * sqrt_fc * b0 * d 
-            
-            st.markdown("**Substitute:**")
             st.latex(fr"= 0.27 ({term_peri_val:.2f}) ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result-box'>{val_vc2:,.0f} kg</div>", unsafe_allow_html=True)
 
-        # --- Eq 3: Basic ---
+        # --- Eq 3 ---
         with eq3:
-            st.markdown("**Case 3: Basic Limit**")
+            st.markdown("**3. Basic Limit**")
             st.latex(r"V_{c3} = 1.06 \sqrt{f'_c} b_0 d")
-            
             val_vc3 = 1.06 * sqrt_fc * b0 * d
-            
-            st.markdown("**Substitute:**")
             st.latex(fr"= 1.06 ({sqrt_fc:.2f}) ({b0:.0f}) ({d:.1f})")
             st.markdown(f"<div class='calc-result-box'>{val_vc3:,.0f} kg</div>", unsafe_allow_html=True)
         
         st.markdown("---")
         vc_min = min(val_vc1, val_vc2, val_vc3)
-        st.success(f"📌 **Controlling Capacity ($V_c$):** {vc_min:,.0f} kg")
+        st.success(f"📌 **Governing Capacity ($V_c$):** {vc_min:,.0f} kg")
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Step 3: Demand Calculation (Detailed Vu) ---
@@ -257,8 +244,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         render_step_header(3, "Shear Demand Calculation ($V_u$)")
         st.markdown("""
         <div class="meaning-text">
-        The Factored Shear Force (Vu) is calculated using the <b>Tributary Area Method</b>:
-        Total Load on the panel minus the load within the critical section.
+        This section demonstrates how <b>Vu</b> is derived using the <b>Tributary Area Method</b>.
+        <br>Formula: Total Factored Load on the tributary area minus the load inside the critical perimeter.
         </div>
         """, unsafe_allow_html=True)
 
@@ -280,6 +267,9 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         
         # 4. Vu Calculation
         vu_calc = wu_val * (area_trib - area_crit)
+        
+        # Use value from result if available (to match exact input), otherwise use calc
+        vu_display = res.get('Vu', vu_calc)
 
         col_L, col_R = st.columns(2)
         
@@ -289,21 +279,27 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
             st.latex(fr"w_u = {f_dl:.1f}({w_sw+loads['SDL']:.0f}) + {f_ll:.1f}({loads['LL']:.0f})")
             st.markdown(f"<div class='calc-result-box'>wu = {wu_val:,.0f} kg/m²</div>", unsafe_allow_html=True)
 
-        with col_R:
             st.markdown('<div class="sub-header">B. Areas</div>', unsafe_allow_html=True)
             st.write(f"**Tributary Area ($A_{{trib}}$):** $L_x \\times L_y$")
             st.latex(fr"= {Lx:.2f} \times {Ly:.2f} = {area_trib:.2f} \text{{ m}}^2")
-            
             st.write(f"**Critical Area ($A_{{crit}}$):** $(c_1+d)(c_2+d)$")
             st.latex(fr"= {b1_m:.2f} \times {b2_m:.2f} = {area_crit:.3f} \text{{ m}}^2")
 
-        st.markdown("---")
-        st.markdown('<div class="sub-header">C. Factored Shear Force ($V_u$)</div>', unsafe_allow_html=True)
-        st.latex(r"V_u = w_u \times (A_{trib} - A_{crit})")
-        st.latex(fr"V_u = {wu_val:,.0f} \times ({area_trib:.2f} - {area_crit:.3f})")
-        
-        st.markdown(f"<div class='calc-result-box' style='font-size:1.5rem; background-color:#fff3e0; color:#e65100; border-color:#ffe0b2'>Vu = {vu_calc:,.0f} kg</div>", unsafe_allow_html=True)
-        st.caption("*Note: This value is derived from the Tributary Area method.*")
+        with col_R:
+            st.markdown('<div class="sub-header">C. Factored Shear Force ($V_u$)</div>', unsafe_allow_html=True)
+            st.write("**Calculation Formula:**")
+            st.latex(r"V_u = w_u \times (A_{trib} - A_{crit})")
+            
+            st.write("**Substitute:**")
+            st.latex(fr"V_u = {wu_val:,.0f} \times ({area_trib:.2f} - {area_crit:.3f})")
+            st.latex(fr"V_u = {wu_val:,.0f} \times {area_trib - area_crit:.2f}")
+            
+            st.markdown(f"""
+            <div class="calc-result-box" style="font-size:1.6rem; background-color:#fff8e1; color:#ff6f00; border-color:#ffe082">
+            Vu = {vu_display:,.0f} kg
+            </div>
+            """, unsafe_allow_html=True)
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- Step 4: Design Check ---
@@ -314,22 +310,19 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         phi = mat_props.get('phi_shear', 0.85)
         phi_vn = phi * vc_min
         
-        # Use the passed Vu (from backend) or calculated one. usually they match.
-        vu_final = res.get('Vu', vu_calc) 
-        
-        passed = vu_final <= phi_vn + 1.0 # Tolerance
+        passed = vu_display <= phi_vn + 1.0 # Tolerance
         
         c1, c2 = st.columns(2)
         with c1:
             st.write("### Demand")
-            st.latex(fr"V_u = \mathbf{{{vu_final:,.0f}}} \text{{ kg}}")
+            st.latex(fr"V_u = \mathbf{{{vu_display:,.0f}}} \text{{ kg}}")
         with c2:
             st.write("### Capacity")
             st.latex(fr"\phi V_n = {phi} \times {vc_min:,.0f} = \mathbf{{{phi_vn:,.0f}}} \text{{ kg}}")
         
         st.markdown("---")
         
-        ratio = vu_final / phi_vn if phi_vn > 0 else 999
+        ratio = vu_display / phi_vn if phi_vn > 0 else 999
         status_text = "PASS (Safe)" if passed else "FAIL (Unsafe)"
         cls = "pass" if passed else "fail"
         
@@ -417,7 +410,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         render_step_header("A", "Capacity ($\phi V_c$)")
         st.markdown('<div class="meaning-text">Per 1.0 m strip width.</div>', unsafe_allow_html=True)
         st.latex(r"V_c = 0.53 \sqrt{f'_c} b_w d")
-        st.markdown("**Substitute:**")
+        st.write("**Substitute:**")
         st.latex(fr"= 0.53 ({sqrt_fc:.2f}) (100) ({d_slab:.2f})")
         st.latex(fr"V_c = {vc_nominal:,.0f} \text{{ kg/m}}")
         st.markdown("---")
@@ -428,7 +421,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
         st.markdown('<div class="meaning-text">Shear at distance d from support.</div>', unsafe_allow_html=True)
         
         st.latex(fr"w_u = \mathbf{{{wu_calc:,.0f}}} \text{{ kg/m}}^2")
-        st.write("Calculation:")
+        st.write("**Calculation:**")
         st.latex(r"V_u = w_u \times (L/2 - d)")
         st.latex(fr"= {wu_calc:,.0f} \times ({ln_select:.2f}/2 - {d_meter:.2f})")
         
