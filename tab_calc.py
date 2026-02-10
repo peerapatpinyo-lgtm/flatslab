@@ -114,136 +114,95 @@ def render_step_header(number, text):
         st.markdown(f'<div class="step-title"><div class="step-num">{number}</div>{text}</div>', unsafe_allow_html=True)
 
 
+
 # ==========================================
-# 2. LOGIC RENDERER (UPDATED for app.py compatibility)
+# 2. LOGIC RENDERER (DEBUG MODE)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
-    """
-    Render the logic check for Drop Panel vs Shear Cap according to ACI 318.
-    Automatically handles unit conversion from app.py inputs.
-    """
+    
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     render_step_header("ℹ️", "Logic Check: System Classification")
 
-    # 1. Extract Data
+    # ---------------------------------------------------------
+    # 🕵️ DEBUGGING SECTION (ส่วนตรวจสอบข้อมูล)
+    # ---------------------------------------------------------
+    # ถ้าค่าเป็น 0.00 ให้ดูที่กรอบสีแดงนี้ว่ามี key ชื่อ 'drop_w' หรือไม่?
+    # และค่าของมันเป็นเท่าไหร่?
+    with st.expander("🔴 DEBUG: Check Input Data", expanded=False):
+        st.write("Keys received:", list(mat_props.keys()))
+        st.write("Full Data:", mat_props)
+    # ---------------------------------------------------------
+
+    # 1. Extract Basic Data
     h_slab = mat_props.get('h_slab', 20.0)
     h_drop = mat_props.get('h_drop', 0)
-    
-    # ---------------------------------------------------------
-    # 🛠️ PATCH START: แก้ไขการรับค่าให้ตรงกับ app.py
-    # ---------------------------------------------------------
-    # app.py ส่งมาเป็น 'drop_w' และ 'drop_l' ในหน่วย cm
-    # เราต้องดึงค่านั้นมาหาร 100 ให้เป็นเมตร (m) เพื่อเทียบกับ Lx, Ly
-    
-    raw_w_cm = mat_props.get('drop_w', 0)
-    raw_l_cm = mat_props.get('drop_l', 0)
-    
-    # ถ้าหาไม่เจอ (เผื่ออนาคตเปลี่ยนชื่อ) ให้ลองหาชื่อเดิม
-    if raw_w_cm == 0: raw_w_cm = mat_props.get('drop_width_x', 0) * 100
-    if raw_l_cm == 0: raw_l_cm = mat_props.get('drop_width_y', 0) * 100
-
-    # แปลงเป็นเมตร (m)
-    w_drop_x = raw_w_cm / 100.0
-    w_drop_y = raw_l_cm / 100.0
-    # ---------------------------------------------------------
-
-    # Check if Drop exists
-    # เงื่อนไข: ต้องมีการติ๊ก has_drop และ ความหนาต้องมากกว่า 0
     has_drop = mat_props.get('has_drop', False) and h_drop > 0
 
     # ---------------------------------------------------------
-    # CASE 1: FLAT PLATE (NO DROP)
+    # 🛠️ SMART FETCH: พยายามดึงค่ากว้างยาว ไม่ว่าจะชื่ออะไร
     # ---------------------------------------------------------
+    def get_dim(keys_to_check):
+        for key in keys_to_check:
+            val = mat_props.get(key, 0)
+            if val > 0: return val
+        return 0
+
+    # ลองหาชื่อตัวแปรทุกรูปแบบที่เป็นไปได้
+    raw_x = get_dim(['drop_w', 'drop_width_x', 'drop_width', 'width', 'drop_x'])
+    raw_y = get_dim(['drop_l', 'drop_width_y', 'drop_length', 'length', 'drop_y'])
+
+    # 📏 AUTO UNIT CONVERSION (แปลงหน่วยอัตโนมัติ)
+    # สมมติฐาน: ถ้าค่ามากกว่า 10 แสดงว่าเป็น cm (ต้องหาร 100), ถ้าน้อยกว่า แสดงว่าเป็น m อยู่แล้ว
+    w_drop_x = raw_x / 100.0 if raw_x > 10 else raw_x
+    w_drop_y = raw_y / 100.0 if raw_y > 10 else raw_y
+    # ---------------------------------------------------------
+
+    # CASE 1: FLAT PLATE (NO DROP)
     if not has_drop:
         st.info("### 🟦 System Type: FLAT PLATE")
-        
-        c1, c2 = st.columns([1, 1.5])
-        with c1:
-            st.markdown("**🔍 Configuration Input:**")
-            st.write(f"- Slab Thickness ($h_s$): **{h_slab} cm**")
-            st.write(f"- Drop Panel: **None / Not Active**")
-        
-        with c2:
-            st.markdown("**⚙️ Analysis Protocol:**")
-            st.markdown("""
-            Since no thickening is provided at the column support:
-            1.  **Stiffness:** Computed based on uniform slab thickness ($I_{slab}$).
-            2.  **Punching Shear:** Checked at **1 Critical Section** only ($d/2$ from column face).
-            3.  **Moments:** Standard Flat Plate coefficients applied.
-            """)
-            
-        st.markdown("---")
-        st.caption("Note: To analyze as a Drop Panel or Shear Cap, please enable 'Drop Panel' in the sidebar and ensure Drop Thickness > 0.")
-        
+        st.write(f"- Slab Thickness: {h_slab} cm")
+        st.caption("No Drop Panel detected or Drop Thickness is 0.")
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
-    # ---------------------------------------------------------
-    # CASE 2: DROP PANEL or SHEAR CAP (มีหัวเสา)
-    # ---------------------------------------------------------
-
-    # 2. Calculate ACI Limits
+    # CASE 2: DROP PANEL CHECK
+    # Calculate ACI Limits
     limit_L_x = Lx / 3.0
     limit_L_y = Ly / 3.0
     limit_h = h_slab / 4.0
     
-    # 3. Check Criteria
     pass_dim_x = w_drop_x >= limit_L_x
     pass_dim_y = w_drop_y >= limit_L_y
     pass_thick = h_drop >= limit_h
-    
     is_structural = pass_dim_x and pass_dim_y and pass_thick
     
-    # 4. Render Table
-    st.write("Checking dimensions against ACI 318 Requirements for Structural Drop Panel:")
+    # Render Results
+    st.write("Checking dimensions against ACI 318 Requirements:")
     
     results = [
-        {"Check": "Min. Width X ($L_x/3$)", "Limit": f"{limit_L_x:.2f} m", "Actual": f"{w_drop_x:.2f} m", "Status": pass_dim_x},
-        {"Check": "Min. Width Y ($L_y/3$)", "Limit": f"{limit_L_y:.2f} m", "Actual": f"{w_drop_y:.2f} m", "Status": pass_dim_y},
-        {"Check": "Min. Projection ($h_s/4$)", "Limit": f"{limit_h:.2f} cm", "Actual": f"{h_drop:.2f} cm", "Status": pass_thick},
+        {"Check": "Min. Width X", "Limit": f"{limit_L_x:.2f} m", "Actual": f"{w_drop_x:.2f} m", "Status": pass_dim_x},
+        {"Check": "Min. Width Y", "Limit": f"{limit_L_y:.2f} m", "Actual": f"{w_drop_y:.2f} m", "Status": pass_dim_y},
+        {"Check": "Min. Projection", "Limit": f"{limit_h:.2f} cm", "Actual": f"{h_drop:.2f} cm", "Status": pass_thick},
     ]
     
-    # Create Columns for Visual Check
+    # Display Table
     c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
-    c1.markdown("**Criteria**")
-    c2.markdown("**Required**")
-    c3.markdown("**Provided**")
-    c4.markdown("**Result**")
+    c1.markdown("**Criteria**"); c2.markdown("**Required**"); c3.markdown("**Provided**"); c4.markdown("**Result**")
     st.markdown("---")
-    
     for r in results:
         c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 1])
         c1.write(r["Check"])
         c2.write(r["Limit"])
         c3.write(r["Actual"])
-        icon = "✅" if r["Status"] else "❌"
-        c4.write(icon)
+        c4.write("✅" if r["Status"] else "❌")
         
     st.markdown("---")
-
-    # 5. CONCLUSION & CONSEQUENCE
+    
     if is_structural:
         st.success("### ✅ Conclusion: STRUCTURAL DROP PANEL")
-        st.markdown("""
-        **Engineering Consequence:**
-        1.  **Stiffness:** The thickened section **IS included** in the frame analysis ($I_{gross}$ increases).
-        2.  **Moment:** Helps reduce positive moment at mid-span (ACI coeff. modified).
-        3.  **Shear:** Increases punching shear capacity significantly.
-        """)
     else:
         st.warning("### ⚠️ Conclusion: SHEAR CAP (Not a Structural Drop)")
-        st.markdown(f"""
-        **Engineering Logic Applied (Safe & Economical):**
-        
-        **1. For Stiffness & Flexure (Safe Side):**
-        * The program **IGNORES** the cap thickness.
-        * Calculations treat this as a **Flat Plate** ($h = {h_slab}$ cm).
-        * *Reason:* Prevents over-estimating stiffness at support.
-        
-        **2. For Punching Shear (Economical Side):**
-        * The program **USES** the cap physical dimensions.
-        * Checks **2 Critical Sections**: Inside Cap & Outside Cap.
-        """)
+        st.caption("Calculated as Flat Plate for Stiffness, but checks Punching Shear at 2 sections.")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
