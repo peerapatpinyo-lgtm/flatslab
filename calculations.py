@@ -548,10 +548,18 @@ class FlatSlabDesign:
         w_u = f_dl * (w_self + self.inputs['SDL']) + f_ll * self.inputs['LL']
         return w_u
     
+
     def _calculate_service_load(self):
-        w_self = (self.h_slab / 100.0) * 2400
-        w_service = (w_self + self.inputs['SDL']) + self.inputs['LL']
-        return w_service
+    # คำนวณน้ำหนักตัวเอง (Dead Load)
+    w_self = (self.h_slab / 100.0) * 2400
+    
+    # ใช้ .get() เพื่อป้องกัน Error ถ้าไม่มีค่า SDL หรือ LL ส่งมา
+    # ถ้าหาไม่เจอ จะถือว่าเป็น 0.0 โดยอัตโนมัติ
+    sdl = self.inputs.get('SDL', 0.0)
+    ll = self.inputs.get('LL', 0.0)
+    
+    w_service = (w_self + sdl) + ll
+    return w_service
 
     def _analyze_oneway(self, w_u, d_slab):
         # Extract Correct Phi
