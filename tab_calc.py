@@ -4,12 +4,17 @@ import pandas as pd
 import numpy as np
 import math
 
+# ==========================================
+# 0. HELPER FUNCTIONS & IMPORTS
+# ==========================================
 # Try importing helper functions, provide fallback if missing
 try:
     from calculations import check_min_reinforcement, check_long_term_deflection
 except ImportError:
-    # Dummy Fallback functions for testing purely UI
-    def check_min_reinforcement(h): return {'As_min': 0.0018*100*h}
+    # Dummy Fallback functions for testing purely UI or independent run
+    def check_min_reinforcement(h): 
+        return {'As_min': 0.0018 * 100 * h}
+    
     def check_long_term_deflection(*args): 
         return {
             'status': 'PASS', 
@@ -171,9 +176,7 @@ def render_structural_logic(mat_props, Lx, Ly):
     results = [
         {
             "Check": "Min. Extension X ($L_x/3$)", 
-            # Required: Show formula and result
             "Req_Latex": fr"\frac{{{Lx:.2f}}}{{3}} = \mathbf{{{limit_L_x:.2f}}} \text{{ m}}",  
-            # Provided: Show Variable = Value
             "Prov_Latex": fr"w_{{drop,x}} = \mathbf{{{w_drop_x:.2f}}} \text{{ m}}", 
             "Status": pass_dim_x
         },
@@ -307,7 +310,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
     # --- Step 1: Geometry & Parameters ---
     with st.container():
         st.markdown('<div class="step-container">', unsafe_allow_html=True)
-        # ตรวจสอบว่ามี function render_step_header หรือไม่ (ถ้าไม่มีให้ comment บรรทัดนี้)
+        # ตรวจสอบว่ามี function render_step_header หรือไม่
         render_step_header(1, "Geometry & Parameters")
         
         col1, col2 = st.columns(2)
@@ -376,7 +379,8 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         f_ll = mat_props.get('factor_ll', 1.7)
         h_m = h_total / 100.0
         w_sw = h_m * 2400
-        wu_val = (f_dl * (w_sw + loads['SDL'])) + (f_ll * loads['LL'])
+        w_sw_val = w_sw + loads['SDL'] # Total Dead Load
+        wu_val = (f_dl * w_sw_val) + (f_ll * loads['LL'])
 
         # Areas
         area_trib = Lx * Ly
@@ -393,7 +397,7 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         with col_L:
             st.markdown('<div class="sub-header">A. Factored Load (w<sub>u</sub>)</div>', unsafe_allow_html=True)
             st.latex(fr"w_u = {f_dl}(DL) + {f_ll}(LL)")
-            st.latex(fr"w_u = {f_dl}({w_sw+loads['SDL']:.0f}) + {f_ll}({loads['LL']:.0f})")
+            st.latex(fr"w_u = {f_dl}({w_sw_val:.0f}) + {f_ll}({loads['LL']:.0f})")
             st.markdown(f"**$w_u$ = {wu_val:,.0f} kg/m²**")
 
             st.markdown('<div class="sub-header">B. Areas</div>', unsafe_allow_html=True)
@@ -641,8 +645,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     w_sw_one = h_m_one * 2400
     wu_calc = (f_dl * (w_sw_one + loads['SDL'])) + (f_ll * loads['LL'])
     
-    # Vu Calculation (at distance d)
-    # Conservative approximation: Vu = wu * (L/2 - d)
+    # Vu Calculation (at distance d from support approx)
     vu_one_calc = wu_calc * ((ln_select / 2) - d_meter)
     
     vc_nominal = 0.53 * sqrt_fc * bw * d_slab
@@ -684,7 +687,7 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     
     # 4.1 Long Term Deflection
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    render_step_header("A", "Long-Term Deflection")
+    render_step_header("A", "Long-Term Deflection (Estimate)")
     
     c_lt_1, c_lt_2 = st.columns([1.5, 1])
     with c_lt_1:
