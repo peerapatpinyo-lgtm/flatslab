@@ -50,7 +50,6 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
         s_final = min(spacing_theoretical_cm, s_max)
         
         # Round spacing down to nearest 0.5cm (Practical for construction)
-        # Example: 18.78 -> 18.5
         s_final_rounded = math.floor(s_final * 2) / 2.0 
         
         s_show_m = s_final_rounded / 100.0 
@@ -545,21 +544,24 @@ class FlatSlabDesign:
         f_dl = self.factors.get('DL', 1.4)
         f_ll = self.factors.get('LL', 1.7)
         
-        w_u = f_dl * (w_self + self.inputs['SDL']) + f_ll * self.inputs['LL']
+        # Use .get() to avoid KeyError if inputs are missing
+        sdl = self.inputs.get('SDL', 0.0)
+        ll = self.inputs.get('LL', 0.0)
+        
+        w_u = f_dl * (w_self + sdl) + f_ll * ll
         return w_u
     
-
     def _calculate_service_load(self):
-    # คำนวณน้ำหนักตัวเอง (Dead Load)
-    w_self = (self.h_slab / 100.0) * 2400
-    
-    # ใช้ .get() เพื่อป้องกัน Error ถ้าไม่มีค่า SDL หรือ LL ส่งมา
-    # ถ้าหาไม่เจอ จะถือว่าเป็น 0.0 โดยอัตโนมัติ
-    sdl = self.inputs.get('SDL', 0.0)
-    ll = self.inputs.get('LL', 0.0)
-    
-    w_service = (w_self + sdl) + ll
-    return w_service
+        # คำนวณน้ำหนักตัวเอง (Dead Load)
+        w_self = (self.h_slab / 100.0) * 2400
+        
+        # ใช้ .get() เพื่อป้องกัน Error ถ้าไม่มีค่า SDL หรือ LL ส่งมา
+        # ถ้าหาไม่เจอ จะถือว่าเป็น 0.0 โดยอัตโนมัติ
+        sdl = self.inputs.get('SDL', 0.0)
+        ll = self.inputs.get('LL', 0.0)
+        
+        w_service = (w_self + sdl) + ll
+        return w_service
 
     def _analyze_oneway(self, w_u, d_slab):
         # Extract Correct Phi
@@ -864,32 +866,22 @@ class FlatSlabDesign:
             punch_res['drop_status'] = "No Drop"
 
         # 6. DDM Analysis
-        # Will automatically use flat plate design if is_structural_drop is False
         ddm_res = self._analyze_ddm_moments(w_u)
         
-        # 7. Deflection Check (Using estimated As from Middle Strip Positive Moment)
-        # We need an estimate of As provided to check long term deflection.
-        # Use Middle Strip As_design as a representative baseline.
-        as_prov_est = ddm_res['x']['M_vals']['design']['ms_pos']['As_design']
+        # 7. Deflection (Simplified Long Term)
+        # Use simple approximation for immediate tool feedback
+        # Calculate deflection based on longer span
+        L_def = max(self.Lx, self.Ly)
+        defl_res = check_long_term_deflection(w_service, L_def, self.h_slab, self.fc, 0)
         
-        deflect_res = check_long_term_deflection(
-            w_service, self.Lx, self.h_slab, self.fc,
-            as_prov_est, 
-            b=100.0
-        )
-
-        # 8. Assemble Final Result
+        # 8. Compile Results
         return {
-            "inputs": self.inputs,
             "loads": {"w_u": w_u, "w_service": w_service},
             "shear": shear_res,
             "punching": punch_res,
-            "efm": efm_res,
             "ddm": ddm_res,
-            "deflection": deflect_res,
-            "warnings": ddm_warn,
-            "compliance": {
-                "ddm_valid": ddm_valid,
-                "drop_panel": self.drop_status_msg
-            }
+            "efm": efm_res,
+            "deflection": defl_res,
+            "check_ddm": {"valid": ddm_valid, "warnings": ddm_warn},
+            "drop_status": self.drop_status_msg
         }
