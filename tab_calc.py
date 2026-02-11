@@ -1,3 +1,4 @@
+# tab_calc.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -114,7 +115,7 @@ def render_step_header(number, text):
 
 
 # ==========================================
-# 2. LOGIC RENDERER (UPDATED: Full Equation Display)
+# 2. LOGIC RENDERER (UPDATED: Return Boolean)
 # ==========================================
 def render_structural_logic(mat_props, Lx, Ly):
     
@@ -150,7 +151,7 @@ def render_structural_logic(mat_props, Lx, Ly):
         * **Shear:** Punching shear capacity is limited by slab thickness only.
         """)
         st.markdown('</div>', unsafe_allow_html=True)
-        return
+        return False # Not a structural drop panel
 
     # CASE 2: DROP PANEL CHECK
     # Calculate ACI Limits
@@ -191,12 +192,7 @@ def render_structural_logic(mat_props, Lx, Ly):
     ]
     
     # Layout Columns
-    # c1: Criteria Name
-    # c2: Required (Calculation)
-    # c3: Provided (Variable Definition)
-    # c4: Result Status
     c1, c2, c3, c4 = st.columns([1.8, 2.2, 2.2, 1])
-    
     c1.markdown("**Criteria**")
     c2.markdown("**Required (Limit)**")
     c3.markdown("**Provided (Input)**")
@@ -205,17 +201,9 @@ def render_structural_logic(mat_props, Lx, Ly):
 
     for r in results:
         c1, c2, c3, c4 = st.columns([1.8, 2.2, 2.2, 1])
-        
-        # Column 1: Criteria Name
         c1.write(r["Check"])
-        
-        # Column 2: Required Calculation (LaTeX)
         c2.latex(r["Req_Latex"])
-        
-        # Column 3: Provided Input (LaTeX showing variable name)
         c3.latex(r["Prov_Latex"])
-        
-        # Column 4: Status Button
         if r["Status"]:
             c4.success("PASS")
         else:
@@ -252,6 +240,9 @@ def render_structural_logic(mat_props, Lx, Ly):
         """)
 
     st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Return the boolean status
+    return is_structural
 
 
 # ==========================================
@@ -456,12 +447,12 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 3. SLAB THICKNESS CHECK (ACI 318) - CORRECTED Ln
+# 3. SLAB THICKNESS CHECK (ACI 318) - UPDATED DENOMINATOR
 # ==========================================
 def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     """
     Render Slab Thickness Check based on ACI 318
-    FIX: Uses Clear Span (Ln) instead of Center-to-Center (Lx/Ly)
+    FIX: Uses Clear Span (Ln) and correct Denominator if Drop Panel exists
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     st.markdown("### 📏 Slab Thickness Check (ACI 318)")
@@ -502,13 +493,20 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
         key="thick_check_radio_fixed"
     )
 
-    # --- 4. DETERMINE DENOMINATOR ---
-    denom = 33 # Default
+    # --- 4. DETERMINE DENOMINATOR (Updated for Drop Panel) ---
+    # ACI 318 Minimum Thickness Denominator
+    denom = 33 # Default fallback
+    
     if "Interior" in col_layout:
+        # Interior: Flat Plate=33, Flat Slab (Drop)=36
         denom = 36 if is_structural_drop else 33
+        
     elif "No Edge Beam" in col_layout:
+        # Ext No Beam: Flat Plate=30, Flat Slab (Drop)=33
         denom = 33 if is_structural_drop else 30
+        
     else: # With Edge Beam
+        # Ext With Beam: Flat Plate=33, Flat Slab (Drop)=36
         denom = 36 if is_structural_drop else 33
 
     # --- 5. CALCULATION (ACI FORMULA) ---
@@ -539,6 +537,11 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     with col_B:
         st.markdown("**2. Minimum Thickness ($h_{min}$)**")
         st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{denom}}}")
+        
+        # แสดงข้อความระบุว่าใช้ Denom เท่าไหร่เพราะอะไร
+        denom_reason = "Drop Panel" if is_structural_drop else "Flat Plate"
+        st.caption(f"Using Denominator = **{denom}** ({col_layout}, {denom_reason})")
+        
         # แสดงการแทนค่า Ln ที่ถูกต้องในสูตร
         st.latex(fr"h_{{min}} = \frac{{\mathbf{{{Ln:.2f}}} ({steel_term:.3f})}}{{{denom}}} \times 100")
 
@@ -579,9 +582,9 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.info(f"**Standard:** ACI 318 / EIT | **Load Factors:** {mat_props.get('factor_dl', 1.4)}DL + {mat_props.get('factor_ll', 1.7)}LL | **$\phi_v$:** {p_shear}")
     
     # ==========================================================
-    # 🔴 CALL THE NEW LOGIC CHECK HERE
+    # 🔴 CALL THE NEW LOGIC CHECK & GET RESULT
     # ==========================================================
-    render_structural_logic(mat_props, Lx, Ly)
+    is_structural_drop = render_structural_logic(mat_props, Lx, Ly)
     
     # -----------------------------------------------------
     # PRE-CALCULATION
@@ -669,38 +672,10 @@ def render(punch_res, v_oneway_res, mat_props, loads, Lx, Ly):
     st.markdown(f"### Verdict: $V_u$ ({vu_one_calc:,.0f}) {'≤' if passed_one else '>'} $\phi V_c$ ({phi_vc:,.0f}) $\\rightarrow$ {icon} **{status_one}**")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 3. DEFLECTION ---
-    st.header("3. Deflection Check")
-    st.markdown('<div class="step-container">', unsafe_allow_html=True)
-    
-    max_span = max(Lx, Ly)
-    val_h_min = (max_span * 100) / 33
-    
-    col_def_1, col_def_2 = st.columns([1.5, 1])
-    
-    with col_def_1:
-        render_step_header(1, "Minimum Thickness (h<sub>min</sub>)")
-        st.markdown('<div class="meaning-text">ACI Table for Exterior Panel (No Drop).</div>', unsafe_allow_html=True)
-        st.latex(r"h_{min} = L_{max} / 33")
-        st.latex(fr"h_{{min}} = ({max_span:.2f} \times 100) / 33 = \mathbf{{{val_h_min:.2f}}} \text{{ cm}}")
-        
-    with col_def_2:
-        render_step_header(2, "Status")
-        passed_def = h_slab >= val_h_min - 0.5 
-        status_def = "PASS" if passed_def else "CHECK REQ."
-        cls_def = "pass" if passed_def else "fail"
-        
-        st.markdown(f"""
-        <div class="verdict-box {cls_def}">
-            <div style="font-size:0.9rem;">Provided vs Required</div>
-            <div style="font-size:1.5rem; margin:10px 0;">
-                {h_slab:.0f} {'≥' if passed_def else '<'} {val_h_min:.2f} cm
-            </div>
-            <div>{status_def}</div>
-        </div>
-        """, unsafe_allow_html=True)
-            
-    st.markdown('</div>', unsafe_allow_html=True)
+    # --- 3. DEFLECTION (REPLACED WITH THICKNESS CHECK) ---
+    st.header("3. Deflection / Thickness Check")
+    # Call the updated thickness check logic here
+    render_thickness_check(mat_props, Lx, Ly, is_structural_drop)
 
     # --- 4. DETAILING ---
     st.header("4. Detailing & Recommendations")
