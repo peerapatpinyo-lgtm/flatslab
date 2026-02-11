@@ -860,16 +860,50 @@ class FlatSlabDesign:
         ddm_res = self._analyze_ddm_moments(w_u)
         
         # 7. Serviceability
-        h_min = max(self.Lx, self.Ly)*100 / 33.0
-        deflection_res = check_long_term_deflection(
-            w_service, max(self.Lx, self.Ly), self.h_slab, self.fc, None
-        )
 
+        h_min = max(self.Lx, self.Ly)*100.0 / 33.0
+        
+        # Calculate As provided (Approx from DDM Positive Moment) for Deflection Check
+        # X-Direction
+        As_prov_x = ddm_res['x']['design']['cs_pos']['As_design'] + ddm_res['x']['design']['ms_pos']['As_design']
+        def_x = check_long_term_deflection(w_service, self.Lx, self.h_slab, self.fc, As_prov_x, b=self.Ly*100)
+        
+        # Y-Direction
+        As_prov_y = ddm_res['y']['design']['cs_pos']['As_design'] + ddm_res['y']['design']['ms_pos']['As_design']
+        def_y = check_long_term_deflection(w_service, self.Ly, self.h_slab, self.fc, As_prov_y, b=self.Lx*100)
+        
+        # Use critical deflection (Max of X or Y)
+        if def_x['Delta_Total'] > def_y['Delta_Total']:
+            deflection_final = def_x
+            deflection_final['critical_dir'] = "X-Axis"
+        else:
+            deflection_final = def_y
+            deflection_final['critical_dir'] = "Y-Axis"
+            
+        deflection_final['h_min_req'] = h_min
+
+        # ==========================================
+        # 8. COMPILE & RETURN RESULTS
+        # ==========================================
         return {
-            "loads": {"w_u": w_u, "w_service": w_service, "SDL": self.inputs['SDL'], "LL": self.inputs['LL']},
-            "geometry": {"d_slab": d_slab, "d_total": d_punching_total},
+            "inputs": self.inputs,
+            "geometry": {
+                "d_slab": d_slab, 
+                "d_punch": d_punching_total,
+                "is_struct_drop": self.is_structural_drop,
+                "drop_msg": self.drop_status_msg
+            },
+            "loads": {
+                "w_u": w_u, 
+                "w_service": w_service
+            },
             "shear_oneway": shear_res,
             "shear_punching": punch_res,
             "ddm": ddm_res,
-            "efm": efm_res
+            "efm": efm_res,
+            "checks": deflection_final,
+            "status_flags": {
+                "ddm_valid": ddm_valid,
+                "warnings": ddm_warn
+            }
         }
