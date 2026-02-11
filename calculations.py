@@ -571,12 +571,20 @@ class FlatSlabDesign:
             res_y['critical_dir'] = "Y-Axis"
             return res_y
 
+   
+    # =========================================================
+    # REPLACE THIS METHOD IN calculations.py -> Class FlatSlabDesign
+    # =========================================================
+
     def _analyze_ddm_moments(self, w_u):
-        # Extract Correct Phi
+        """
+        [UPDATED] คำนวณ Moment DDM โดยแยกกรณี Interior vs Exterior Span
+        อ้างอิง ACI 318 Table 8.10.4.2 (Distribution of Mo)
+        และ Table 8.10.5.x (Column Strip %)
+        """
         phi_f = self.factors.get('phi_flexure', 0.90)
 
-        # [UPDATED]: Use structural flag directly. 
-        # Even if user wants to use as support, if it fails ACI check, we force False.
+        # 1. Determine Effective Depth (d)
         use_drop_for_flexure = self.has_drop and self.is_structural_drop
         
         if use_drop_for_flexure:
@@ -584,64 +592,149 @@ class FlatSlabDesign:
             eff_cy = self.drop_l * 100.0
             d_neg = self._get_eff_depth(self.h_slab + self.h_drop)
         else:
-            # If Shear Cap or No Drop -> Use Slab geometry
             eff_cx = self.cx
             eff_cy = self.cy
             d_neg = self._get_eff_depth(self.h_slab)
             
         d_pos = self._get_eff_depth(self.h_slab)
 
-        # --- Helper for processing strip design ---
-        def process_strip(Mo, L_width_m, factor_cs_neg, factor_cs_pos, factor_ms_neg, factor_ms_pos):
-            b_cs = (L_width_m * 100.0) / 2.0
-            b_ms = (L_width_m * 100.0) / 2.0
+        # 2. Helper for Coefficients (ACI 318 Tables)
+        def get_coeffs(span_type):
+            """
+            Return (neg_ext, pos, neg_int) fractions of Mo
+            Assuming: Flat Plate (No Edge Beam) - Case C in ACI Table
+            """
+            if span_type == 'interior_span':
+                # Typical Interior Span
+                return 0.65, 0.35, 0.65
+            else:
+                # Exterior Span (Flat Plate / No Edge Beam)
+                # Ref: ACI 318-19 Table 8.10.4.2
+                # Ext Neg: 0.26 | Pos: 0.52 | Int Neg: 0.70
+                return 0.26, 0.52, 0.70
+
+        def get_cs_percent(span_type, moment_type):
+            """
+            Return % of Moment assigned to Column Strip
+            Ref: ACI 318-19 Table 8.10.5.1, 8.10.5.2, 8.10.5.5
+            """
+            # Alpha_f1 * L2/L1 is assumed 0 for Flat Plate (No Beams)
+            # Beta_t is assumed 0 for Flat Plate (No Edge Beams)
             
-            M_cs_neg = 0.65 * Mo * factor_cs_neg
-            M_cs_pos = 0.35 * Mo * factor_cs_pos
-            M_ms_neg = 0.65 * Mo * factor_ms_neg
-            M_ms_pos = 0.35 * Mo * factor_ms_pos
+            if span_type == 'interior_span':
+                if moment_type == 'neg': return 0.75 # Interior Neg
+                if moment_type == 'pos': return 0.60 # Positive
+            else:
+                # Exterior Span
+                if moment_type == 'neg_ext': return 1.00 # Exterior Edge (100% to CS for Flat Plate)
+                if moment_type == 'pos': return 0.60     # Positive
+                if moment_type == 'neg_int': return 0.75 # Interior Support
             
-            # Use thickness based on compliance check
+            return 0.75 # Default fallback
+
+        # 3. Process Strip Logic
+        def process_strip_smart(Mo, L_width_m, span_type):
+            # Get Distribution Factors
+            f_neg_ext, f_pos, f_neg_int = get_coeffs(span_type)
+            
+            # Calculate Total Moments
+            M_total_neg_ext = Mo * f_neg_ext
+            M_total_pos     = Mo * f_pos
+            M_total_neg_int = Mo * f_neg_int
+            
+            # Get CS Percentages
+            pct_cs_neg_ext = get_cs_percent(span_type, 'neg_ext')
+            pct_cs_pos     = get_cs_percent(span_type, 'pos')
+            pct_cs_neg_int = get_cs_percent(span_type, 'neg_int')
+            
+            # --- Column Strip Moments ---
+            M_cs_neg_ext = M_total_neg_ext * pct_cs_neg_ext
+            M_cs_pos     = M_total_pos     * pct_cs_pos
+            M_cs_neg_int = M_total_neg_int * pct_cs_neg_int
+            
+            # --- Middle Strip Moments (Remainder) ---
+            M_ms_neg_ext = M_total_neg_ext - M_cs_neg_ext
+            M_ms_pos     = M_total_pos     - M_cs_pos
+            M_ms_neg_int = M_total_neg_int - M_cs_neg_int
+            
+            # Use thickness based on compliance
             h_neg = self.h_slab + self.h_drop if use_drop_for_flexure else self.h_slab
+            b_strip = (L_width_m * 100.0) / 2.0 # Half strip width for CS/MS usually
             
-            # Pass phi_f to all design calls
-            des_cs_neg = design_flexure_slab(M_cs_neg, b_cs, d_neg, h_neg, self.fc, self.fy, self.d_bar, phi=phi_f)
-            des_cs_pos = design_flexure_slab(M_cs_pos, b_cs, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
-            des_ms_neg = design_flexure_slab(M_ms_neg, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
-            des_ms_pos = design_flexure_slab(M_ms_pos, b_ms, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            # Design Reinforcement
+            # Note: For Exterior Edge, check if b_cs fits within slab? 
+            # (Simplified here: assume standard widths)
             
+            # 1. Exterior Support (Top)
+            des_cs_neg_ext = design_flexure_slab(M_cs_neg_ext, b_strip, d_neg, h_neg, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_ms_neg_ext = design_flexure_slab(M_ms_neg_ext, b_strip, d_neg, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            
+            # 2. Mid Span (Bottom)
+            des_cs_pos = design_flexure_slab(M_cs_pos, b_strip, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_ms_pos = design_flexure_slab(M_ms_pos, b_strip, d_pos, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+            
+            # 3. Interior Support (Top)
+            des_cs_neg_int = design_flexure_slab(M_cs_neg_int, b_strip, d_neg, h_neg, self.fc, self.fy, self.d_bar, phi=phi_f)
+            des_ms_neg_int = design_flexure_slab(M_ms_neg_int, b_strip, d_neg, self.h_slab, self.fc, self.fy, self.d_bar, phi=phi_f)
+
             return {
-                "M_cs_neg": M_cs_neg, "M_cs_pos": M_cs_pos,
-                "M_ms_neg": M_ms_neg, "M_ms_pos": M_ms_pos,
+                "coeffs": (f_neg_ext, f_pos, f_neg_int),
+                "M_total": (M_total_neg_ext, M_total_pos, M_total_neg_int),
                 "design": {
-                    "cs_neg": des_cs_neg, "cs_pos": des_cs_pos,
-                    "ms_neg": des_ms_neg, "ms_pos": des_ms_pos
+                    "cs_neg_ext": des_cs_neg_ext, "ms_neg_ext": des_ms_neg_ext,
+                    "cs_pos": des_cs_pos,         "ms_pos": des_ms_pos,
+                    "cs_neg_int": des_cs_neg_int, "ms_neg_int": des_ms_neg_int
                 }
             }
 
-        # --- X-Direction ---
+        # --- Main Execution ---
+        col_type = self.inputs['col_type']
+
+        # Determine Span Type for X and Y directions
+        # Logic: If col_type is Edge/Corner, the span perpendicular to edge is "Exterior Span"
+        
+        # X-Direction Analysis
         ln_x = self.Lx - eff_cx/100.0
         if ln_x < 0.65 * self.Lx: ln_x = 0.65 * self.Lx
         Mo_x = (w_u * self.Ly * ln_x**2) / 8
-        res_x = process_strip(Mo_x, self.Ly, 0.75, 0.60, 0.25, 0.40)
+        
+        # Check if X-span is Exterior
+        # Assume Edge Column is along Y-axis (Standard convention usually implies Edge means 1 side open)
+        # Simplified logic: 
+        # If 'edge' -> we assume it's an Exterior Span in the direction perpendicular to the edge
+        # Ideally, we need to know WHICH edge, but for single panel calc:
+        # We will assume WORST CASE: Treat as Exterior Span if it's an Edge/Corner column
+        span_type_x = 'exterior_span' if col_type in ['edge', 'corner'] else 'interior_span'
+        res_x = process_strip_smart(Mo_x, self.Ly, span_type_x)
 
-        # --- Y-Direction ---
+        # Y-Direction Analysis
         ln_y = self.Ly - eff_cy/100.0
         if ln_y < 0.65 * self.Ly: ln_y = 0.65 * self.Ly
         Mo_y = (w_u * self.Lx * ln_y**2) / 8
-        res_y = process_strip(Mo_y, self.Lx, 0.75, 0.60, 0.25, 0.40)
+        
+        span_type_y = 'exterior_span' if col_type == 'corner' else 'interior_span'
+        # Note: For 'edge' column, usually only one direction is exterior. 
+        # But if user doesn't specify direction, corner is safe assumption for both, 
+        # edge usually implies X is perp. Let's stick to X=Ext for Edge, Y=Int for Edge.
+        if col_type == 'edge': span_type_y = 'interior_span'
+            
+        res_y = process_strip_smart(Mo_y, self.Lx, span_type_y)
 
         return {
             "x": {
                 "L_span": self.Lx, "L_width": self.Ly, "ln": ln_x, "Mo": Mo_x, 
+                "span_type": span_type_x,
                 "M_vals": res_x, "c_para": eff_cx/100.0, "c_perp": eff_cy/100.0
             },
             "y": {
                 "L_span": self.Ly, "L_width": self.Lx, "ln": ln_y, "Mo": Mo_y, 
+                "span_type": span_type_y,
                 "M_vals": res_y, "c_para": eff_cy/100.0, "c_perp": eff_cx/100.0
             }
         }
 
+
+    
     def _analyze_efm(self, w_u):
         """Perform Equivalent Frame Method Analysis."""
         results = {}
