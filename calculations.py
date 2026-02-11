@@ -337,6 +337,7 @@ def check_ddm_limitations(L1, L2, num_spans=3, L_adjacent=None):
 def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, drop_l=0):
     c1=float(c1); c2=float(c2); L1=float(L1); L2=float(L2); lc=float(lc); h_slab=float(h_slab); fc=float(fc)
     
+    # Logic: h_drop passed here should be the TOTAL thickness if exists
     if h_drop is None or h_drop <= h_slab or drop_w <= 0:
         h_drop = h_slab
         has_drop = False
@@ -365,6 +366,7 @@ def calculate_stiffness(c1, c2, L1, L2, lc, h_slab, fc, h_drop=None, drop_w=0, d
     C_slab = get_C(h_slab, y)
     
     if has_drop:
+        # If Drop exists and is structural, h_drop here is Total Thickness
         C_drop = get_C(h_drop, y)
         len_total = L2 * 100.0
         len_drop = min(drop_w * 100.0, len_total)
@@ -571,11 +573,6 @@ class FlatSlabDesign:
             res_y['critical_dir'] = "Y-Axis"
             return res_y
 
-   
-    # =========================================================
-    # REPLACE THIS METHOD IN calculations.py -> Class FlatSlabDesign
-    # =========================================================
-
     def _analyze_ddm_moments(self, w_u):
         """
         [UPDATED] คำนวณ Moment DDM โดยแยกกรณี Interior vs Exterior Span
@@ -585,13 +582,16 @@ class FlatSlabDesign:
         phi_f = self.factors.get('phi_flexure', 0.90)
 
         # 1. Determine Effective Depth (d)
+        # [MODIFIED] Use check result to decide effective depth
         use_drop_for_flexure = self.has_drop and self.is_structural_drop
         
         if use_drop_for_flexure:
             eff_cx = self.drop_w * 100.0
             eff_cy = self.drop_l * 100.0
+            # Think of drop as T-beam web -> use full depth
             d_neg = self._get_eff_depth(self.h_slab + self.h_drop)
         else:
+            # Shear Cap -> Ignore thickness for flexure
             eff_cx = self.cx
             eff_cy = self.cy
             d_neg = self._get_eff_depth(self.h_slab)
@@ -743,6 +743,7 @@ class FlatSlabDesign:
         # [UPDATED] Determine dimensions to pass for Stiffness
         # If it's a Shear Cap (not structural drop), pass None/0 to ignore stiffness contribution
         if self.has_drop and self.is_structural_drop:
+            # Stiffness Calc expects Total Thickness in 'h_drop' parameter
             calc_h_drop = self.h_slab + self.h_drop
             calc_drop_w = self.drop_w
             calc_drop_l = self.drop_l
@@ -781,7 +782,10 @@ class FlatSlabDesign:
         w_u = self._calculate_loads()
         w_service = self._calculate_service_load()
         d_slab = self._get_eff_depth(self.h_slab)
-        d_total = self._get_eff_depth(self.h_slab + self.h_drop)
+        
+        # For Punching Shear Check: ALWAYS use physical dimensions (Structural Drop OR Shear Cap)
+        # Because even a Shear Cap helps punching shear.
+        d_punching_total = self._get_eff_depth(self.h_slab + self.h_drop)
 
         # 2. DDM Limitations Check
         # Assumes valid if num_spans/L_adj are missing (simplified for single panel app)
@@ -826,9 +830,10 @@ class FlatSlabDesign:
         phi_s = self.factors.get('phi_shear', 0.85)
 
         if self.has_drop:
+            # Use d_punching_total here (Physical depth)
             punch_res = check_punching_dual_case(
                 w_u, self.Lx, self.Ly, self.fc, 
-                self.cx, self.cy, d_total, d_slab, 
+                self.cx, self.cy, d_punching_total, d_slab, 
                 self.drop_w, self.drop_l, self.inputs['col_type'],
                 Munbal=Munbal_design,
                 phi=phi_s
@@ -862,17 +867,9 @@ class FlatSlabDesign:
 
         return {
             "loads": {"w_u": w_u, "w_service": w_service, "SDL": self.inputs['SDL'], "LL": self.inputs['LL']},
-            "geometry": {"d_slab": d_slab, "d_total": d_total},
+            "geometry": {"d_slab": d_slab, "d_total": d_punching_total},
             "shear_oneway": shear_res,
             "shear_punching": punch_res,
             "ddm": ddm_res,
-            "efm": efm_res,
-            "checks": {
-                "h_min": h_min, 
-                "deflection": deflection_res, 
-                "code_ref": self.factors.get('code_ref', '-'),
-                "ddm_valid": ddm_valid,
-                "ddm_warnings": ddm_warn,
-                "drop_panel_status": self.drop_status_msg 
-            }
+            "efm": efm_res
         }
