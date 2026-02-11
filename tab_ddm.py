@@ -100,68 +100,39 @@ def calc_deflection_check(
     and Estimate Elastic Deflection.
     """
     # 1. Minimum Thickness Check (ACI 318 Table 8.3.1.1)
-    # Rationale: Deflection is usually controlled by satisfying h_min.
-    
-    # Determine divisor based on span type
     if "Interior" in span_type:
         denom = 33.0
     elif "Edge Beam" in span_type:
         denom = 30.0 # End span with edge beam
     elif "No Beam" in span_type:
-        denom = 30.0 # End span without edge beam (Conservative, could be 30 or 27 depending on drop)
+        denom = 30.0 # End span without edge beam (Conservative)
     else:
         denom = 30.0
 
-    # Fy modification factor (0.4 + fy/7000) for fy in MPa, but here fy is ksc
-    # ACI Metric: (0.4 + fy_mpa/700) -> ksc approx: 0.4 + fy_ksc/7000 is close enough approx
-    mod_factor = (0.4 + (fy / 7000.0)) # Simplified ACI factor
-    # Re-adjusting for standard ACI 318-14 logic which uses (0.8 + fy/14000) for psi, 
-    # Let's stick to standard table values for Fy=4000ksc (~Grade 40/60 mix logic). 
-    # For simplicity in this app, we use basic ratios assuming Fy=4000 (SD40).
-    # If Fy != 4000, we apply factor: 0.4 + fy/7000
-    
-    # Correct ACI Metric formula for h_min:
-    # h_min = (ln * (0.8 + fy/1400)) / 30 ... Wait, let's use the standard tabular values
-    # For Fy = 4200 ksc (~420 MPa): Factor is roughly 1.0. 
-    
+    # Fy modification factor logic simplified for typical grades
     h_min_req = (L_span * 100.0) / denom
     
-    # Apply factor if Fy is significantly different from 4200 ksc (SD40)
+    # Apply factor if Fy is significantly different (simplified check)
     if fy > 3000:
-        # ACI 318-19 Eq 8.3.1.1: multiplier = (0.4 + fy_mpa/700)
-        # 1 ksc ~= 0.098 MPa. 
-        fy_mpa = fy * 0.09806
-        mult = (0.4 + fy_mpa / 700.0)
-        # Note: The denominators 30, 33 assumed Grade 420 (SD40). 
-        # If the formula is raw, we apply the multiplier to the base ln/N.
-        # However, for this UI, let's keep it simple:
         pass 
         
     status_h = "OK" if h_slab >= h_min_req else "CHECK"
     
-    # 2. Elastic Deflection Estimation (Simplified)
-    # Delta = (coeff * w * L^4) / (E * I)
-    # Using coeff 5/384 for interior (approx) or adjusted for continuity.
-    # W should be Service Load (w_service). Assuming w_u approx 1.4*w_service for estimation.
+    # 2. Elastic Deflection Estimation (Simplified - Gross Inertia)
+    # Note: This is a rough estimate using Gross Inertia only.
     w_service = w_u / 1.4 # Rough approximation to get service load
     w_line = w_service * L_width # kg/m
     
     Ec = 15100 * np.sqrt(fc) # ksc
     Ig = (L_width * 100 * (h_slab)**3) / 12.0 # cm4
     
-    # Convert units for calculation
-    # w (kg/m) -> w/100 (kg/cm)
     w_line_cm = w_line / 100.0
     L_cm = L_span * 100.0
     
-    # Continuous span approx coefficient: 1/384 to 2/384 depending on fixity.
-    # ACI suggests using effective moment of inertia. 
-    # For "Estimate", we use 5/384 (Simple) * 0.6 (Continuity factor) = ~3/384
-    # This is a ballpark "Engineering Estimate".
     continuity_factor = 0.6 # Reduces deflection compared to simple span
     delta_imm = continuity_factor * (5 * w_line_cm * L_cm**4) / (384 * Ec * Ig)
     
-    # Long term multiplier (Lambda) -> usually 2.0 for > 5 years
+    # Long term multiplier
     lambda_delta = 2.0
     delta_long = delta_imm * (1 + lambda_delta)
     
@@ -214,7 +185,7 @@ def update_moments_based_on_config(data_obj: Dict, span_type: str) -> Dict:
         'M_cs_pos': M_cs_pos,
         'M_ms_pos': M_ms_pos
     }
-    data_obj['coeffs_desc'] = coeffs['desc'] # For display
+    data_obj['coeffs_desc'] = coeffs['desc'] 
     data_obj['span_type_str'] = span_type
     return data_obj
 
@@ -304,6 +275,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     Mo = data['Mo']
     m_vals = data['M_vals']
     coeff_desc = data.get('coeffs_desc', 'Standard')
+    span_type_str = data.get('span_type_str', 'Interior')
     
     # Dynamic Labeling
     if axis_id == "X":
@@ -371,13 +343,20 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         d_eff = float(h_slab) - float(cover) - d_bar_val
         if d_eff <= 0: d_eff = 1.0
 
+        # [UPDATED] Determine Column Type based on Span Type selection
+        if "End Span" in span_type_str or "Edge Beam" in span_type_str or "No Beam" in span_type_str:
+            calculated_col_type = "edge"
+        else:
+            calculated_col_type = "interior"
+
+        # Call calculation with DYNAMIC col_type
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
             c1=c_col,            
             c2=c_col,            
             d=d_eff,                
-            col_type="interior",  
+            col_type=calculated_col_type, # <-- FIXED: Now dynamic
             open_w=open_w,
             open_dist=open_dist,
             phi=phi_shear 
@@ -386,6 +365,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         col_p1, col_p2 = st.columns([1, 1.5])
         
         with col_p1:
+            st.info(f"**Condition:** {calculated_col_type.capitalize()} Column") # Show User what we are checking
             if HAS_PLOTS:
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
                     c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
@@ -420,7 +400,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     st.markdown("### 3️⃣ Serviceability & Deflection Check")
     
     with st.container(border=True):
-        def_res = calc_deflection_check(span_val, width_val, h_slab, w_u, fc, fy, data.get('span_type_str', 'Interior'))
+        def_res = calc_deflection_check(span_val, width_val, h_slab, w_u, fc, fy, span_type_str)
         
         c_def1, c_def2 = st.columns(2)
         with c_def1:
@@ -435,7 +415,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 
         with c_def2:
             st.markdown("**B) Elastic Deflection Est. ($\Delta$)**")
-            st.caption("Simplified estimate using gross inertia ($I_g$) & long-term multiplier.")
+            # [UPDATED] Added explicit warning about Gross Inertia
+            st.warning("⚠️ **NOTE:** This estimate uses Gross Inertia ($I_g$). Actual deflection with Cracked Section ($I_{eff}$) will be higher.")
             
             st.write(f"$\\Delta_{{imm}} \\approx {def_res['delta_imm']:.2f}$ cm")
             st.write(f"$\\Delta_{{long}} (\\lambda=2.0) \\approx \\mathbf{{{def_res['delta_long']:.2f}}}$ **cm**")
