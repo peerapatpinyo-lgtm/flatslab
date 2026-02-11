@@ -73,6 +73,7 @@ def design_flexure_slab(Mu_kgm, b_cm, d_cm, h_cm, fc, fy, d_bar_mm, phi=0.90):
         "rho_percent": (As_design / (b_cm*d_cm)) * 100 if d_cm > 0 else 0
     }
 
+
 def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
     """
     Helper to calculate Ac, Jc, and gamma_v for Punching Shear
@@ -146,8 +147,11 @@ def calculate_section_properties(c1, c2, d, col_type, open_w=0, open_dist=0):
 
     # Gamma factors
     # For Edge/Corner, b1 and b2 used for gamma should be effective widths approximation
-    # Using simplified code approximation here
-    gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
+    if b2 > 0:
+        gamma_f = 1 / (1 + (2/3) * np.sqrt(b1/b2))
+    else:
+        gamma_f = 0.6 # Fallback
+        
     gamma_v = 1 - gamma_f
 
     return Ac, Jc, gamma_v, c_AB, bo_eff, deduction
@@ -280,7 +284,12 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
     w_line_kg_cm = (w_service * (b/100.0)) / 100.0 
     
     Ig = b * (h**3) / 12.0
-    Ie = 0.4 * Ig # Simplified Effective Inertia
+    # Use 40% of Ig to approximate Cracked Section (I_effective)
+    # This is a standard rule of thumb for flat plates to avoid complex Branson's calc in prelim design
+    Ie = 0.4 * Ig 
+    
+    # 0.5 factor approximates continuity (Continuous end/interior span)
+    # 5/384 is for simple span, so 0.5 * 5/384 is roughly 1/154 (close to continuity coeffs)
     Delta_immediate = (5 * w_line_kg_cm * (L_cm**4)) / (384 * Ec * Ie) * 0.5 
     
     Lambda_LT = 2.0
@@ -297,7 +306,8 @@ def check_long_term_deflection(w_service, L, h, fc, As_provided, b=100.0):
         "Delta_Total": Delta_Total, 
         "Limit_240": Limit_240, 
         "status": status
-    }
+    } 
+
 
 def check_ddm_limitations(L1, L2, num_spans=3, L_adjacent=None):
     """
