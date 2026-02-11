@@ -24,6 +24,7 @@ except ImportError:
 def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_dir, phi_factor=0.90):
     """
     Core Logic: คำนวณเหล็กเสริมตาม ACI 318
+    [UPDATED] รับค่า phi_factor (Bending) มาจากการตั้งค่าผู้ใช้
     """
     b_cm = b_width * 100.0
     h_cm = float(h_slab)
@@ -46,6 +47,7 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
         }
 
     # Strength Design
+    # [UPDATED] ใช้ phi_factor (Bending) ที่รับเข้ามา
     Rn = Mu_kgcm / (phi_factor * b_cm * d_eff**2)
     
     # Check bounds for sqrt
@@ -70,6 +72,7 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     else:
         a_depth = (As_prov * fy) / (0.85 * fc * b_cm)
         Mn = As_prov * fy * (d_eff - a_depth/2.0)
+        # [UPDATED] ใช้ phi_factor (Bending) คำนวณ PhiMn
         PhiMn = phi_factor * Mn / 100.0
         dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
 
@@ -89,14 +92,51 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
     }
 
 # ========================================================
-# [REMOVED] Section 2: Helper DDM Coeffs Recalculation
-# เราลบส่วนนี้ออกเพื่อไม่ให้ไปทับ Logic ที่ถูกต้องจาก calculations.py
+# 2. HELPER: DDM COEFFICIENT RECALCULATION
 # ========================================================
+def get_ddm_coeffs(span_type):
+    """
+    Return dictionaries of Moment Coefficients based on Span Type (ACI 318).
+    Returns: { 'neg_factor': float, 'pos_factor': float, 'name': str }
+    """
+    if span_type == "Interior Span (ช่วงพื้นภายใน)":
+        return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Interior: Neg 0.65, Pos 0.35' }
+    elif span_type == "End Span - Edge Beam (ช่วงริมมีคานขอบ)":
+        return { 'neg': 0.70, 'pos': 0.57, 'desc': 'End w/ Beam: IntNeg 0.70, Pos 0.57' }
+    elif span_type == "End Span - No Beam (ช่วงริมไร้คาน)":
+        return { 'neg': 0.70, 'pos': 0.52, 'desc': 'End No Beam: IntNeg 0.70, Pos 0.52' }
+    return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Default' }
+
+def update_moments_based_on_config(data_obj, span_type):
+    """
+    Recalculate M_vals in data_obj based on the selected span type.
+    """
+    Mo = data_obj['Mo']
+    coeffs = get_ddm_coeffs(span_type)
+    
+    M_neg_total = coeffs['neg'] * Mo
+    M_pos_total = coeffs['pos'] * Mo
+    
+    M_cs_neg = 0.75 * M_neg_total
+    M_ms_neg = 0.25 * M_neg_total
+    
+    M_cs_pos = 0.60 * M_pos_total
+    M_ms_pos = 0.40 * M_pos_total
+    
+    data_obj['M_vals'] = {
+        'M_cs_neg': M_cs_neg,
+        'M_ms_neg': M_ms_neg,
+        'M_cs_pos': M_cs_pos,
+        'M_ms_pos': M_ms_pos
+    }
+    data_obj['coeffs_desc'] = coeffs['desc'] # For display
+    return data_obj
 
 # ========================================================
 # 3. DETAILED CALCULATION RENDERER
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
+    # [UPDATED] Unpack phi (Bending) from inputs
     Mu, b, h, cover, fc, fy, db, s, phi_bend = inputs
     
     st.markdown(f"#### 📐 รายการคำนวณออกแบบ: {zone_name}")
@@ -117,9 +157,12 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 
     with step2:
         st.markdown("**2.1 Required Reinforcement ($A_{s,req}$)**")
+        # As min
         st.latex(f"A_{{s,min}} = 0.0018 \\cdot ({b*100:.0f}) \\cdot {h} = {res['As_min']:.2f} \\; \\text{{cm}}^2")
         
+        # As flexure
         st.markdown("จากสมการกำลัง (Strength Design):")
+        # [UPDATED] Display Dynamic Phi Bending
         st.latex(f"R_n = \\frac{{M_u}}{{\\phi_b b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
         
         if res['rho_req'] != 999:
@@ -132,6 +175,7 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 
     with step3:
         st.markdown("**3.1 Provided Reinforcement ($A_{s,prov}$)**")
+        # Logic for RB/DB name
         bar_prefix = "RB" if db == 9 else "DB"
         st.write(f"เลือกใช้: **{bar_prefix}{db} @ {s:.0f} cm**")
         
@@ -140,6 +184,8 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         
         st.markdown("**3.2 Moment Capacity Check ($\\phi M_n$)**")
         st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
+        
+        # [UPDATED] Display Dynamic Phi Bending
         st.latex(f"\\phi_b M_n = \\frac{{{phi_bend} \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
         st.latex(f"\\phi_b M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
         
@@ -159,15 +205,26 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     cover = mat_props['cover']
     fc = mat_props['fc']
     fy = mat_props['fy']
-    phi_bend = mat_props.get('phi', 0.90)       
-    phi_shear = mat_props.get('phi_shear', 0.85) 
+    
+    # [UPDATED] ดึงค่า Phi 2 ตัวแยกกัน
+    phi_bend = mat_props.get('phi', 0.90)       # Key 'phi' ใน app.py คือ Bending
+    phi_shear = mat_props.get('phi_shear', 0.85) # Key 'phi_shear' คือ Punching/Shear
     
     # Unpack Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
-    d_cst, s_cst = cfg.get('cs_top_db', 12), cfg.get('cs_top_spa', 20)
-    d_csb, s_csb = cfg.get('cs_bot_db', 12), cfg.get('cs_bot_spa', 20)
-    d_mst, s_mst = cfg.get('ms_top_db', 12), cfg.get('ms_top_spa', 20)
-    d_msb, s_msb = cfg.get('ms_bot_db', 12), cfg.get('ms_bot_spa', 20)
+    
+    # Map Config to Local Variables
+    d_cst = cfg.get('cs_top_db', 12)
+    s_cst = cfg.get('cs_top_spa', 20)
+    
+    d_csb = cfg.get('cs_bot_db', 12)
+    s_csb = cfg.get('cs_bot_spa', 20)
+    
+    d_mst = cfg.get('ms_top_db', 12)
+    s_mst = cfg.get('ms_top_spa', 20)
+    
+    d_msb = cfg.get('ms_bot_db', 12)
+    s_msb = cfg.get('ms_bot_spa', 20)
     
     # Unpack Opening Data
     open_w = mat_props.get('open_w', 0.0)
@@ -177,18 +234,22 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     L_width = data['L_width']
     c_para = data['c_para']
     Mo = data['Mo']
-    m_vals = data['M_vals'] # ใช้ค่าที่คำนวณมาถูกต้องแล้วจาก backend
+    m_vals = data['M_vals']
+    coeff_desc = data.get('coeffs_desc', 'Standard')
     
-    # ดึงค่า span type มาโชว์ (ถ้า backend ส่งมา)
-    span_type_str = data.get('span_type', 'N/A')
-    
-    # Dynamic Labeling
+    # -----------------------------------------------
+    # 🔹 DYNAMIC LABELING LOGIC
+    # -----------------------------------------------
     if axis_id == "X":
-        span_sym, width_sym = "L_x", "L_y"
-        span_val, width_val = L_span, L_width
+        span_sym = "L_x"
+        width_sym = "L_y"
+        span_val = L_span
+        width_val = L_width
     else:
-        span_sym, width_sym = "L_y", "L_x"
-        span_val, width_val = L_span, L_width
+        span_sym = "L_y"
+        width_sym = "L_x"
+        span_val = L_span
+        width_val = L_width
 
     ln_val = span_val - (c_para/100.0)
     w_cs = min(span_val, width_val) / 2.0
@@ -203,7 +264,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         with col_diagram:
             st.info(f"**Definitions for {axis_id}-Axis:**")
             st.markdown(f"""
-            - **Span Type:** `{span_type_str}`
+            - **Span Type:** {coeff_desc}
             - **Span Length ({span_sym}):** {span_val:.2f} m
             - **Strip Width ({width_sym}):** {width_val:.2f} m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
@@ -213,230 +274,208 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 
         with col_calc:
             st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
+            st.latex(f"M_o = \\frac{{w_u {width_sym} ({span_sym} - c)^2}}{{8}}")
             st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {width_val:.2f} \\cdot ({ln_val:.2f})^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
         
         st.divider()
-        st.markdown(f"#### Step 2: Distribution to $M_u$ (Automated by ACI 318)")
+        st.markdown(f"#### Step 2: Distribution to $M_u$")
         
-        # Helper to calc % of Mo
         def get_pct(val): return (val / Mo * 100) if Mo > 0 else 0
         
-        # Access data directly from m_vals dictionary (Backend generated)
-        # Note: Backend structure is { 'design': {...}, 'M_total': (...), 'coeffs': (...) } based on previous fix
-        # But for compatibility, let's assume we map it correctly or access what is available.
-        # Assuming we need to extract concrete numbers:
-        
-        # Logic to extract M values cleanly regardless of dict structure
-        # (This adapts to the 'M_vals' structure coming from calculations.py)
-        # We expect M_vals to have specific keys or we parse them from the "design" block if needed
-        # But simpler: calculations.py SHOULD return 'M_vals' as a simple dict of Mu values 
-        # or we adapt here. Let's assume the previous fixed calculations.py returns a clean dict or object.
-        # Actually, let's look at the previous fix return:
-        # It returns: "M_vals": res_x (which is a dict with "design", "M_total", etc.)
-        # We need to extract the Mu values for display.
-        
-        # Let's EXTRACT Mu from the 'design' dictionary which has 'Mu' inside inputs or we calculate back
-        # Actually, 'M_vals'['design']['cs_neg_ext']['As_req']... 
-        # Easier way: The 'design' dict in calculations.py didn't store Mu directly in root.
-        # Let's fix this accessor to be safe.
-        
-        # Safe Accessor Logic:
-        # Case 1: Interior Span (Standard keys)
-        # Case 2: Exterior Span (Has 'ext' keys)
-        
-        # Let's try to fetch from design results directly if available
-        d_res = m_vals.get('design', {})
-        
-        # Map logical positions to keys in design dict
-        # We need to know if it's exterior or interior to know which keys to grab
-        # But simpler: Just grab what exists
-        
-        mu_cs_top = d_res.get('cs_neg_ext', d_res.get('cs_neg_int', {})).get('d', 0) * 0 # Placeholder
-        # Re-calc purely for display table if needed, OR better:
-        # Trust the backend to send ready-to-display values.
-        # **Simplification for UI:** # Let's assume the keys are standardized or we grab them from the 'M_vals'['M_total'] and coeffs.
-        
-        # Let's use the 'design' output to get Mu because that's what we use for design
-        # The design dicts contain the inputs used. But wait, `design_flexure_slab` returns results, not inputs.
-        
-        # FIX: We will just grab the values from the `calc_configs` loop below which sets up the values correctly
-        pass 
-
-        # We will render the table AFTER calculating the values in the loop below to be 100% synced.
+        dist_data = [
+            {"Pos": "Top (-)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_neg']):.1f}%", "Mu": m_vals['M_cs_neg']},
+            {"Pos": "Top (-)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_neg']):.1f}%", "Mu": m_vals['M_ms_neg']},
+            {"Pos": "Bot (+)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_pos']):.1f}%", "Mu": m_vals['M_cs_pos']},
+            {"Pos": "Bot (+)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_pos']):.1f}%", "Mu": m_vals['M_ms_pos']},
+        ]
+        st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
     # ==========================================================
     # 2️⃣ PUNCHING SHEAR CHECK
     # ==========================================================
     if HAS_CALC:
         st.markdown("---")
-        st.markdown("### 2️⃣ Punching Shear Check")
+        st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
+        
         c_col = float(c_para)
         load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
         Vu_approx = float(w_u) * load_area 
         
-        d_bar_val = 1.6
+        d_bar_val = 1.6 # Avg assumption
         d_eff = float(h_slab) - float(cover) - d_bar_val
         if d_eff <= 0: d_eff = 1.0
 
+        # [UPDATED] ส่ง phi_shear ไปคำนวณ Punching
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
             c1=c_col,            
             c2=c_col,            
             d=d_eff,                
-            col_type="interior", # Note: You might want to pass col_type here too!
+            col_type="interior",  
             open_w=open_w,
             open_dist=open_dist,
             phi=phi_shear 
         )
         
         col_p1, col_p2 = st.columns([1, 1.5])
+        
         with col_p1:
             if HAS_PLOTS:
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
                     c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
                 ))
+            else:
+                st.info("ℹ️ Plotting module not available.")
             
             if open_w > 0:
-                st.warning(f"⚠️ **Opening:** {open_w:.0f}x{open_w:.0f} cm")
+                st.warning(f"⚠️ **Opening Detected:** {open_w:.0f}cm x {open_w:.0f}cm")
+                st.caption(f"Dist from face: {open_dist:.0f} cm")
         
         with col_p2:
             if ps_res['status'] == "OK":
                 st.success(f"✅ **PASSED** (Ratio: {ps_res['ratio']:.2f})")
             else:
                 st.error(f"❌ **FAILED** (Ratio: {ps_res['ratio']:.2f})")
+                st.warning("⚠️ แนะนำ: เพิ่มความหนาพื้น, เพิ่มขนาดเสา, หรือใส่ Drop Panel")
             
-            with st.expander("Details"):
-                st.write(f"Vu: {ps_res['Vu']:,.0f} kg | phi*Vc: {ps_res['phi_Vc']:,.0f} kg")
+            with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
+                st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
+                
+                if 'Munbal' in ps_res and ps_res['Munbal'] > 0:
+                    st.info(f"ℹ️ **Combined Stress Check:** Includes $M_{{unbal}}$ from EFM")
+                    st.latex(f"M_{{unbal}} = {ps_res['Munbal']:,.0f} \\; \\text{{kg-m}}")
+                
+                st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
+                
+                st.write("**2. Perimeter ($b_o$):**")
+                if open_w > 0:
+                      st.latex(r"b_o = b_{o,gross} - \Delta_{open} = " + f"\\mathbf{{{ps_res['bo']:.2f}}}" + " cm")
+                      st.caption("Note: $b_o$ reduced due to opening.")
+                else:
+                      st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
+                
+                st.write("**3. Concrete Capacity:**")
+                # [UPDATED] Show Phi used in Punching
+                st.caption(f"Using Strength Reduction Factor $\phi_v = {phi_shear}$ (Shear)")
+                if 'Vc_nominal' in ps_res:
+                    st.latex(rf"\phi_v V_c = {phi_shear} \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
+                else:
+                    st.latex(r"\phi_v V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
+                
+                st.write("**4. Check:**")
+                st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
 
-    # --- PART 3: REINFORCEMENT & DISPLAY TABLE ---
+    elif not HAS_CALC:
+        st.warning("⚠️ Module 'calculations.py' not found. Skipping Shear Check.")
+
+    # --- PART 3: REINFORCEMENT SELECTION (READ-ONLY) ---
     st.markdown("---")
-    st.markdown("### 3️⃣ Reinforcement Status")
+    st.markdown("### 3️⃣ Reinforcement Status (Configured in Sidebar)")
     
-    # Extraction Logic from Backend Data (Compatible with new calculations.py)
-    # We need to map the complex structure of 'm_vals' to simple Top/Bot/CS/MS
+    col_cs, gap, col_ms = st.columns([1, 0.05, 1])
     
-    # 1. Get Design Objects
-    des = m_vals['design']
-    
-    # 2. Identify Keys based on Span Type
-    # If Exterior Span: keys are cs_neg_ext, cs_pos, cs_neg_int
-    # If Interior Span: keys are cs_neg_int, cs_pos, cs_neg_int (symmetric usually)
-    
-    # To simplify UI, we usually show:
-    # - Exterior Support (Top) OR Interior Support (Top) -> We pick the critical or "Left" support
-    # - Mid Span (Bot)
-    # - Interior Support (Top) -> "Right" support
-    
-    # Let's map "Top (Left/Ext)", "Bot", "Top (Right/Int)"
-    
-    if 'cs_neg_ext' in des:
-        # It is an Exterior Span
-        keys_map = [
-            {'label': 'Ext. Support (-)', 'key_cs': 'cs_neg_ext', 'key_ms': 'ms_neg_ext', 'pos': 'top'},
-            {'label': 'Mid Span (+)',     'key_cs': 'cs_pos',     'key_ms': 'ms_pos',     'pos': 'bot'},
-            {'label': 'Int. Support (-)', 'key_cs': 'cs_neg_int', 'key_ms': 'ms_neg_int', 'pos': 'top'},
-        ]
-    else:
-        # Interior Span (Standard) - Only 2 unique zones usually shown (Support, Mid)
-        # But to keep table full, let's show Support and Mid
-        keys_map = [
-            {'label': 'Support (-)', 'key_cs': 'cs_neg_int', 'key_ms': 'ms_neg_int', 'pos': 'top'},
-            {'label': 'Mid Span (+)', 'key_cs': 'cs_pos',     'key_ms': 'ms_pos',     'pos': 'bot'},
-        ]
+    # --- Helper to format string ---
+    def fmt_bar(db, spa): return f"DB{db} @ {spa} cm" if db > 9 else f"RB{db} @ {spa} cm"
 
-    # Prepare Loop
+    # --- CS ---
+    with col_cs:
+        st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
+            <b>🟥 COLUMN STRIP</b> (Width {w_cs:.2f} m)</div>""", unsafe_allow_html=True)
+        
+        # Top
+        st.markdown(f"**Top ($M_u$ {m_vals['M_cs_neg']:,.0f}):**")
+        st.info(f"📌 Using: **{fmt_bar(d_cst, s_cst)}**")
+        
+        # Bot
+        st.markdown(f"**Bot ($M_u$ {m_vals['M_cs_pos']:,.0f}):**")
+        st.info(f"📌 Using: **{fmt_bar(d_csb, s_csb)}**")
+
+    # --- MS ---
+    with col_ms:
+        st.markdown(f"""<div style="background-color:#e3f2fd; padding:8px; border-radius:5px; border-left:4px solid #2196f3;">
+            <b>🟦 MIDDLE STRIP</b> (Width {w_ms:.2f} m)</div>""", unsafe_allow_html=True)
+        
+        # Top
+        st.markdown(f"**Top ($M_u$ {m_vals['M_ms_neg']:,.0f}):**")
+        st.info(f"📌 Using: **{fmt_bar(d_mst, s_mst)}**")
+        
+        # Bot
+        st.markdown(f"**Bot ($M_u$ {m_vals['M_ms_pos']:,.0f}):**")
+        st.info(f"📌 Using: **{fmt_bar(d_msb, s_msb)}**")
+
+    # --- CALCULATION LOOP ---
+    calc_configs = [
+        {"Label": "Col Strip - Top (-)", "PlotKey": "CS_Top", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
+        {"Label": "Col Strip - Bot (+)", "PlotKey": "CS_Bot", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
+        {"Label": "Mid Strip - Top (-)", "PlotKey": "MS_Top", "Mu": m_vals['M_ms_neg'], "b": w_ms, "db": d_mst, "s": s_mst},
+        {"Label": "Mid Strip - Bot (+)", "PlotKey": "MS_Bot", "Mu": m_vals['M_ms_pos'], "b": w_ms, "db": d_msb, "s": s_msb},
+    ]
+
     results = []
-    
-    for k in keys_map:
-        # CS Data
-        cs_res = des[k['key_cs']] # The design result from calculations.py
-        # MS Data
-        ms_res = des[k['key_ms']]
-        
-        # We need to re-verify or just display? 
-        # Since calculations.py already did the design, we can technically just display 'cs_res'.
-        # BUT, tab_ddm.py has its own `calc_rebar_logic` for interactive tweaking (?).
-        # Ideally, use the values from `cs_res` directly.
-        
-        # Let's EXTRACT the Moment (Mu) from the result to re-run locally (for consistency with UI renderer)
-        # We have to reverse engineer Mu from Rn? No, `calculations.py` calculates Mu first.
-        # FIX: We need `calculations.py` to return the Mu used.
-        # Assuming `calculations.py` returns objects that contain 'Mu' or we calculated it.
-        
-        # WORKAROUND: If calculations.py doesn't return Mu explicitly in the dict, 
-        # we calculate it from As_req? No.
-        # Let's assume we can reconstruct it from the coefficients in `m_vals['M_total']`.
-        
-        # Getting Mu from M_total and percentages:
-        # This is getting complicated.
-        # BEST WAY: Trust `calculations.py` result completely.
-        
-        # Let's just Add to results list for display
-        # CS
-        cs_res['Label'] = f"CS - {k['label']}"
-        cs_res['PlotKey'] = f"CS_{k['pos']}"
-        results.append(cs_res)
-        
-        # MS
-        ms_res['Label'] = f"MS - {k['label']}"
-        ms_res['PlotKey'] = f"MS_{k['pos']}"
-        results.append(ms_res)
+    for cfg in calc_configs:
+        # [UPDATED] ส่ง phi_bend (Moment) ไปคำนวณเหล็ก
+        res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_bend)
+        res.update(cfg) 
+        results.append(res)
 
-    # 4. Display Table
+    # --- PART 4: SUMMARY ---
+    st.write("")
+    st.markdown("### 4️⃣ Verification Table")
+    
+    # [FIXED HERE] Robust DataFrame creation to prevent KeyError
     df_show = pd.DataFrame(results)
     
-    # Select columns that exist (handle key errors gracefully)
-    cols = ["Label", "Mu", "As_req", "As_prov", "PhiMn", "DC", "Note"]
-    # Ensure Mu exists (if calculations.py didn't put it in dict, we might see NaNs. 
-    # **Assumption:** You updated `calculations.py` to include 'Mu' in the returned dict of `design_flexure_slab`)
+    # List of columns explicitly required for the table
+    cols_to_show = ["Label", "Mu", "d", "As_req", "As_prov", "PhiMn", "DC", "Note"]
     
-    if not results:
-        st.error("No design data found.")
-    else:
-        # Check if 'Mu' is in keys
-        if 'Mu' not in results[0]:
-             # Fallback if calculations.py doesn't return Mu: calculate roughly for display?
-             # Or just hide it.
-             st.warning("Mu not found in backend response. Check calculations.py")
-        else:
-            st.dataframe(
-                df_show[cols].style.format({
-                    "Mu": "{:,.0f}", "As_req": "{:.2f}", "As_prov": "{:.2f}", 
-                    "PhiMn": "{:,.0f}", "DC": "{:.2f}"
-                }).background_gradient(subset=["DC"], cmap="RdYlGn_r", vmin=0, vmax=1.2),
-                use_container_width=True
-            )
+    # Safety Check: Ensure all columns exist before selection
+    for col in cols_to_show:
+        if col not in df_show.columns:
+            # If a column is missing, fill it with default value (e.g., 0 or "-")
+            df_show[col] = 0
+            
+    st.dataframe(
+        df_show[cols_to_show].style.format({
+            "Mu": "{:,.0f}", "d": "{:.2f}", "As_req": "{:.2f}", "As_prov": "{:.2f}", 
+            "PhiMn": "{:,.0f}", "DC": "{:.2f}"
+        }).background_gradient(subset=["DC"], cmap="RdYlGn_r", vmin=0, vmax=1.2),
+        use_container_width=True
+    )
 
-    # --- PART 5: DETAIL ---
+    # --- PART 5: DETAILED CALCULATION SHEET ---
     st.markdown("---")
     st.markdown("### 5️⃣ Detailed Calculation Sheet")
-    sel_label = st.selectbox(f"Select Zone ({axis_id}):", [r['Label'] for r in results])
+    
+    sel_label = st.selectbox(f"Select Zone to View Details ({axis_id}):", [r['Label'] for r in results])
     target = next(r for r in results if r['Label'] == sel_label)
     
-    # Re-pack inputs for the detailed renderer
-    # Note: We need 'Mu' and 'b' (strip width)
-    # If target comes from backend, it should have these.
-    if 'Mu' in target and 'b_width' in target: # Assuming backend stores b_width
-         raw_inputs = (target['Mu'], target['b_width'], h_slab, cover, fc, fy, target.get('db', 12), target.get('s', 20), phi_bend)
-         pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
-         show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
-    else:
-        st.info("Detailed calculation requires 'Mu' and 'b_width' from backend.")
+    # Inputs for detailed renderer
+    # [UPDATED] เพิ่ม phi_bend เข้าไปใน tuple แทน phi ตัวเดียว
+    raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_bend)
+    
+    with st.container(border=True):
+        # Calculate % for display inside the calc sheet
+        pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
+        show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
 
     # --- DRAWINGS ---
     if HAS_PLOTS:
         st.markdown("---")
-        t1, t2, t3 = st.tabs(["📉 Moment", "🏗️ Section", "📐 Plan"])
+        t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        # Map for plots
-        rebar_map = { r['PlotKey']: f"DB{r.get('db',12)}@{r.get('s',20):.0f}" for r in results }
+        # Logic for RB/DB name in Plots
+        rebar_map = {
+            r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" 
+            for r in results
+        }
         
         with t1:
-            # Pass correct data structure to plots
             st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
+        
         with t2:
             st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
+            
         with t3:
             st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
@@ -445,13 +484,39 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 # ========================================================
 def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ RC Slab Design (DDM Method)")
-    
-    # [REMOVED] Dropdowns for Manual Span Override
-    # เพราะ data_x และ data_y ถูกคำนวณมาอย่างถูกต้องแล้วจาก calculations.py
-    # เราไม่ต้องการให้ user มาเลือก Dropdown แล้วไปเขียนทับด้วย logic เก่าที่ผิด
-    
-    st.info("ℹ️ **Note:** Moment Coefficients and Strip Distribution are automatically calculated based on Column Position (Interior/Edge/Corner).")
 
+    # ------------------------------------------------------------------------
+    # NEW FEATURE: SPAN CONFIGURATION
+    # ------------------------------------------------------------------------
+    with st.expander("⚙️ Span & Continuity Settings (ตั้งค่าช่วงพาดและจุดรองรับ)", expanded=True):
+        st.info("💡 **Tips:** โปรแกรมจะปรับสัมประสิทธิ์โมเมนต์ (Moment Coefficients) ตามตำแหน่งช่วงพื้น (Interior vs Exterior) ให้โดยอัตโนมัติ")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**X-Direction ($L_x$ = {data_x['L_span']} m):**")
+            type_x = st.selectbox(
+                "ลักษณะช่วงพาดแกน X",
+                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
+                index=0,
+                key="span_type_x"
+            )
+            # Recalculate Momement for X
+            data_x = update_moments_based_on_config(data_x, type_x)
+
+        with c2:
+            st.markdown(f"**Y-Direction ($L_y$ = {data_y['L_span']} m):**")
+            type_y = st.selectbox(
+                "ลักษณะช่วงพาดแกน Y",
+                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
+                index=0,
+                key="span_type_y"
+            )
+            # Recalculate Momement for Y
+            data_y = update_moments_based_on_config(data_y, type_y)
+            
+    # ------------------------------------------------------------------------
+    # TABS RENDERING
+    # ------------------------------------------------------------------------
     tab_x, tab_y = st.tabs([
         f"➡️ X-Direction (Lx={data_x['L_span']}m)", 
         f"⬆️ Y-Direction (Ly={data_y['L_span']}m)"
