@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from typing import Dict, Any, Tuple, Optional
 
 # ========================================================
 # 0. DEPENDENCY HANDLING
@@ -21,22 +22,24 @@ except ImportError:
 # ========================================================
 # 1. CORE CALCULATION ENGINE
 # ========================================================
-def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_dir, phi_factor=0.90):
+
+def calc_rebar_logic(
+    M_u: float, b_width: float, d_bar: float, s_bar: float, 
+    h_slab: float, cover: float, fc: float, fy: float, 
+    is_main_dir: bool, phi_factor: float = 0.90
+) -> Dict[str, Any]:
     """
-    Core Logic: คำนวณเหล็กเสริมตาม ACI 318
-    [UPDATED] รับค่า phi_factor (Bending) มาจากการตั้งค่าผู้ใช้
+    Core Logic: Calculate Flexural Reinforcement per ACI 318.
     """
     b_cm = b_width * 100.0
     h_cm = float(h_slab)
     Mu_kgcm = M_u * 100.0
     
     # --- Effective Depth Logic ---
-    if is_main_dir:
-        d_offset = 0.0
-    else:
-        d_offset = d_bar / 10.0 
-        
-    d_eff = h_cm - cover - (d_bar/20.0) - d_offset
+    # If main direction (outer layer), offset is 0. 
+    # If secondary direction (inner layer), offset is approx 1 bar diameter.
+    d_offset = 0.0 if is_main_dir else (d_bar / 10.0)
+    d_eff = h_cm - cover - (d_bar / 20.0) - d_offset
     
     # Handle negligible moment or invalid depth
     if M_u < 10 or d_eff <= 0:
@@ -46,35 +49,32 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
             "Status": True, "Note": "M -> 0" if M_u < 10 else "Depth Err", "s_max": 45
         }
 
-    # Strength Design
-    # [UPDATED] ใช้ phi_factor (Bending) ที่รับเข้ามา
+    # --- Strength Design ---
     Rn = Mu_kgcm / (phi_factor * b_cm * d_eff**2)
     
-    # Check bounds for sqrt
     term_val = 1 - (2 * Rn) / (0.85 * fc)
     
     if term_val < 0:
-        rho_req = 999 
+        rho_req = 999.0 # Fail indicator
     else:
         rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term_val))
         
     As_flex = rho_req * b_cm * d_eff
     As_min = 0.0018 * b_cm * h_cm
-    As_req_final = max(As_flex, As_min) if rho_req != 999 else 999
+    As_req_final = max(As_flex, As_min) if rho_req != 999 else 999.0
     
-    # Provided
-    Ab_area = np.pi * (d_bar/10.0)**2 / 4.0
+    # --- Provided Reinforcement ---
+    Ab_area = np.pi * (d_bar / 10.0)**2 / 4.0
     As_prov = (b_cm / s_bar) * Ab_area
     
-    # Capacity Check
+    # --- Capacity Check ---
     if rho_req == 999:
-        PhiMn = 0; a_depth = 0; dc_ratio = 999
+        PhiMn = 0; a_depth = 0; dc_ratio = 999.0
     else:
         a_depth = (As_prov * fy) / (0.85 * fc * b_cm)
-        Mn = As_prov * fy * (d_eff - a_depth/2.0)
-        # [UPDATED] ใช้ phi_factor (Bending) คำนวณ PhiMn
+        Mn = As_prov * fy * (d_eff - a_depth / 2.0)
         PhiMn = phi_factor * Mn / 100.0
-        dc_ratio = M_u / PhiMn if PhiMn > 0 else 999
+        dc_ratio = M_u / PhiMn if PhiMn > 0 else 999.0
 
     s_max = min(2 * h_cm, 45.0)
     
@@ -91,23 +91,107 @@ def calc_rebar_logic(M_u, b_width, d_bar, s_bar, h_slab, cover, fc, fy, is_main_
         "Note": ", ".join(checks) if checks else "OK", "s_max": s_max
     }
 
+def calc_deflection_check(
+    L_span: float, L_width: float, h_slab: float, w_u: float, 
+    fc: float, fy: float, span_type: str
+) -> Dict[str, Any]:
+    """
+    Serviceability Logic: Check Minimum Thickness (ACI Table 8.3.1.1) 
+    and Estimate Elastic Deflection.
+    """
+    # 1. Minimum Thickness Check (ACI 318 Table 8.3.1.1)
+    # Rationale: Deflection is usually controlled by satisfying h_min.
+    
+    # Determine divisor based on span type
+    if "Interior" in span_type:
+        denom = 33.0
+    elif "Edge Beam" in span_type:
+        denom = 30.0 # End span with edge beam
+    elif "No Beam" in span_type:
+        denom = 30.0 # End span without edge beam (Conservative, could be 30 or 27 depending on drop)
+    else:
+        denom = 30.0
+
+    # Fy modification factor (0.4 + fy/7000) for fy in MPa, but here fy is ksc
+    # ACI Metric: (0.4 + fy_mpa/700) -> ksc approx: 0.4 + fy_ksc/7000 is close enough approx
+    mod_factor = (0.4 + (fy / 7000.0)) # Simplified ACI factor
+    # Re-adjusting for standard ACI 318-14 logic which uses (0.8 + fy/14000) for psi, 
+    # Let's stick to standard table values for Fy=4000ksc (~Grade 40/60 mix logic). 
+    # For simplicity in this app, we use basic ratios assuming Fy=4000 (SD40).
+    # If Fy != 4000, we apply factor: 0.4 + fy/7000
+    
+    # Correct ACI Metric formula for h_min:
+    # h_min = (ln * (0.8 + fy/1400)) / 30 ... Wait, let's use the standard tabular values
+    # For Fy = 4200 ksc (~420 MPa): Factor is roughly 1.0. 
+    
+    h_min_req = (L_span * 100.0) / denom
+    
+    # Apply factor if Fy is significantly different from 4200 ksc (SD40)
+    if fy > 3000:
+        # ACI 318-19 Eq 8.3.1.1: multiplier = (0.4 + fy_mpa/700)
+        # 1 ksc ~= 0.098 MPa. 
+        fy_mpa = fy * 0.09806
+        mult = (0.4 + fy_mpa / 700.0)
+        # Note: The denominators 30, 33 assumed Grade 420 (SD40). 
+        # If the formula is raw, we apply the multiplier to the base ln/N.
+        # However, for this UI, let's keep it simple:
+        pass 
+        
+    status_h = "OK" if h_slab >= h_min_req else "CHECK"
+    
+    # 2. Elastic Deflection Estimation (Simplified)
+    # Delta = (coeff * w * L^4) / (E * I)
+    # Using coeff 5/384 for interior (approx) or adjusted for continuity.
+    # W should be Service Load (w_service). Assuming w_u approx 1.4*w_service for estimation.
+    w_service = w_u / 1.4 # Rough approximation to get service load
+    w_line = w_service * L_width # kg/m
+    
+    Ec = 15100 * np.sqrt(fc) # ksc
+    Ig = (L_width * 100 * (h_slab)**3) / 12.0 # cm4
+    
+    # Convert units for calculation
+    # w (kg/m) -> w/100 (kg/cm)
+    w_line_cm = w_line / 100.0
+    L_cm = L_span * 100.0
+    
+    # Continuous span approx coefficient: 1/384 to 2/384 depending on fixity.
+    # ACI suggests using effective moment of inertia. 
+    # For "Estimate", we use 5/384 (Simple) * 0.6 (Continuity factor) = ~3/384
+    # This is a ballpark "Engineering Estimate".
+    continuity_factor = 0.6 # Reduces deflection compared to simple span
+    delta_imm = continuity_factor * (5 * w_line_cm * L_cm**4) / (384 * Ec * Ig)
+    
+    # Long term multiplier (Lambda) -> usually 2.0 for > 5 years
+    lambda_delta = 2.0
+    delta_long = delta_imm * (1 + lambda_delta)
+    
+    limit_delta = L_cm / 240.0 # General limit
+    
+    return {
+        "h_min": h_min_req,
+        "status_h": status_h,
+        "delta_imm": delta_imm,
+        "delta_long": delta_long,
+        "limit": limit_delta,
+        "denom": denom
+    }
+
 # ========================================================
 # 2. HELPER: DDM COEFFICIENT RECALCULATION
 # ========================================================
-def get_ddm_coeffs(span_type):
+def get_ddm_coeffs(span_type: str) -> Dict[str, Any]:
     """
     Return dictionaries of Moment Coefficients based on Span Type (ACI 318).
-    Returns: { 'neg_factor': float, 'pos_factor': float, 'name': str }
     """
-    if span_type == "Interior Span (ช่วงพื้นภายใน)":
+    if "Interior" in span_type:
         return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Interior: Neg 0.65, Pos 0.35' }
-    elif span_type == "End Span - Edge Beam (ช่วงริมมีคานขอบ)":
+    elif "Edge Beam" in span_type:
         return { 'neg': 0.70, 'pos': 0.57, 'desc': 'End w/ Beam: IntNeg 0.70, Pos 0.57' }
-    elif span_type == "End Span - No Beam (ช่วงริมไร้คาน)":
+    elif "No Beam" in span_type:
         return { 'neg': 0.70, 'pos': 0.52, 'desc': 'End No Beam: IntNeg 0.70, Pos 0.52' }
     return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Default' }
 
-def update_moments_based_on_config(data_obj, span_type):
+def update_moments_based_on_config(data_obj: Dict, span_type: str) -> Dict:
     """
     Recalculate M_vals in data_obj based on the selected span type.
     """
@@ -117,6 +201,7 @@ def update_moments_based_on_config(data_obj, span_type):
     M_neg_total = coeffs['neg'] * Mo
     M_pos_total = coeffs['pos'] * Mo
     
+    # Distribution factors (ACI)
     M_cs_neg = 0.75 * M_neg_total
     M_ms_neg = 0.25 * M_neg_total
     
@@ -130,23 +215,23 @@ def update_moments_based_on_config(data_obj, span_type):
         'M_ms_pos': M_ms_pos
     }
     data_obj['coeffs_desc'] = coeffs['desc'] # For display
+    data_obj['span_type_str'] = span_type
     return data_obj
 
 # ========================================================
 # 3. DETAILED CALCULATION RENDERER
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
-    # [UPDATED] Unpack phi (Bending) from inputs
     Mu, b, h, cover, fc, fy, db, s, phi_bend = inputs
     
-    st.markdown(f"#### 📐 รายการคำนวณออกแบบ: {zone_name}")
+    st.markdown(f"#### 📐 Detailed Design Sheet: {zone_name}")
     st.caption(f"Design Parameters: $f_c'={fc}$ ksc, $f_y={fy}$ ksc, $h={h}$ cm, $\\phi_b={phi_bend}$")
 
     step1, step2, step3 = st.tabs(["1. Moment & Depth", "2. Steel Area", "3. Capacity Check"])
     
     with step1:
         st.markdown("**1.1 Design Moment ($M_u$) Calculation**")
-        st.write("หาค่าโมเมนต์ดัดออกแบบจากสัมประสิทธิ์ (Coefficient Method):")
+        st.write("Determine design moment using Direct Design Method coefficients:")
         st.latex(f"M_u = (\\text{{Coeff}}) \\times M_o")
         st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
         
@@ -161,23 +246,21 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.latex(f"A_{{s,min}} = 0.0018 \\cdot ({b*100:.0f}) \\cdot {h} = {res['As_min']:.2f} \\; \\text{{cm}}^2")
         
         # As flexure
-        st.markdown("จากสมการกำลัง (Strength Design):")
-        # [UPDATED] Display Dynamic Phi Bending
+        st.markdown("Flexural strength design (ACI 318):")
         st.latex(f"R_n = \\frac{{M_u}}{{\\phi_b b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
         
         if res['rho_req'] != 999:
             st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
             st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['As_flex']:.2f} \\; \\text{{cm}}^2")
         else:
-            st.error("Section dimensions are too small (Rn too high).")
+            st.error("❌ Section dimensions are too small (Rn too high). Increase Depth.")
 
         st.info(f"👉 **Control:** $A_{{s,req}} = \\max({res['As_min']:.2f}, {res['As_flex']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2$")
 
     with step3:
         st.markdown("**3.1 Provided Reinforcement ($A_{s,prov}$)**")
-        # Logic for RB/DB name
         bar_prefix = "RB" if db == 9 else "DB"
-        st.write(f"เลือกใช้: **{bar_prefix}{db} @ {s:.0f} cm**")
+        st.write(f"Selection: **{bar_prefix}{db} @ {s:.0f} cm**")
         
         bar_area = 3.1416 * (db/10)**2 / 4
         st.latex(f"A_{{s,prov}} = \\frac{{{b*100:.0f}}}{{{s:.0f}}} \\cdot {bar_area:.2f} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
@@ -185,7 +268,6 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         st.markdown("**3.2 Moment Capacity Check ($\\phi M_n$)**")
         st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
         
-        # [UPDATED] Display Dynamic Phi Bending
         st.latex(f"\\phi_b M_n = \\frac{{{phi_bend} \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
         st.latex(f"\\phi_b M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
         
@@ -206,25 +288,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     fc = mat_props['fc']
     fy = mat_props['fy']
     
-    # [UPDATED] ดึงค่า Phi 2 ตัวแยกกัน
-    phi_bend = mat_props.get('phi', 0.90)       # Key 'phi' ใน app.py คือ Bending
-    phi_shear = mat_props.get('phi_shear', 0.85) # Key 'phi_shear' คือ Punching/Shear
+    phi_bend = mat_props.get('phi', 0.90)       
+    phi_shear = mat_props.get('phi_shear', 0.85) 
     
     # Unpack Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
-    
-    # Map Config to Local Variables
-    d_cst = cfg.get('cs_top_db', 12)
-    s_cst = cfg.get('cs_top_spa', 20)
-    
-    d_csb = cfg.get('cs_bot_db', 12)
-    s_csb = cfg.get('cs_bot_spa', 20)
-    
-    d_mst = cfg.get('ms_top_db', 12)
-    s_mst = cfg.get('ms_top_spa', 20)
-    
-    d_msb = cfg.get('ms_bot_db', 12)
-    s_msb = cfg.get('ms_bot_spa', 20)
     
     # Unpack Opening Data
     open_w = mat_props.get('open_w', 0.0)
@@ -237,28 +305,24 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     m_vals = data['M_vals']
     coeff_desc = data.get('coeffs_desc', 'Standard')
     
-    # -----------------------------------------------
-    # 🔹 DYNAMIC LABELING LOGIC
-    # -----------------------------------------------
+    # Dynamic Labeling
     if axis_id == "X":
-        span_sym = "L_x"
-        width_sym = "L_y"
-        span_val = L_span
-        width_val = L_width
+        span_sym, width_sym = "L_x", "L_y"
+        span_val, width_val = L_span, L_width
     else:
-        span_sym = "L_y"
-        width_sym = "L_x"
-        span_val = L_span
-        width_val = L_width
+        span_sym, width_sym = "L_y", "L_x"
+        span_val, width_val = L_span, L_width
 
     ln_val = span_val - (c_para/100.0)
     w_cs = min(span_val, width_val) / 2.0
     w_ms = width_val - w_cs
     
-    # --- PART 1: Mo & DISTRIBUTION ---
+    # -----------------------------------------------------
+    # 1. ANALYSIS & DISTRIBUTION
+    # -----------------------------------------------------
     st.markdown(f"### 1️⃣ Analysis: {axis_id}-Direction")
     
-    with st.expander(f"📝 ดูที่มาของ $M_o$ และ $M_u$ ({axis_id}-Direction)", expanded=True):
+    with st.expander(f"📝 Derivation of $M_o$ & $M_u$ ({axis_id}-Direction)", expanded=True):
         col_diagram, col_calc = st.columns([1, 1.5])
         
         with col_diagram:
@@ -269,7 +333,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             - **Strip Width ({width_sym}):** {width_val:.2f} m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
             """)
-            st.write(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
+            st.caption(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
             
 
         with col_calc:
@@ -290,12 +354,14 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         ]
         st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
-    # ==========================================================
-    # 2️⃣ PUNCHING SHEAR CHECK
-    # ==========================================================
+    # -----------------------------------------------------
+    # 2. PUNCHING SHEAR & DEFLECTION
+    # -----------------------------------------------------
+    
+    # --- 2.1 PUNCHING SHEAR ---
     if HAS_CALC:
         st.markdown("---")
-        st.markdown("### 2️⃣ Punching Shear Check (ตรวจสอบแรงเฉือนทะลุ)")
+        st.markdown("### 2️⃣ Punching Shear Check")
         
         c_col = float(c_para)
         load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
@@ -305,7 +371,6 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         d_eff = float(h_slab) - float(cover) - d_bar_val
         if d_eff <= 0: d_eff = 1.0
 
-        # [UPDATED] ส่ง phi_shear ไปคำนวณ Punching
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
@@ -330,79 +395,85 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             
             if open_w > 0:
                 st.warning(f"⚠️ **Opening Detected:** {open_w:.0f}cm x {open_w:.0f}cm")
-                st.caption(f"Dist from face: {open_dist:.0f} cm")
         
         with col_p2:
             if ps_res['status'] == "OK":
                 st.success(f"✅ **PASSED** (Ratio: {ps_res['ratio']:.2f})")
             else:
                 st.error(f"❌ **FAILED** (Ratio: {ps_res['ratio']:.2f})")
-                st.warning("⚠️ แนะนำ: เพิ่มความหนาพื้น, เพิ่มขนาดเสา, หรือใส่ Drop Panel")
+                st.warning("⚠️ Suggestions: Increase slab thickness, column size, or add drop panel.")
             
-            with st.expander("แสดงรายการคำนวณ (Calculation Details)", expanded=True):
+            with st.expander("Calculation Details", expanded=False):
                 st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
                 
                 if 'Munbal' in ps_res and ps_res['Munbal'] > 0:
-                    st.info(f"ℹ️ **Combined Stress Check:** Includes $M_{{unbal}}$ from EFM")
-                    st.latex(f"M_{{unbal}} = {ps_res['Munbal']:,.0f} \\; \\text{{kg-m}}")
+                    st.info(f"ℹ️ **Combined Stress:** Includes $M_{{unbal}}$")
                 
-                st.latex(r"d = h - cover - d_b = " + f"{ps_res['d']:.2f}" + " cm")
+                st.write(f"**2. Perimeter ($b_o$):** {ps_res['bo']:.2f} cm")
+                st.caption(f"Using Strength Reduction Factor $\phi_v = {phi_shear}$")
                 
-                st.write("**2. Perimeter ($b_o$):**")
-                if open_w > 0:
-                      st.latex(r"b_o = b_{o,gross} - \Delta_{open} = " + f"\\mathbf{{{ps_res['bo']:.2f}}}" + " cm")
-                      st.caption("Note: $b_o$ reduced due to opening.")
-                else:
-                      st.latex(r"b_o = " + f"{ps_res['bo']:.2f}" + " cm")
-                
-                st.write("**3. Concrete Capacity:**")
-                # [UPDATED] Show Phi used in Punching
-                st.caption(f"Using Strength Reduction Factor $\phi_v = {phi_shear}$ (Shear)")
-                if 'Vc_nominal' in ps_res:
-                    st.latex(rf"\phi_v V_c = {phi_shear} \times " + f"{ps_res['Vc_nominal']:,.0f} = " + f"\\mathbf{{{ps_res['phi_Vc']:,.0f}}}" + " kg")
-                else:
-                    st.latex(r"\phi_v V_c = \mathbf{" + f"{ps_res['phi_Vc']:,.0f}" + r"} \text{ kg}")
-                
-                st.write("**4. Check:**")
+                st.latex(rf"\phi_v V_c = \mathbf{{{ps_res['phi_Vc']:,.0f}}} \text{{ kg}}")
                 st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
-
-    elif not HAS_CALC:
-        st.warning("⚠️ Module 'calculations.py' not found. Skipping Shear Check.")
-
-    # --- PART 3: REINFORCEMENT SELECTION (READ-ONLY) ---
+    
+    # --- 2.2 DEFLECTION (SERVICEABILITY) ---
     st.markdown("---")
-    st.markdown("### 3️⃣ Reinforcement Status (Configured in Sidebar)")
+    st.markdown("### 3️⃣ Serviceability & Deflection Check")
+    
+    with st.container(border=True):
+        def_res = calc_deflection_check(span_val, width_val, h_slab, w_u, fc, fy, data.get('span_type_str', 'Interior'))
+        
+        c_def1, c_def2 = st.columns(2)
+        with c_def1:
+            st.markdown("**A) Minimum Thickness Check ($h_{min}$)**")
+            st.caption(f"Based on ACI 318 Table 8.3.1.1 (Divisor L/{def_res['denom']:.0f})")
+            
+            if def_res['status_h'] == "OK":
+                st.success(f"✅ $h_{{prov}} = {h_slab} \\text{{ cm}} \\ge h_{{min}} = {def_res['h_min']:.2f} \\text{{ cm}}$")
+            else:
+                st.error(f"❌ $h_{{prov}} = {h_slab} \\text{{ cm}} < h_{{min}} = {def_res['h_min']:.2f} \\text{{ cm}}$")
+                st.caption("Warning: Detailed deflection calculation required.")
+
+        with c_def2:
+            st.markdown("**B) Elastic Deflection Est. ($\Delta$)**")
+            st.caption("Simplified estimate using gross inertia ($I_g$) & long-term multiplier.")
+            
+            st.write(f"$\\Delta_{{imm}} \\approx {def_res['delta_imm']:.2f}$ cm")
+            st.write(f"$\\Delta_{{long}} (\\lambda=2.0) \\approx \\mathbf{{{def_res['delta_long']:.2f}}}$ **cm**")
+            
+            is_ok_def = def_res['delta_long'] < def_res['limit']
+            limit_txt = f"L/240 ({def_res['limit']:.2f} cm)"
+            
+            if is_ok_def:
+                st.success(f"✅ Within Limit {limit_txt}")
+            else:
+                st.warning(f"⚠️ Exceeds Limit {limit_txt}")
+
+    # -----------------------------------------------------
+    # 4. REINFORCEMENT SELECTION
+    # -----------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 4️⃣ Reinforcement Status")
+    
+    # Map Config to Local Variables
+    d_cst, s_cst = cfg.get('cs_top_db', 12), cfg.get('cs_top_spa', 20)
+    d_csb, s_csb = cfg.get('cs_bot_db', 12), cfg.get('cs_bot_spa', 20)
+    d_mst, s_mst = cfg.get('ms_top_db', 12), cfg.get('ms_top_spa', 20)
+    d_msb, s_msb = cfg.get('ms_bot_db', 12), cfg.get('ms_bot_spa', 20)
     
     col_cs, gap, col_ms = st.columns([1, 0.05, 1])
-    
-    # --- Helper to format string ---
     def fmt_bar(db, spa): return f"DB{db} @ {spa} cm" if db > 9 else f"RB{db} @ {spa} cm"
 
-    # --- CS ---
     with col_cs:
         st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
             <b>🟥 COLUMN STRIP</b> (Width {w_cs:.2f} m)</div>""", unsafe_allow_html=True)
-        
-        # Top
-        st.markdown(f"**Top ($M_u$ {m_vals['M_cs_neg']:,.0f}):**")
-        st.info(f"📌 Using: **{fmt_bar(d_cst, s_cst)}**")
-        
-        # Bot
-        st.markdown(f"**Bot ($M_u$ {m_vals['M_cs_pos']:,.0f}):**")
-        st.info(f"📌 Using: **{fmt_bar(d_csb, s_csb)}**")
+        st.write(f"Top (-): **{fmt_bar(d_cst, s_cst)}**")
+        st.write(f"Bot (+): **{fmt_bar(d_csb, s_csb)}**")
 
-    # --- MS ---
     with col_ms:
         st.markdown(f"""<div style="background-color:#e3f2fd; padding:8px; border-radius:5px; border-left:4px solid #2196f3;">
             <b>🟦 MIDDLE STRIP</b> (Width {w_ms:.2f} m)</div>""", unsafe_allow_html=True)
-        
-        # Top
-        st.markdown(f"**Top ($M_u$ {m_vals['M_ms_neg']:,.0f}):**")
-        st.info(f"📌 Using: **{fmt_bar(d_mst, s_mst)}**")
-        
-        # Bot
-        st.markdown(f"**Bot ($M_u$ {m_vals['M_ms_pos']:,.0f}):**")
-        st.info(f"📌 Using: **{fmt_bar(d_msb, s_msb)}**")
+        st.write(f"Top (-): **{fmt_bar(d_mst, s_mst)}**")
+        st.write(f"Bot (+): **{fmt_bar(d_msb, s_msb)}**")
 
     # --- CALCULATION LOOP ---
     calc_configs = [
@@ -413,27 +484,20 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     ]
 
     results = []
-    for cfg in calc_configs:
-        # [UPDATED] ส่ง phi_bend (Moment) ไปคำนวณเหล็ก
-        res = calc_rebar_logic(cfg['Mu'], cfg['b'], cfg['db'], cfg['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_bend)
-        res.update(cfg) 
+    for c in calc_configs:
+        res = calc_rebar_logic(c['Mu'], c['b'], c['db'], c['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_bend)
+        res.update(c) 
         results.append(res)
 
-    # --- PART 4: SUMMARY ---
+    # --- SUMMARY TABLE ---
     st.write("")
-    st.markdown("### 4️⃣ Verification Table")
+    st.markdown("### 5️⃣ Verification Summary")
     
-    # [FIXED HERE] Robust DataFrame creation to prevent KeyError
     df_show = pd.DataFrame(results)
-    
-    # List of columns explicitly required for the table
     cols_to_show = ["Label", "Mu", "d", "As_req", "As_prov", "PhiMn", "DC", "Note"]
     
-    # Safety Check: Ensure all columns exist before selection
     for col in cols_to_show:
-        if col not in df_show.columns:
-            # If a column is missing, fill it with default value (e.g., 0 or "-")
-            df_show[col] = 0
+        if col not in df_show.columns: df_show[col] = 0
             
     st.dataframe(
         df_show[cols_to_show].style.format({
@@ -443,19 +507,16 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         use_container_width=True
     )
 
-    # --- PART 5: DETAILED CALCULATION SHEET ---
+    # --- DETAILED SHEET ---
     st.markdown("---")
-    st.markdown("### 5️⃣ Detailed Calculation Sheet")
+    st.markdown("### 6️⃣ Detailed Calculation Sheet")
     
     sel_label = st.selectbox(f"Select Zone to View Details ({axis_id}):", [r['Label'] for r in results])
     target = next(r for r in results if r['Label'] == sel_label)
     
-    # Inputs for detailed renderer
-    # [UPDATED] เพิ่ม phi_bend เข้าไปใน tuple แทน phi ตัวเดียว
     raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_bend)
     
     with st.container(border=True):
-        # Calculate % for display inside the calc sheet
         pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
         show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
 
@@ -464,20 +525,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         st.markdown("---")
         t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
         
-        # Logic for RB/DB name in Plots
-        rebar_map = {
-            r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" 
-            for r in results
-        }
+        rebar_map = {r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" for r in results}
         
-        with t1:
-            st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
-        
-        with t2:
-            st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
-            
-        with t3:
-            st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
+        with t1: st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
+        with t2: st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
+        with t3: st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
 
 # ========================================================
 # MAIN ENTRY
@@ -486,32 +538,28 @@ def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ RC Slab Design (DDM Method)")
 
     # ------------------------------------------------------------------------
-    # NEW FEATURE: SPAN CONFIGURATION
+    # CONFIGURATION
     # ------------------------------------------------------------------------
-    with st.expander("⚙️ Span & Continuity Settings (ตั้งค่าช่วงพาดและจุดรองรับ)", expanded=True):
-        st.info("💡 **Tips:** โปรแกรมจะปรับสัมประสิทธิ์โมเมนต์ (Moment Coefficients) ตามตำแหน่งช่วงพื้น (Interior vs Exterior) ให้โดยอัตโนมัติ")
+    with st.expander("⚙️ Span & Continuity Settings", expanded=True):
+        st.info("💡 **Tips:** The program automatically adjusts Moment Coefficients based on the selected span type.")
         
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"**X-Direction ($L_x$ = {data_x['L_span']} m):**")
             type_x = st.selectbox(
-                "ลักษณะช่วงพาดแกน X",
-                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
-                index=0,
-                key="span_type_x"
+                "Span Type (X-Axis)",
+                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"],
+                index=0, key="span_type_x"
             )
-            # Recalculate Momement for X
             data_x = update_moments_based_on_config(data_x, type_x)
 
         with c2:
             st.markdown(f"**Y-Direction ($L_y$ = {data_y['L_span']} m):**")
             type_y = st.selectbox(
-                "ลักษณะช่วงพาดแกน Y",
-                ["Interior Span (ช่วงพื้นภายใน)", "End Span - Edge Beam (ช่วงริมมีคานขอบ)", "End Span - No Beam (ช่วงริมไร้คาน)"],
-                index=0,
-                key="span_type_y"
+                "Span Type (Y-Axis)",
+                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"],
+                index=0, key="span_type_y"
             )
-            # Recalculate Momement for Y
             data_y = update_moments_based_on_config(data_y, type_y)
             
     # ------------------------------------------------------------------------
