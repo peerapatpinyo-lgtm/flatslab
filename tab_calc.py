@@ -446,13 +446,14 @@ def render_punching_detailed(res, mat_props, loads, Lx, Ly, label):
 
         st.markdown('</div>', unsafe_allow_html=True)
 
+
 # ==========================================
-# 3. SLAB THICKNESS CHECK (ACI 318) - UPDATED DENOMINATOR
+# 3. SLAB THICKNESS CHECK (ACI 318) - COMPLETE
 # ==========================================
 def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     """
     Render Slab Thickness Check based on ACI 318
-    FIX: Uses Clear Span (Ln) and correct Denominator if Drop Panel exists
+    Complete Fix: Uses Clear Span (Ln) + Explains Denominator Selection
     """
     st.markdown('<div class="step-container">', unsafe_allow_html=True)
     st.markdown("### 📏 Slab Thickness Check (ACI 318)")
@@ -461,11 +462,10 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     h_slab = mat_props.get('h_slab', 20.0)
     fy_ksc = mat_props.get('fy', 4000)
     
-    # แปลงหน่วย Fy (ksc -> MPa) เพื่อใช้ในสูตร ACI
-    # 1 ksc approx 0.098 MPa
+    # แปลงหน่วย Fy (ksc -> MPa)
     fy_mpa = fy_ksc * 0.0980665
     
-    # ดึงขนาดเสา (ถ้าไม่มีให้ Default 50cm เพื่อความปลอดภัย)
+    # ดึงขนาดเสา (Default 50cm)
     c1_cm = mat_props.get('cx', 50.0) 
     c2_cm = mat_props.get('cy', 50.0)
     
@@ -473,15 +473,15 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
     c1_m = c1_cm / 100.0
     c2_m = c2_cm / 100.0
 
-    # --- 2. CALCULATE CLEAR SPAN (Ln) - CRITICAL FIX ---
-    # หักระยะเสาออกจากระยะ Center-to-Center
+    # --- 2. CALCULATE CLEAR SPAN (Ln) ---
+    # หักระยะเสาออกจากระยะ Center
     ln_x = Lx - c1_m
     ln_y = Ly - c2_m
     
     # เลือกค่าที่วิกฤตที่สุด (Longest Clear Span)
     Ln = max(ln_x, ln_y) 
     
-    # เลือกขนาดเสาที่สอดคล้องกับด้านที่ยาวที่สุด (เพื่อนำไปแสดงผล)
+    # เก็บค่าเพื่อใช้แสดงผล (Display variables)
     used_span_L = Lx if ln_x >= ln_y else Ly
     used_col_c = c1_m if ln_x >= ln_y else c2_m
 
@@ -490,82 +490,84 @@ def render_thickness_check(mat_props, Lx, Ly, is_structural_drop):
         "Select Panel Position:",
         ["Interior Panel", "Exterior (No Edge Beam)", "Exterior (With Edge Beam)"],
         horizontal=True,
-        key="thick_check_radio_fixed"
+        key="thick_check_radio_complete"
     )
 
-    # --- 4. DETERMINE DENOMINATOR (Updated for Drop Panel) ---
-    # ACI 318 Minimum Thickness Denominator
-    denom = 33 # Default fallback
+    # --- 4. DETERMINE DENOMINATOR (Logic Core) ---
+    denom = 33 # Default
+    system_status = "" # ข้อความอธิบาย
     
     if "Interior" in col_layout:
-        # Interior: Flat Plate=33, Flat Slab (Drop)=36
-        denom = 36 if is_structural_drop else 33
-        
+        if is_structural_drop:
+            denom = 36
+            system_status = "Flat Slab with Drop Panel (Efficient)"
+        else:
+            denom = 33
+            system_status = "Flat Plate (Drop too small/None)"
+            
     elif "No Edge Beam" in col_layout:
-        # Ext No Beam: Flat Plate=30, Flat Slab (Drop)=33
-        denom = 33 if is_structural_drop else 30
-        
+        if is_structural_drop:
+            denom = 33
+            system_status = "Flat Slab with Drop Panel"
+        else:
+            denom = 30
+            system_status = "Flat Plate (Drop too small/None)"
+            
     else: # With Edge Beam
-        # Ext With Beam: Flat Plate=33, Flat Slab (Drop)=36
-        denom = 36 if is_structural_drop else 33
+        if is_structural_drop:
+            denom = 36
+            system_status = "Flat Slab with Drop Panel (Efficient)"
+        else:
+            denom = 33
+            system_status = "Flat Plate (Drop too small/None)"
 
-    # --- 5. CALCULATION (ACI FORMULA) ---
-    # Factor เหล็กเสริม (ACI 318: 0.8 + fy/1400)
+    # --- 5. CALCULATION ---
+    # Factor เหล็กเสริม (ACI 318)
     steel_term = 0.8 + (fy_mpa / 1400.0)
     
     # สูตร: h = (Ln * steel_term) / denominator
-    h_min_calc = (Ln * steel_term / denom) * 100 # หน่วย cm
+    h_min_calc = (Ln * steel_term / denom) * 100 # cm
     
-    # Absolute Minimum (ACI)
+    # Absolute Minimum Check
     abs_min = 10.0 if is_structural_drop else 12.5
     h_req = max(h_min_calc, abs_min)
     
     passed = h_slab >= h_req
 
-    # --- 6. DISPLAY RESULTS ---
+    # --- 6. DISPLAY RESULTS (Reasoning & Math) ---
     
-    # Section A: แสดงที่มาของ Ln (Clear Span) ให้เห็นชัดเจน
-    st.info(f"💡 **Engineering Note:** คำนวณโดยใช้ระยะ Clear Span ($L_n$) โดยหักขนาดเสา {used_col_c*100:.0f} cm ออกแล้ว")
-    
+    # ส่วนที่ 1: แสดงเหตุผลว่าทำไมใช้ตัวเลขนี้ (สำคัญมาก เพื่อให้ User ไม่งง)
+    if is_structural_drop:
+        st.success(f"✅ **System:** {system_status} \n\n 👉 Allowed Denominator: **{denom}**")
+    else:
+        st.warning(f"⚠️ **System:** {system_status} \n\n 👉 Enforced Denominator: **{denom}** (Increase drop size to use 36)")
+
+    # ส่วนที่ 2: แสดงที่มาของ Ln
+    st.info(f"💡 **Clear Span ($L_n$):** Calculated as {used_span_L:.2f}m - {used_col_c:.2f}m (Column) = **{Ln:.2f}m**")
+
     col_A, col_B = st.columns(2)
     with col_A:
-        st.markdown("**1. Find Clear Span ($L_n$)**")
-        st.latex(fr"L_n = L_{{center}} - \text{{Column Size}}")
-        # แสดงตัวเลขการลบกันจริงๆ
-        st.latex(fr"L_n = {used_span_L:.2f} - {used_col_c:.2f} = \mathbf{{{Ln:.2f}}} \text{{ m}}")
+        st.markdown("**Formula Variable Check:**")
+        st.latex(fr"L_n = \mathbf{{{Ln:.2f}}} \text{{ m}}")
+        st.latex(fr"k_{{steel}} = 0.8 + \frac{{{fy_mpa:.1f}}}{{1400}} = {steel_term:.3f}")
         
     with col_B:
-        st.markdown("**2. Minimum Thickness ($h_{min}$)**")
-        st.latex(fr"h_{{min}} = \frac{{L_n (0.8 + \frac{{f_y}}{{1400}})}}{{{denom}}}")
-        
-        # แสดงข้อความระบุว่าใช้ Denom เท่าไหร่เพราะอะไร
-        denom_reason = "Drop Panel" if is_structural_drop else "Flat Plate"
-        st.caption(f"Using Denominator = **{denom}** ({col_layout}, {denom_reason})")
-        
-        # แสดงการแทนค่า Ln ที่ถูกต้องในสูตร
-        st.latex(fr"h_{{min}} = \frac{{\mathbf{{{Ln:.2f}}} ({steel_term:.3f})}}{{{denom}}} \times 100")
+        st.markdown(f"**Minimum Thickness Calculation:**")
+        # แสดงการแทนค่าจริง
+        st.latex(fr"h_{{min}} = \frac{{{Ln:.2f} \times {steel_term:.3f}}}{{\mathbf{{{denom}}}}} \times 100")
 
-    # Section B: สรุปผล
     st.markdown("---")
     res_c1, res_c2, res_c3 = st.columns([1.5, 1.5, 1])
     
-    res_c1.markdown(f"### Calculated: {h_min_calc:.2f} cm")
-    res_c1.caption(f"From Formula (using Ln={Ln:.2f}m)")
-    
+    res_c1.markdown(f"### Required: {h_min_calc:.2f} cm")
     res_c2.markdown(f"### Provided: {h_slab:.2f} cm")
     
-    # Check Limit
     final_status = "PASS" if passed else "FAIL"
     color_status = "green" if passed else "red"
-    
     res_c3.markdown(f"### :{color_status}[{final_status}]")
 
-    # Warning กรณีไม่ผ่าน
     if not passed:
-        if h_min_calc < abs_min:
-             st.warning(f"⚠️ Calculation gives {h_min_calc:.2f} cm, but ACI requires Absolute Min {abs_min} cm.")
-        else:
-             st.error(f"❌ Thickness insufficient. Required {h_min_calc:.2f} cm.")
+        st.error(f"❌ Thickness insufficient. Need at least {h_req:.2f} cm.")
 
     st.markdown('</div>', unsafe_allow_html=True)
     
