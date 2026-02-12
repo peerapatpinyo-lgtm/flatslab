@@ -228,101 +228,151 @@ def update_moments_based_on_config(data_obj: Dict, span_type: str) -> Dict:
     data_obj['span_type_str'] = span_type
     return data_obj
 
+
 # ========================================================
-# 3. DETAILED CALCULATION RENDERER (THE EXPLAINER)
+# 3. DETAILED CALCULATION RENDERER (THE EXPLAINER - ULTRA DETAILED)
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
+    # Unpack Inputs
     Mu, b, h, cover, fc, fy, db, s, phi_bend = inputs
     
+    # Unit Conversions for display
+    b_cm = b * 100
+    Mu_kgcm = Mu * 100
+    
     st.markdown(f"""
-    <div style="background-color:#f8f9fa; padding:15px; border-radius:10px; border-left: 5px solid #3b82f6;">
-        <h4 style="margin:0; color:#1e3a8a;">📐 Detailed Design Sheet: {zone_name}</h4>
-        <p style="margin:5px 0 0 0; color:#64748b; font-size:0.9em;">
-            Method: Strength Design (USD) per ACI 318 / EIT Standard
+    <div style="background-color:#f0f9ff; padding:15px; border-radius:10px; border-left: 5px solid #0369a1;">
+        <h4 style="margin:0; color:#0369a1;">🔍 Detailed Analysis: {zone_name}</h4>
+        <p style="margin:5px 0 0 0; color:#475569; font-size:0.9em;">
+            แสดงที่มาของตัวเลขทุกขั้นตอน (Step-by-Step Derivation)
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.tabs(["1️⃣ Moment & Geometry", "2️⃣ Reinforcement Calculation", "3️⃣ Capacity & Summary"])
+    c1, c2, c3 = st.tabs(["1️⃣ Load & Geometry (ที่มาโมเมนต์)", "2️⃣ Flexural Design (ออกแบบเหล็ก)", "3️⃣ Verification (ตรวจสอบกำลัง)"])
     
     # --- TAB 1: MOMENT & GEOMETRY ---
     with c1:
-        st.markdown("**1.1 Design Moment ($M_u$)**")
-        st.write("Calculated using Direct Design Method (DDM) coefficients:")
-        st.latex(f"M_o = \\text{{Total Static Moment}} = {Mo_val:,.0f} \\; \\text{{kg-m}}")
-        st.latex(f"M_u = (\\text{{Coeff}} \\% ) \\times M_o = {coeff_pct/100:.3f} \\times {Mo_val:,.0f}")
-        st.info(f"👉 **Design Moment ($M_u$): {Mu:,.0f} kg-m**")
+        st.markdown("### 1.1 Geometry & Material Properties")
+        st.write("เริ่มจากข้อมูลหน้าตัดและวัสดุ:")
+        st.markdown(f"""
+        - **Slab Thickness ($h$):** {h} cm
+        - **Concrete Cover ($C_c$):** {cover} cm
+        - **Bar Diameter ($d_b$):** {db} mm ({db/10:.1f} cm)
+        - **Strip Width ($b$):** {b:.2f} m ({b_cm:.0f} cm)
+        - **Material:** $f_c'={fc}$ ksc, $f_y={fy}$ ksc
+        """)
+
+        st.markdown("---")
+        st.markdown("### 1.2 Effective Depth ($d$)")
+        st.write("ระยะลึกประสิทธิผล วัดจากผิวคอนกรีตอัดตัวถึงจุดศูนย์ถ่วงเหล็กเสริม:")
+        
+        # Check layout logic to explain offset
+        layer_offset = 0.0
+        if res['d'] < (h - cover - db/10.0):
+             layer_offset = db/10.0
+             st.info(f"ℹ️ **Note:** เป็นเหล็กชั้นใน (Inner Layer) มีการหักระยะเหล็กชั้นนอกออกอีก {layer_offset} cm")
+
+        st.latex(r"d = h - C_c - \frac{d_b}{2} - \text{Layer Offset}")
+        st.latex(f"d = {h} - {cover} - \\frac{{{db/10:.1f}}}{{2}} - {layer_offset} = \\mathbf{{{res['d']:.2f}}} \\; \\text{{cm}}")
         
         st.markdown("---")
-        st.markdown("**1.2 Effective Depth ($d$)**")
-        st.write("Distance from compression fiber to centroid of tension reinforcement.")
-        st.latex(r"d = h - C_c - \frac{d_b}{2} - (\text{Layer Offset})")
-        st.latex(f"d = {h} - {cover} - {db/20.0:.2f} - ...")
-        
-        if res['d'] < (h - cover - db/10.0):
-            st.caption("ℹ️ Note: Calculation for Inner Layer (Secondary Direction)")
-            
-        st.success(f"**Effective Depth ($d$): {res['d']:.2f} cm**")
+        st.markdown("### 1.3 Design Moment ($M_u$)")
+        st.write("โมเมนต์ออกแบบคำนวณจาก Total Static Moment ($M_o$) คูณด้วยสัมประสิทธิ์ DDM:")
+        st.latex(f"M_o = \\mathbf{{{Mo_val:,.0f}}} \\; \\text{{kg-m}}")
+        st.latex(f"\\text{{Coeff}} = {coeff_pct/100:.3f} \\; ({coeff_pct:.1f}\%)")
+        st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
 
     # --- TAB 2: REINFORCEMENT ---
     with c2:
-        st.markdown("**2.1 Determine $\\beta_1$ Factor**")
-        st.write(f"For concrete strength $f_c' = {fc}$ ksc:")
+        st.markdown("### 2.1 Strength Reduction Factor")
+        st.write(f"ใช้ค่า $\\phi = {phi_bend}$ สำหรับแรงดัด (Tension-controlled)")
+
+        st.markdown("### 2.2 Calculate $R_n$ (Nominal Strength req.)")
+        st.write("แปลงหน่วย $M_u$ เป็น kg-cm แล้วหารด้วยหน้าตัด:")
+        st.latex(r"R_n = \frac{M_u}{\phi b d^2}")
+        st.latex(f"R_n = \\frac{{{Mu:,.0f} \\times 100}}{{{phi_bend} \\cdot {b_cm:.0f} \\cdot {res['d']:.2f}^2}}")
+        st.latex(f"R_n = \\frac{{{Mu_kgcm:,.0f}}}{{{phi_bend * b_cm * res['d']**2:,.0f}}} = \\mathbf{{{res['Rn']:.3f}}} \\; \\text{{ksc}}")
+
+        st.markdown("---")
+        st.markdown("### 2.3 Reinforcement Ratio ($\\rho_{req}$)")
+        
+        # Explain Beta 1
+        st.write(f"**Step A: หาค่า $\\beta_1$** (สำหรับ $f_c' = {fc}$ ksc)")
         if fc <= 280:
-            st.latex(r"\beta_1 = 0.85 \quad (\text{for } f_c' \le 280 \text{ ksc})")
+            st.latex(r"\beta_1 = 0.85 \quad (\because f_c' \le 280)")
         else:
-            st.latex(r"\beta_1 = 0.85 - 0.05 \left( \frac{f_c' - 280}{70} \right) \ge 0.65")
-        st.write(f"**Use $\\beta_1 = {res['beta1']:.2f}$**")
+            st.latex(r"\beta_1 = 0.85 - 0.05\frac{f_c' - 280}{70} \ge 0.65")
+            st.latex(f"\\beta_1 = {res['beta1']:.3f}")
 
-        st.markdown("---")
-        st.markdown("**2.2 Required Reinforcement Area ($A_{s,req}$)**")
+        st.write("**Step B: คำนวณ $\\rho_{req}$ จากสูตร:**")
         
-        # Step A: Rn
-        st.write("**A) Flexural Resistance Factor ($R_n$)**")
-        st.latex(f"R_n = \\frac{{M_u}}{{\\phi b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}}")
-        st.latex(f"R_n = \\mathbf{{{res['Rn']:.2f}}} \\; \\text{{ksc}}")
-
-        # Step B: Rho Required
-        st.write("**B) Required Ratio ($\\rho_{req}$)**")
-        if res['rho_req'] == 999:
-            st.error("❌ $R_n$ exceeds limit. Section is too thin or concrete too weak.")
-        elif res['rho_req'] == 0:
-            st.info("Moment is negligible. Theoretical $\\rho_{req} = 0$.")
+        if res['rho_req'] == 0:
+            st.info("เนื่องจาก $M_u$ มีค่าน้อยมาก จึงใช้ $\\rho_{req} \\approx 0$ (Design control by Min Steel)")
+        elif res['rho_req'] == 999:
+            st.error("❌ Section Fail: $R_n$ เกินขีดจำกัด (คอนกรีตรับแรงอัดไม่ไหว)")
         else:
+            # Show the term inside sqrt for clarity
+            term = 1 - (2 * res['Rn']) / (0.85 * fc)
             st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
-            st.latex(f"\\rho_{{req}} = {res['rho_calc']:.5f}")
-            st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['rho_calc']:.5f} \\cdot {b*100:.0f} \\cdot {res['d']:.2f} = {res['As_flex']:.2f} \\; \\text{{cm}}^2")
-
-        # Step C: Minimum Steel
-        st.write("**C) Minimum Temperature & Shrinkage Steel ($A_{s,min}$)**")
-        st.latex(r"A_{s,min} = 0.0018 \cdot b \cdot h \quad (\text{for Grade 40/60})")
-        st.latex(f"A_{{s,min}} = 0.0018 \\cdot {b*100:.0f} \\cdot {h} = \\mathbf{{{res['As_min']:.2f}}} \\; \\text{{cm}}^2")
+            
+            st.write("แทนค่าในสูตร:")
+            st.latex(f"\\rho_{{req}} = \\frac{{0.85({fc})}}{{{fy}}} \\left( 1 - \\sqrt{{1 - \\frac{{2({res['Rn']:.3f})}}{{0.85({fc})}}}} \\right)")
+            st.latex(f"\\rho_{{req}} = {0.85*fc/fy:.5f} \\times (1 - \\sqrt{{{term:.4f}}}) = \\mathbf{{{res['rho_calc']:.5f}}}")
 
         st.markdown("---")
-        st.info(f"📌 **Design Control:** $A_{{s,req}} = \\max({res['As_flex']:.2f}, {res['As_min']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2$")
+        st.markdown("### 2.4 Area of Steel ($A_s$)")
+        
+        st.write("**1) Required Flexural Steel:**")
+        st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['rho_calc']:.5f} \\cdot {b_cm:.0f} \\cdot {res['d']:.2f} = \\mathbf{{{res['As_flex']:.2f}}} \\; \\text{{cm}}^2")
+        
+        st.write("**2) Minimum Steel (Temperature & Shrinkage):**")
+        st.latex(r"A_{s,min} = 0.0018 \cdot b \cdot h")
+        st.latex(f"A_{{s,min}} = 0.0018 \\cdot {b_cm:.0f} \\cdot {h} = \\mathbf{{{res['As_min']:.2f}}} \\; \\text{{cm}}^2")
+        
+        st.write("**3) Final Requirement:**")
+        condition = "As_flex > As_min" if res['As_flex'] > res['As_min'] else "As_min > As_flex"
+        st.info(f"👉 **Control Case:** {condition}")
+        st.latex(f"A_{{s,req}} = \\max({res['As_flex']:.2f}, {res['As_min']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2")
 
-    # --- TAB 3: SUMMARY ---
+    # --- TAB 3: VERIFICATION ---
     with c3:
-        st.markdown("**3.1 Provided Reinforcement**")
-        bar_txt = f"DB{db}" if db > 9 else f"RB{db}"
-        st.markdown(f"Try: **{bar_txt} @ {s:.0f} cm**")
+        st.markdown("### 3.1 Provided Reinforcement")
+        st.write(f"เลือกใช้เหล็กเสริม: **DB{db} @ {s:.0f} cm**")
         
-        area_one_bar = 3.1416 * (db/10)**2 / 4
-        st.latex(f"A_{{s,prov}} = \\frac{{b}}{{s}} \\cdot A_{{bar}} = \\frac{{{b*100:.0f}}}{{{s:.0f}}} \\cdot {area_one_bar:.2f}")
+        area_one = 3.1416 * (db/10)**2 / 4
+        st.write(f"- พื้นที่หน้าตัดเหล็ก 1 เส้น ($A_{{bar}}$) = {area_one:.2f} cm²")
+        st.write(f"- จำนวนเส้นต่อความกว้าง $b$ = {b_cm:.0f}/{s:.0f} = {b_cm/s:.2f} เส้น")
         
-        val_color = "green" if res['As_prov'] >= res['As_req'] else "red"
-        st.markdown(f"<h3 style='color:{val_color}'>Provided: {res['As_prov']:.2f} cm²</h3>", unsafe_allow_html=True)
+        st.latex(f"A_{{s,prov}} = \\frac{{{b_cm:.0f}}}{{{s:.0f}}} \\times {area_one:.2f} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
+        
+        if res['As_prov'] >= res['As_req']:
+            st.success(f"✅ OK ($A_{{s,prov}} \ge A_{{s,req}}$)")
+        else:
+            st.error(f"❌ Not OK (ขาดอีก {res['As_req'] - res['As_prov']:.2f} cm²)")
 
         st.markdown("---")
-        st.markdown("**3.2 Moment Capacity Check**")
-        st.latex(f"a = \\frac{{A_s f_y}}{{0.85 f_c' b}} = \\frac{{{res['As_prov']:.2f} \cdot {fy}}}{{0.85 \cdot {fc} \cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
-        st.latex(f"\\phi M_n = \\phi A_s f_y (d - a/2) = {res['PhiMn']:,.0f} \\; \\text{{kg-m}}")
+        st.markdown("### 3.2 Capacity Check (Prove It Works)")
+        st.write("คำนวณกลับเพื่อหากำลังรับโมเมนต์จริง (Reverse Calculation):")
         
-        dc = res['DC']
-        if dc <= 1.0:
-            st.success(f"✅ **PASS** (Demand/Capacity = {dc:.2f})")
-        else:
-            st.error(f"❌ **FAIL** (Demand/Capacity = {dc:.2f})")
+        st.write("**A) ความลึก Stress Block ($a$):**")
+        st.latex(f"a = \\frac{{A_{{s,prov}} f_y}}{{0.85 f_c' b}} = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b_cm:.0f}}} = \\mathbf{{{res['a']:.2f}}} \\; \\text{{cm}}")
+        
+        st.write("**B) Nominal Moment ($M_n$):**")
+        st.latex(r"M_n = A_s f_y (d - a/2)")
+        st.latex(f"M_n = {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)")
+        Mn_kgcm = res['PhiMn'] * 100 / phi_bend # Back calc raw Mn
+        st.latex(f"M_n = {Mn_kgcm:,.0f} \\; \\text{{kg-cm}}")
+        
+        st.write("**C) Design Moment ($\\phi M_n$):**")
+        st.latex(f"\\phi M_n = {phi_bend} \\cdot {Mn_kgcm:,.0f} / 100 = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
+        
+        st.write("**D) Demand / Capacity Ratio:**")
+        d_c = res['DC']
+        color = "green" if d_c <= 1.0 else "red"
+        st.markdown(f"$$ D/C = \\frac{{M_u}}{{\\phi M_n}} = \\frac{{{Mu:,.0f}}}{{{res['PhiMn']:,.0f}}} = \\color{{{color}}}{{\\mathbf{{{d_c:.2f}}}}} $$")
+
+    return
 
 
 # ========================================================
