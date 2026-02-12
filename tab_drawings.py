@@ -124,10 +124,10 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     if mat_props is None: mat_props = {}
     if loads is None: loads = {}
     
-    # Safety: Handle None or 0 values from main app during initialization
+    # Safety: Handle None or 0 values
     h_slab = h_slab if h_slab else 20
     cover = cover if cover else 2.5
-    d_eff = d_eff if d_eff else (h_slab - cover - 1.0) # Approx default
+    d_eff = d_eff if d_eff else (h_slab - cover - 1.0)
     lc = lc if lc else 3.0
     
     c1_m, c2_m = c1_w/100.0, c2_w/100.0
@@ -177,15 +177,11 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         st.markdown(f"**📐 PLAN VIEW: {col_type.upper()} PANEL**")
         fig, ax = plt.subplots(figsize=(8, 6))
         
-        # Determine Labels based on col_type
-        # Default Interior
         lbls = {"top": "CONTINUOUS", "bot": "CONTINUOUS", "left": "CONTINUOUS", "right": "CONTINUOUS"}
-        
-        # Design Column is always Top-Left (0, L2) in this coord system
         target_pos = (0, L2)
 
         if col_type == 'edge':
-            lbls["left"] = "BUILDING EDGE" # Exterior face
+            lbls["left"] = "BUILDING EDGE"
         elif col_type == 'corner':
             lbls["left"] = "BUILDING EDGE"
             lbls["top"] = "BUILDING EDGE"
@@ -195,13 +191,12 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         ax.plot([-margin, L1+margin], [L2/2, L2/2], color='#b0bec5', ls='-.', lw=0.8) # Grid X
         ax.plot([L1/2, L1/2], [-margin, L2+margin], color='#b0bec5', ls='-.', lw=0.8) # Grid Y
         
-        # Main Slab Panel
         ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc='#ffffff', ec='#263238', lw=1.5, zorder=1))
 
         # Columns
         centers = [(0,0), (L1,0), (0,L2), (L1,L2)]
         for cx, cy in centers:
-            # Drop Panel (Plan View - Simplified)
+            # Drop Panel (Plan View)
             if has_drop:
                 ax.add_patch(patches.Rectangle((cx-drop_w_m/2, cy-drop_l_m/2), drop_w_m, drop_l_m, 
                                              fc='#e1f5fe', ec='#0288d1', lw=0.8, ls='--', zorder=2))
@@ -209,7 +204,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
                                          fc='#455a64', ec='black', zorder=5))
 
-        # Revision Cloud (Focus on Top-Left)
+        # Revision Cloud
         c_size = max(c1_m, c2_m) * 3.5
         draw_revision_cloud(ax, target_pos[0], target_pos[1], c_size, c_size)
 
@@ -222,8 +217,6 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # Dims
         draw_dim(ax, (0, L2), (L1, L2), f"{L1:.2f}m", offset=0.8)
         draw_dim(ax, (L1, 0), (L1, L2), f"{L2:.2f}m", offset=0.8, is_vert=True)
-        
-        # Clear Span
         draw_dim(ax, (c1_m/2, L2/4), (L1 - c1_m/2, L2/4), f"Ln={Ln_x:.2f}m", offset=0, color='#2e7d32', style='clear')
         
         ax.set_aspect('equal')
@@ -233,13 +226,13 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         st.pyplot(fig, use_container_width=True)
 
         # ------------------------------------
-        # B. SECTION VIEW (ENHANCED)
+        # B. SECTION VIEW (CORRECTED LOGIC)
         # ------------------------------------
         st.markdown(f"**🏗️ SECTION A-A** (Storey H = {lc:.2f} m)")
         fig_s, ax_s = plt.subplots(figsize=(8, 4))
         
-        cut_w = 250 # cm width of cut for drawing
-        col_draw_h = 150 # cm height of column to draw
+        cut_w = 250
+        col_draw_h = 150
         
         # 1. Column
         ax_s.add_patch(patches.Rectangle((-c1_w/2, -col_draw_h), c1_w, col_draw_h, fc='#546e7a', ec='black', zorder=2))
@@ -247,19 +240,27 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # 2. Slab
         ax_s.add_patch(patches.Rectangle((-cut_w/2, 0), cut_w, h_slab, fc='white', ec='black', hatch='//', zorder=3))
         
-        # 3. Drop Panel Logic (Structural vs Shear Cap)
+        # 3. Drop Panel (With Precise ACI Logic)
         y_bottom_slab = 0
         if has_drop:
-            # === LOGIC START: Check Structural Validity ===
-            # ACI: Extension >= L/6 (Total Width >= L/3) AND Projection >= h_slab/4
-            req_width_cm = (L1 * 100) / 3.0  # Approx L/3 of span
+            # === LOGIC FIX START ===
+            # ACI 318: Extend at least Ln/6 from support center/face
+            # Here we assume symmetrical interior for checking:
+            # Req Extension = Ln/6
+            # Req Total Width = 2 * (Ln/6) + column_width
+            
+            # Use Ln_x (Clear Span in X) for calculation
+            # Ln_x is in meters, convert to cm
+            ln_cm = Ln_x * 100.0
+            req_ext_cm = ln_cm / 6.0
+            req_width_cm = (2 * req_ext_cm) + c1_w
+            
             req_depth_cm = h_slab / 4.0
             
             is_structural_drop = (drop_w_val >= req_width_cm) and (h_drop_val >= req_depth_cm)
 
-            # Determine Style
             if is_structural_drop:
-                # ✅ Valid Structural Drop
+                # ✅ Valid
                 dp_style = '-'
                 dp_color = 'white'
                 dp_edge = 'black'
@@ -267,16 +268,16 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
                 dp_alpha = 1.0
                 dp_label = None
             else:
-                # ⚠️ Shear Cap / Non-Structural
+                # ⚠️ Shear Cap (Non-Structural)
                 dp_style = '--'
-                dp_color = '#FFF3E0' # Light Orange
-                dp_edge = '#E65100'  # Dark Orange
+                dp_color = '#FFF3E0' # Warning Orange
+                dp_edge = '#E65100'
                 dp_hatch = None
                 dp_alpha = 0.8
                 dp_label = "Shear Cap Only\n(Stiffness Ignored)"
 
-            # Draw Drop Panel
-            drop_draw_w = min(cut_w * 0.7, drop_w_val) # Clamp for drawing width
+            # Draw Drop
+            drop_draw_w = min(cut_w * 0.7, drop_w_val)
             ax_s.add_patch(patches.Rectangle(
                 (-drop_draw_w/2, -h_drop_val), drop_draw_w, h_drop_val, 
                 fc=dp_color, ec=dp_edge, hatch=dp_hatch, ls=dp_style, alpha=dp_alpha, zorder=3
@@ -285,34 +286,31 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             y_bottom_slab = -h_drop_val
             draw_dim(ax_s, (drop_draw_w/2 + 10, 0), (drop_draw_w/2 + 10, -h_drop_val), f"{h_drop_val}cm", is_vert=True, color='#0277bd')
 
-            # Add Warning Label if needed
+            # Add Label
             if dp_label:
+                # Adjusted position to ensure it's visible
                 ax_s.annotate(
                     dp_label,
-                    xy=(drop_draw_w/2, -h_drop_val/2),
-                    xytext=(drop_draw_w/2 + 40, -h_drop_val - 20),
-                    arrowprops=dict(arrowstyle='->', color=dp_edge, connectionstyle="arc3,rad=-0.2"),
-                    color=dp_edge, fontsize=9, fontweight='bold',
+                    xy=(drop_draw_w/2, -h_drop_val), # Point to bottom corner
+                    xytext=(drop_draw_w/2 + 20, -h_drop_val - 30), # Text shifted down-right
+                    arrowprops=dict(arrowstyle='->', color=dp_edge, connectionstyle="arc3,rad=0.2"),
+                    color=dp_edge, fontsize=9, fontweight='bold', zorder=100,
                     bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=dp_edge, alpha=0.9)
                 )
-            # === LOGIC END ===
+            # === LOGIC FIX END ===
 
-        # 4. Rebar (Red Line)
-        eff_depth_line = h_slab - cover - 0.5 # Center of bar approx
+        # 4. Rebar
+        eff_depth_line = h_slab - cover - 0.5
         ax_s.plot([-cut_w/2 + 10, cut_w/2 - 10], [eff_depth_line, eff_depth_line], color='#d32f2f', lw=2.5, zorder=4)
         
         # 5. Dimensions
-        # Slab Thickness
         draw_dim(ax_s, (-cut_w/2 - 15, 0), (-cut_w/2 - 15, h_slab), f"h={h_slab:.0f}cm", is_vert=True)
-        # Eff Depth
         draw_dim(ax_s, (cut_w/4, eff_depth_line), (cut_w/4, y_bottom_slab), f"d={d_eff:.2f}cm", is_vert=True, color='#d32f2f')
-        # Storey Height
         draw_dim(ax_s, (-c1_w/2 - 30, 0), (-c1_w/2 - 30, -col_draw_h), f"H={lc:.2f}m", is_vert=True, color='#e65100')
 
-        # [IMPORTANT FIX]: Set Limits explicitly
         ax_s.set_aspect('equal')
         ax_s.axis('off')
-        ax_s.set_xlim(-cut_w/2 - 50, cut_w/2 + 50) 
+        ax_s.set_xlim(-cut_w/2 - 50, cut_w/2 + 50)
         ax_s.set_ylim(-col_draw_h - 20, h_slab + 30)
         
         st.pyplot(fig_s, use_container_width=True)
