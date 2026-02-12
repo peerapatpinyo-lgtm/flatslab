@@ -502,37 +502,58 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                  st.success("✅ **Balanced Span:** No significant unbalanced moment transfer (Interior Span).")
 
     # -----------------------------------------------------
-    # SECTION 2: PUNCHING SHEAR (PRO VERSION)
+    # SECTION 2: PUNCHING SHEAR (PRO VERSION - DETAILED & VERIFIED)
     # -----------------------------------------------------
     if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check (Detailed)")
         
-        # --- 2.1 Prepare Data ---
-        c_col = float(c_para)
-        d_eff_avg = float(h_slab) - float(cover) - 1.6 # Avg effective depth
+        # --- 2.1 Prepare Data & Geometry ---
+        # Convert inputs to float to ensure precision
+        h_slab_val = float(h_slab)
+        cover_val = float(cover)
+        c_col = float(c_para) # Assuming Square Column from input
         
-        # Calculate Load & Area
-        # Note: Vu should be factored load on the critical area. 
-        # Approximating as Total Load - Load directly on column
-        area_panel = (L_span * L_width)
-        area_col = (c_col/100)**2
-        Vu_val = float(w_u) * (area_panel - area_col)
+        # Calculate Effective Depth (d)
+        # Average d for two layers of rebar (assuming ~DB12-16)
+        # d = h - cover - bar_dia
+        d_eff_avg = h_slab_val - cover_val - 1.6 
         
-        # Determine Condition & Moment
+        # Determine Condition & Critical Section Geometry
         if "Interior" in span_type_str:
             col_cond = "interior"
-            M_unbal_cal = 0
-            gamma_v = 0.40 # Typical for square interior
+            # Critical section dimensions (b1, b2)
+            c1_d = c_col + d_eff_avg
+            c2_d = c_col + d_eff_avg
+            b_o_cal = 2 * (c1_d + c2_d)
+            
+            # Gamma_v for Interior (Square) is typically 0.40
+            # Formula: 1 - 1/(1 + 2/3 * sqrt(b1/b2))
+            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (c1_d / c2_d)**0.5)
+            gamma_v = 1.0 - gamma_f
+            
+            M_unbal_cal = 0.0 # Interior usually assumes balanced for DDM unless specified
         else:
             col_cond = "edge"
+            # Critical section for Edge (3 sides)
+            c1_d = c_col + (d_eff_avg / 2.0) # Perpendicular to edge
+            c2_d = c_col + d_eff_avg         # Parallel to edge
+            b_o_cal = (2 * c1_d) + c2_d
+            
+            # Gamma_v Calculation (ACI 318)
+            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (c1_d / c2_d)**0.5)
+            gamma_v = 1.0 - gamma_f
+            
             M_unbal_cal = m_vals.get('M_unbal', 0)
-            # Estimate Gamma_v for Edge (Simplified for display, real calc is in backend)
-            b1 = c_col/100
-            b2 = c_col/100 + d_eff_avg/200 # Approx geometry
-            gamma_v = 0.35 # Placeholder approx if backend doesn't return
-        
-        # Perform Calculation
+
+        # Calculate Shear Demand (Vu)
+        # Vu = Wu * (Panel Area - Column Area)
+        area_panel = (L_span * L_width)
+        area_col = (c_col/100.0)**2
+        Vu_val = float(w_u) * (area_panel - area_col)
+
+        # --- 2.2 Perform Calculation ---
+        # Calling backend function
         ps_res = calc.check_punching_shear(
             Vu=Vu_val,        
             fc=float(fc),
@@ -545,90 +566,97 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             phi=phi_shear 
         )
         
-        # --- 2.2 Visualization & Key Metrics ---
+        # --- 2.3 Visualization & Key Metrics ---
         c_p1, c_p2 = st.columns([1, 2])
         
         with c_p1:
-            # Show Plot (Geomtry)
+            # Show Plot (Geometry)
             if HAS_PLOTS:
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
                     c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
                 ))
             else:
-                # Fallback visual
-                st.markdown(f"""
-                <div style="text-align:center; padding:20px; border:2px dashed #ccc; border-radius:10px;">
-                    <h4>Crit. Perimeter ($b_o$)</h4>
-                    <h2>{ps_res['bo']:.1f} cm</h2>
-                    <p>Depth ($d$) = {d_eff_avg:.2f} cm</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.info("Visual module unavailable")
 
         with c_p2:
             # Result Header
             status_color = "green" if ps_res['status'] == "OK" else "red"
             st.markdown(f"#### Status: :{status_color}[{ps_res['status']}] (Ratio: {ps_res['ratio']:.2f})")
             
-            # Progress Bar for Ratio
-            ratio_val = min(ps_res['ratio'], 1.5) / 1.5
-            st.progress(min(ps_res['ratio'], 1.0), text=f"Utilization: {ps_res['ratio']*100:.1f}%")
+            # Progress Bar
+            ratio_display = min(ps_res['ratio'], 1.5) / 1.5
+            st.progress(min(ratio_display, 1.0), text=f"Utilization: {ps_res['ratio']*100:.1f}%")
 
-            # Stress Breakdown (The "Pro" Part)
-            # Retrieve or Calculate approximate stresses for visualization
-            v_avg = ps_res['Vu'] / (ps_res['bo'] * ps_res['d']) # Direct Shear Stress
-            v_max = ps_res['ratio'] * ps_res['phi_Vc'] / phi_shear # Total Stress (Back-calc)
-            v_moment = max(0, v_max - v_avg) # Stress from Moment
+            # --- STRESS BREAKDOWN (The "Pro" Part) ---
+            # 1. Direct Shear Stress (v_u1 = Vu / bo*d)
+            v_direct = ps_res['Vu'] / (ps_res['bo'] * ps_res['d'])
             
-            # Display Stress Components using Metrics
-            c_stress1, c_stress2, c_stress3 = st.columns(3)
-            with c_stress1:
-                st.metric("Direct Shear ($v_{vu}$)", f"{v_avg:.2f} ksc", help="Stress from Vertical Load ($V_u$) only")
-            with c_stress2:
-                st.metric("Moment Shear ($v_{mu}$)", f"{v_moment:.2f} ksc", help="Stress from Unbalanced Moment ($M_{sc}$)")
-            with c_stress3:
-                st.metric("Capacity ($\\phi v_c$)", f"{ps_res['phi_Vc']/(ps_res['bo']*ps_res['d']):.2f} ksc")
+            # 2. Total Stress allowed (v_n = v_c) and Demand
+            # We derive v_total from the ratio: Ratio = v_total / (phi * v_c)
+            # So v_total = Ratio * phi * v_c
+            # *Note: ps_res['phi_Vc'] is Capacity in kg force, not stress.
+            # Stress Capacity (phi_vn_stress)
+            phi_vn_stress = ps_res['phi_Vc'] / (ps_res['bo'] * ps_res['d'])
+            v_total_stress = ps_res['ratio'] * phi_vn_stress
+            
+            # 3. Moment Stress (v_u2 = gamma * M / J)
+            # Calculate as difference
+            v_moment = max(0.0, v_total_stress - v_direct)
+            
+            # Display Metrics
+            c_s1, c_s2, c_s3 = st.columns(3)
+            with c_s1:
+                st.metric("Direct Shear ($v_{u,load}$)", f"{v_direct:.2f} ksc", help="Stress from Vertical Load")
+            with c_s2:
+                st.metric("Moment Shear ($v_{u,mom}$)", f"{v_moment:.2f} ksc", help="Stress from Unbalanced Moment")
+            with c_s3:
+                st.metric("Capacity ($\\phi v_c$)", f"{phi_vn_stress:.2f} ksc", help="Design Shear Strength")
 
-        # --- 2.3 Detailed Diagnostics & Auto-Fix ---
+        # --- 2.4 Deep Dive & Auto-Fix ---
         with st.expander("🔍 Deep Dive & Suggestions", expanded=(ps_res['status'] != "OK")):
             
             # A. Geometric Properties
-            st.markdown("##### 📐 Geometric Properties")
-            c_g1, c_g2, c_g3 = st.columns(3)
-            c_g1.write(f"**Critical Perimeter ($b_o$):** {ps_res['bo']:.2f} cm")
-            c_g2.write(f"**Effective Depth ($d$):** {d_eff_avg:.2f} cm")
-            # If backend provides Jc/gamma, use them. If not, simulate note.
-            c_g3.write(f"**Gamma ($ \\gamma_v $):** {gamma_v:.2f} (Est.)")
+            st.markdown("##### 📐 Calculation Parameters")
+            c_g1, c_g2, c_g3, c_g4 = st.columns(4)
+            c_g1.write(f"**$b_o$ (Perim):** {ps_res['bo']:.1f} cm")
+            c_g2.write(f"**$d$ (Depth):** {ps_res['d']:.1f} cm")
+            c_g3.write(f"**$\\gamma_v$ (Factor):** {gamma_v:.2f}")
+            c_g4.write(f"**$M_{{sc}}$:** {M_unbal_cal:,.0f} kg-m")
 
             st.divider()
 
             # B. The Formula
-            st.markdown("##### 🧮 ACI 318 Calculation Formula")
-            st.latex(r"v_{u(max)} = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c} \le \phi v_c")
+            st.markdown("##### 🧮 ACI 318 Stress Check")
+            st.latex(r"v_{u} = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c} \le \phi v_c")
             
-            # C. Failure Analysis & Recommendation
+            # C. Diagnosis & Fix
             if ps_res['status'] != "OK":
-                st.error("❌ **Analysis:** The section has failed.")
+                st.error(f"❌ **Analysis:** Section FAILED by {((ps_res['ratio']-1)*100):.1f}%")
                 
-                # Logic to determine cause
-                if v_moment > v_avg:
-                    cause = "High Unbalanced Moment ($M_{sc}$)"
-                    suggestion = "Add Drop Panel or Reduce Span Discontinuity."
+                # Diagnosis
+                if v_moment > v_direct:
+                    cause = "Unbalanced Moment ($M_{sc}$)"
+                    rec = "Consider Drop Panel or Edge Beam."
                 else:
-                    cause = "High Vertical Load ($V_u$)"
-                    suggestion = "Increase Slab Thickness or Column Size."
+                    cause = "Vertical Shear ($V_u$)"
+                    rec = "Increase Slab Thickness."
                 
-                st.write(f"👉 **Primary Cause:** {cause}")
+                st.write(f"👉 **Primary Cause:** High Stress from **{cause}**")
                 
-                # --- AUTO-CALCULATE REQUIRED THICKNESS ---
-                # Simple approximation: Ratio * current_d + cover
-                req_d = d_eff_avg * math.sqrt(ps_res['ratio']) # Square root approx for shear
-                req_h = req_d + float(cover) + 1.6
+                # Auto-Fix Calculation
+                # Estimate required d to match capacity (Linear approx for shear perim)
+                # This is an approximation: New_d = Old_d * sqrt(Ratio)
+                req_d = d_eff_avg * (ps_res['ratio'] ** 0.5)
+                req_h = req_d + cover_val + 1.6 # Add cover + bar size
                 
-                st.info(f"💡 **Auto-Fix:** Suggested Min. Slab Thickness $\\approx$ **{req_h:.1f} cm** (Current: {h_slab} cm)")
-                st.write(f"*(Or add Drop Panel thickness approx {req_h - h_slab:.1f} cm)*")
+                # Round up to nearest 0.5 cm
+                req_h = ((req_h * 2) // 1 + 1) / 2 
+                
+                st.info(f"💡 **Suggestion:** Increase slab thickness to **{req_h:.1f} cm** (Current: {h_slab} cm)")
+                st.caption(f"*{rec}*")
+                
             else:
-                st.success("✅ **Analysis:** Section is adequate. No additional shear reinforcement required.")
-
+                st.success("✅ **Analysis:** Section is adequate. Stress is within limits.")
     # -----------------------------------------------------
     # SECTION 3: SERVICEABILITY (DEFLECTION)
     # -----------------------------------------------------
