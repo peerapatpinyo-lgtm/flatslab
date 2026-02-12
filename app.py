@@ -279,50 +279,7 @@ with c_title2:
 
 st.markdown("---")
 
-# KPI Cards Function
-def render_metric(label, value, status, subtext):
-    is_ok = status in ["OK", "PASS", "SAFE"]
-    css_class = "status-pass" if is_ok else "status-fail"
-    icon = "✅" if is_ok else "❌"
-    
-    html = f"""
-    <div class="metric-card">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value">{value}</div>
-        <div class="{css_class}">{icon} {status}</div>
-        <div style="font-size:0.8rem; color:#94a3b8; margin-top:5px;">{subtext}</div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
-# Display KPI Row
-k1, k2, k3, k4 = st.columns(4)
-
-with k1:
-    # PUNCHING SHEAR (High Priority)
-    vc_ratio = punch_res.get('ratio', 0)
-    p_status = punch_res.get('status', 'ERR')
-    # แสดงค่า Alpha_s ให้ user เห็นว่า Logic ทำงาน
-    render_metric("Punching Shear (Vu/φVn)", f"{vc_ratio:.2f}", p_status, f"Pos: {col_type.title()} (αs={alpha_s})")
-
-with k2:
-    # ONE WAY SHEAR
-    v_ratio = shear_res.get('ratio', 0)
-    v_status = shear_res.get('status', 'ERR')
-    render_metric("One-Way Shear", f"{v_ratio:.2f}", v_status, f"Crit. Axis: {shear_res.get('critical_dir','-')}")
-
-with k3:
-    # DEFLECTION (h_min)
-    h_min = check_res.get('h_min', 0)
-    def_status = "PASS" if h_slab >= h_min else "FAIL"
-    render_metric("Thickness Check", f"L/33", def_status, f"Min Req: {h_min:.1f} cm")
-
-with k4:
-    # LOAD
-    wu = loads_res.get('w_u', 0)
-    render_metric("Factored Load (Wu)", f"{wu:,.0f}", "INFO", "kg/m²")
-
-st.markdown("<br>", unsafe_allow_html=True)
+# *** NOTE: Removed KPI Cards Row (Punching Shear, One-way Shear, Thickness, Loads) as requested ***
 
 # =========================================================
 # 5. DETAILED TABS
