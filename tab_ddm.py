@@ -54,7 +54,7 @@ def calc_rebar_logic(
     d_eff = h_cm - cover - (d_bar / 20.0) - d_offset
     
     if d_eff <= 0:
-        return {"Status": False, "Note": "Depth Error", "d": 0, "As_req": 0}
+        return {"Status": False, "Note": "Depth Error (d<=0)", "d": 0, "As_req": 0}
 
     # 2. Beta 1
     beta1 = get_beta1(fc)
@@ -228,8 +228,9 @@ def update_moments_based_on_config(data_obj: Dict, span_type: str) -> Dict:
     data_obj['span_type_str'] = span_type
     return data_obj
 
+
 # ========================================================
-# 3. DETAILED CALCULATION RENDERER (THE EXPLAINER - ULTRA DETAILED)
+# 3. DETAILED CALCULATION RENDERER (ULTRA DETAILED)
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
     # Unpack Inputs
@@ -243,10 +244,11 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
     <div style="background-color:#f0f9ff; padding:15px; border-radius:10px; border-left: 5px solid #0369a1;">
         <h4 style="margin:0; color:#0369a1;">🔍 Detailed Analysis: {zone_name}</h4>
         <p style="margin:5px 0 0 0; color:#475569; font-size:0.9em;">
-            Step-by-Step Derivation & Detailed Formulas
+            Comprehensive Step-by-Step Derivation & Verification
         </p>
     </div>
     """, unsafe_allow_html=True)
+    
 
     c1, c2, c3 = st.tabs(["1️⃣ Load & Geometry", "2️⃣ Flexural Design", "3️⃣ Verification"])
     
@@ -263,113 +265,164 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
         """)
 
         st.markdown("---")
-        st.markdown("### 1.2 Effective Depth ($d$)")
-        st.write("Effective depth, measured from compression face to centroid of tension reinforcement:")
+        st.markdown("### 1.2 Effective Depth Calculation ($d$)")
+        st.write("The effective depth is the distance from the extreme compression fiber to the centroid of the longitudinal tension reinforcement.")
         
-        # Check layout logic to explain offset
+        # Explicit check for layer offset
         layer_offset = 0.0
-        if res['d'] < (h - cover - db/10.0):
+        # If the calculated d is less than standard d, it means we applied an offset for inner layers
+        standard_d = h - cover - (db/20.0)
+        if res['d'] < (standard_d - 0.01): # Use small epsilon for float comparison
              layer_offset = db/10.0
-             st.info(f"ℹ️ **Note:** Inner Layer bar: subtracting outer layer diameter ({layer_offset} cm).")
+             st.info(f"ℹ️ **Note:** This is an **Inner Layer** reinforcement. We subtract the outer layer bar diameter ({layer_offset} cm).")
 
+        st.write("**Formula:**")
         st.latex(r"d = h - C_c - \frac{d_b}{2} - \text{Layer Offset}")
-        st.latex(f"d = {h} - {cover} - \\frac{{{db/10:.1f}}}{{2}} - {layer_offset} = \\mathbf{{{res['d']:.2f}}} \\; \\text{{cm}}")
+        
+        st.write("**Substitution:**")
+        st.latex(f"d = {h} - {cover} - \\frac{{{db/10:.1f}}}{{2}} - {layer_offset}")
+        
+        st.write("**Result:**")
+        st.latex(f"d = \\mathbf{{{res['d']:.2f}}} \\; \\text{{cm}}")
         
         st.markdown("---")
-        st.markdown("### 1.3 Design Moment ($M_u$)")
-        st.write("Design Moment is calculated from Total Static Moment ($M_o$) multiplied by DDM coefficient:")
+        st.markdown("### 1.3 Design Moment Calculation ($M_u$)")
+        st.write("The design moment is derived from the Total Static Moment ($M_o$) distributed by the Direct Design Method (DDM) coefficients.")
+        
+        st.write("**Given:**")
         st.latex(f"M_o = \\mathbf{{{Mo_val:,.0f}}} \\; \\text{{kg-m}}")
-        st.latex(f"\\text{{Coeff}} = {coeff_pct/100:.3f} \\; ({coeff_pct:.1f}\%)")
+        st.latex(f"\\text{{DDM Coefficient}} = {coeff_pct/100:.3f} \\; ({coeff_pct:.1f}\%)")
+        
+        st.write("**Calculation:**")
+        st.latex(f"M_u = \\text{{Coeff}} \\times M_o")
         st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
+        st.latex(f"M_u (converted) = {Mu:,.0f} \\times 100 = \\mathbf{{{Mu_kgcm:,.0f}}} \\; \\text{{kg-cm}}")
 
     # --- TAB 2: REINFORCEMENT ---
     with c2:
         st.markdown("### 2.1 Strength Reduction Factor")
-        st.write(f"Using $\\phi = {phi_bend}$ for tension-controlled flexure.")
-
-        st.markdown("### 2.2 Calculate $R_n$ (Nominal Strength req.)")
-        st.write("Convert $M_u$ to kg-cm and normalize by section properties:")
-        st.latex(r"R_n = \frac{M_u}{\phi b d^2}")
-        st.latex(f"R_n = \\frac{{{Mu:,.0f} \\times 100}}{{{phi_bend} \\cdot {b_cm:.0f} \\cdot {res['d']:.2f}^2}}")
-        st.latex(f"R_n = \\frac{{{Mu_kgcm:,.0f}}}{{{phi_bend * b_cm * res['d']**2:,.0f}}} = \\mathbf{{{res['Rn']:.3f}}} \\; \\text{{ksc}}")
+        st.write(f"Using **$\\phi = {phi_bend}$** for tension-controlled sections (Flexure) as per ACI 318.")
 
         st.markdown("---")
-        st.markdown("### 2.3 Reinforcement Ratio ($\\rho_{req}$)")
+        st.markdown("### 2.2 Nominal Strength Requirement ($R_n$)")
+        st.write("First, we determine the required nominal strength coefficient $R_n$ to design the reinforcement ratio.")
+        
+        st.write("**Formula:**")
+        st.latex(r"R_n = \frac{M_u}{\phi b d^2}")
+        
+        st.write("**Substitution:**")
+        st.latex(f"R_n = \\frac{{{Mu_kgcm:,.0f}}}{{{phi_bend} \\cdot {b_cm:.0f} \\cdot ({res['d']:.2f})^2}}")
+        
+        denominator = phi_bend * b_cm * (res['d']**2)
+        st.latex(f"R_n = \\frac{{{Mu_kgcm:,.0f}}}{{{denominator:,.0f}}}")
+        
+        st.write("**Result:**")
+        st.latex(f"R_n = \\mathbf{{{res['Rn']:.3f}}} \\; \\text{{ksc}}")
+
+        st.markdown("---")
+        st.markdown("### 2.3 Required Reinforcement Ratio ($\\rho_{req}$)")
         
         # Explain Beta 1
-        st.write(f"**Step A: Determine $\\beta_1$** (for $f_c' = {fc}$ ksc)")
+        st.write(f"**Step A: Determine $\\beta_1$ Factor**")
+        st.write(f"For concrete strength $f_c' = {fc}$ ksc:")
         if fc <= 280:
-            st.latex(r"\beta_1 = 0.85 \quad (\because f_c' \le 280)")
+            st.latex(r"\beta_1 = 0.85 \quad (\because f_c' \le 280 \text{ ksc})")
         else:
             st.latex(r"\beta_1 = 0.85 - 0.05\frac{f_c' - 280}{70} \ge 0.65")
             st.latex(f"\\beta_1 = {res['beta1']:.3f}")
 
-        st.write("**Step B: Calculate $\\rho_{req}$:**")
+        st.write("**Step B: Calculate $\\rho_{req}$**")
         
         if res['rho_req'] == 0:
-            st.info("Since $M_u$ is negligible, assume $\\rho_{req} \\approx 0$ (Design governed by Min Steel).")
+            st.info("Since $M_u$ is negligible, assume $\\rho_{req} \\approx 0$. Design will be governed by Minimum Steel ($A_{s,min}$).")
         elif res['rho_req'] == 999:
-            st.error("❌ Section Failure: $R_n$ exceeds limit (Concrete crushing).")
+            st.error("❌ **CRITICAL FAILURE:** The section is too small. $R_n$ exceeds the maximum capacity allowed by the concrete. Increase slab thickness or concrete strength.")
         else:
-            # Show the term inside sqrt for clarity
-            term = 1 - (2 * res['Rn']) / (0.85 * fc)
+            st.write("**Formula:**")
             st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
             
-            st.write("Substituting values:")
+            # Show the term inside sqrt for clarity
+            term_inside_sqrt = 1 - (2 * res['Rn']) / (0.85 * fc)
+            
+            st.write("**Substitution:**")
             st.latex(f"\\rho_{{req}} = \\frac{{0.85({fc})}}{{{fy}}} \\left( 1 - \\sqrt{{1 - \\frac{{2({res['Rn']:.3f})}}{{0.85({fc})}}}} \\right)")
-            st.latex(f"\\rho_{{req}} = {0.85*fc/fy:.5f} \\times (1 - \\sqrt{{{term:.4f}}}) = \\mathbf{{{res['rho_calc']:.5f}}}")
+            
+            st.write("**Intermediate Calculation:**")
+            st.latex(f"\\text{{Inside Sqrt}} = 1 - { (2 * res['Rn']) / (0.85 * fc) :.4f} = {term_inside_sqrt:.4f}")
+            
+            st.write("**Result:**")
+            st.latex(f"\\rho_{{req}} = {0.85*fc/fy:.5f} \\times (1 - {np.sqrt(term_inside_sqrt):.4f}) = \\mathbf{{{res['rho_calc']:.5f}}}")
 
         st.markdown("---")
-        st.markdown("### 2.4 Area of Steel ($A_s$)")
+        st.markdown("### 2.4 Required Steel Area ($A_s$)")
         
-        st.write("**1) Required Flexural Steel:**")
-        st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['rho_calc']:.5f} \\cdot {b_cm:.0f} \\cdot {res['d']:.2f} = \\mathbf{{{res['As_flex']:.2f}}} \\; \\text{{cm}}^2")
+        st.write("**1) Required Flexural Steel ($A_{s,flex}$):**")
+        st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['rho_calc']:.5f} \\cdot {b_cm:.0f} \\cdot {res['d']:.2f}")
+        st.latex(f"A_{{s,flex}} = \\mathbf{{{res['As_flex']:.2f}}} \\; \\text{{cm}}^2")
         
-        st.write("**2) Minimum Steel (Temperature & Shrinkage):**")
+        st.write("**2) Minimum Steel for Shrinkage & Temperature ($A_{s,min}$):**")
+        st.write("According to ACI 318 for slabs using Deformed Bars ($f_y \ge 4000$ psi):")
         st.latex(r"A_{s,min} = 0.0018 \cdot b \cdot h")
         st.latex(f"A_{{s,min}} = 0.0018 \\cdot {b_cm:.0f} \\cdot {h} = \\mathbf{{{res['As_min']:.2f}}} \\; \\text{{cm}}^2")
         
-        st.write("**3) Final Requirement:**")
+        st.write("**3) Final Design Area ($A_{s,req}$):**")
         condition = "As_flex > As_min" if res['As_flex'] > res['As_min'] else "As_min > As_flex"
         st.info(f"👉 **Control Case:** {condition}")
-        st.latex(f"A_{{s,req}} = \\max({res['As_flex']:.2f}, {res['As_min']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2")
+        st.latex(f"A_{{s,req}} = \\max(A_{{s,flex}}, A_{{s,min}}) = \\max({res['As_flex']:.2f}, {res['As_min']:.2f})")
+        st.latex(f"A_{{s,req}} = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2")
 
     # --- TAB 3: VERIFICATION ---
     with c3:
         st.markdown("### 3.1 Provided Reinforcement")
-        st.write(f"Selected: **DB{db} @ {s:.0f} cm**")
+        st.write(f"**Selection:** DB{db} spaced at {s:.0f} cm")
         
-        area_one = 3.1416 * (db/10)**2 / 4
-        st.write(f"- Area of 1 bar ($A_{{bar}}$) = {area_one:.2f} cm²")
-        st.write(f"- Bars per width $b$ = {b_cm:.0f}/{s:.0f} = {b_cm/s:.2f} bars")
+        area_one_bar = np.pi * (db/10.0)**2 / 4.0
         
-        st.latex(f"A_{{s,prov}} = \\frac{{{b_cm:.0f}}}{{{s:.0f}}} \\times {area_one:.2f} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
+        st.write("**Area of one bar ($A_{bar}$):**")
+        st.latex(f"A_{{bar}} = \\frac{{\\pi \cdot ({db/10.0})^2}}{{4}} = {area_one_bar:.2f} \\; \\text{{cm}}^2")
         
+        st.write("**Total Provided Area ($A_{s,prov}$):**")
+        st.latex(r"A_{s,prov} = \frac{b}{s} \times A_{bar}")
+        st.latex(f"A_{{s,prov}} = \\frac{{{b_cm:.0f}}}{{{s:.0f}}} \\times {area_one_bar:.2f} = {b_cm/s:.2f} \\times {area_one_bar:.2f}")
+        st.latex(f"A_{{s,prov}} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
+        
+        # Check Area
         if res['As_prov'] >= res['As_req']:
-            st.success(f"✅ OK ($A_{{s,prov}} \ge A_{{s,req}}$)")
+            st.success(f"✅ **PASS:** Provided Steel ({res['As_prov']:.2f}) $\ge$ Required Steel ({res['As_req']:.2f})")
         else:
-            st.error(f"❌ Not OK (Deficient by {res['As_req'] - res['As_prov']:.2f} cm²)")
+            diff = res['As_req'] - res['As_prov']
+            st.error(f"❌ **FAIL:** Deficient by {diff:.2f} cm². Decrease spacing or increase bar size.")
 
         st.markdown("---")
-        st.markdown("### 3.2 Capacity Check (Prove It Works)")
-        st.write("Reverse calculation to find actual Moment Capacity:")
+        st.markdown("### 3.2 Moment Capacity Verification ($\\phi M_n$)")
+        st.write("We perform a reverse calculation to determine the actual capacity of the selected reinforcement.")
         
-        st.write("**A) Stress Block Depth ($a$):**")
-        st.latex(f"a = \\frac{{A_{{s,prov}} f_y}}{{0.85 f_c' b}} = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b_cm:.0f}}} = \\mathbf{{{res['a']:.2f}}} \\; \\text{{cm}}")
+        st.write("**A) Equivalent Stress Block Depth ($a$):**")
+        st.latex(r"a = \frac{A_{s,prov} f_y}{0.85 f_c' b}")
+        st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b_cm:.0f}}}")
+        st.latex(f"a = \\mathbf{{{res['a']:.2f}}} \\; \\text{{cm}}")
         
-        st.write("**B) Nominal Moment ($M_n$):**")
-        st.latex(r"M_n = A_s f_y (d - a/2)")
+        st.write("**B) Nominal Moment Capacity ($M_n$):**")
+        st.latex(r"M_n = A_{s,prov} f_y (d - a/2)")
         st.latex(f"M_n = {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)")
-        Mn_kgcm = res['PhiMn'] * 100 / phi_bend # Back calc raw Mn
-        st.latex(f"M_n = {Mn_kgcm:,.0f} \\; \\text{{kg-cm}}")
         
-        st.write("**C) Design Moment ($\\phi M_n$):**")
-        st.latex(f"\\phi M_n = {phi_bend} \\cdot {Mn_kgcm:,.0f} / 100 = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
+        Mn_val_kgcm = res['As_prov'] * fy * (res['d'] - res['a']/2)
+        st.latex(f"M_n = {Mn_val_kgcm:,.0f} \\; \\text{{kg-cm}}")
         
-        st.write("**D) Demand / Capacity Ratio:**")
+        st.write("**C) Design Moment Capacity ($\\phi M_n$):**")
+        st.latex(f"\\phi M_n = {phi_bend} \\cdot M_n = {phi_bend} \\cdot {Mn_val_kgcm:,.0f}")
+        st.latex(f"\\phi M_n = {res['PhiMn']*100:,.0f} \\; \\text{{kg-cm}} = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
+        
+        st.markdown("---")
+        st.markdown("### 3.3 Demand / Capacity Ratio (D/C)")
+        
         d_c = res['DC']
         color = "green" if d_c <= 1.0 else "red"
-        st.markdown(f"$$ D/C = \\frac{{M_u}}{{\\phi M_n}} = \\frac{{{Mu:,.0f}}}{{{res['PhiMn']:,.0f}}} = \\color{{{color}}}{{\\mathbf{{{d_c:.2f}}}}} $$")
+        status_text = "SAFE" if d_c <= 1.0 else "UNSAFE"
+        
+        st.write("The ratio of Load ($M_u$) to Capacity ($\\phi M_n$):")
+        st.latex(f"D/C = \\frac{{M_u}}{{\\phi M_n}} = \\frac{{{Mu:,.0f}}}{{{res['PhiMn']:,.0f}}}")
+        st.markdown(f"$$ D/C = \\color{{{color}}}{{\\mathbf{{{d_c:.3f}}}}} \\quad (\\text{{{status_text}}}) $$")
 
     return
 
@@ -433,6 +486,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check")
+        
         
         c_col = float(c_para)
         load_area = (L_span * L_width) - ((c_col/100)**2)
