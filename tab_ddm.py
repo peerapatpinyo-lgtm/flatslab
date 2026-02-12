@@ -619,7 +619,88 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         }
         with t1: st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
         with t2: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
+# ========================================================
+# HELPER: SCHEMATIC DIAGRAM DRAWING
+# ========================================================
+def draw_span_schematic(span_type):
+    """
+    วาดรูปตัดขวาง (Schematic Section) เพื่อแสดง Boundary Condition
+    """
+    # สร้างรูปขนาดเล็ก (สูง 2 นิ้ว)
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.set_xlim(-1, 11)
+    ax.set_ylim(-1, 3.5)
+    ax.axis('off') # ปิดแกน
 
+    # สีและสไตล์
+    slab_color = '#e0e0e0'     # สีคอนกรีต
+    support_color = '#404040'  # สีเสา
+    line_color = 'black'
+    font_props = {'ha': 'center', 'va': 'center', 'fontsize': 9, 'color': 'blue'}
+    small_font = {'fontsize': 8, 'color': 'gray', 'ha': 'center'}
+
+    # 1. วาดพื้น Slab หลัก (ยาวตลอดช่วง 0-10)
+    rect = patches.Rectangle((0, 1.5), 10, 0.5, linewidth=1, edgecolor=line_color, facecolor=slab_color)
+    ax.add_patch(rect)
+
+    if "Interior" in span_type:
+        # --- Case: Interior Span (ต่อเนื่องซ้ายขวา) ---
+        # เสาซ้าย (Continuous)
+        ax.add_patch(patches.Rectangle((-0.5, 0), 1, 1.5, color=support_color))
+        ax.text(-0.5, 1.75, "~", fontsize=20, ha='center') # Break line
+        
+        # เสาขวา (Continuous)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        ax.text(10.5, 1.75, "~", fontsize=20, ha='center') # Break line
+        
+        # Label
+        ax.text(5, 2.8, "Interior Span", weight='bold', ha='center')
+        ax.text(5, 2.4, "(Continuous Both Ends)", **font_props)
+        
+        # Coeffs Display
+        ax.text(1, 0.8, "Neg\n0.65", **small_font)
+        ax.text(5, 0.8, "Pos\n0.35", **small_font)
+        ax.text(9, 0.8, "Neg\n0.65", **small_font)
+
+    elif "Edge Beam" in span_type:
+        # --- Case: End Span with Edge Beam (ขอบมีคาน) ---
+        # เสาซ้าย (Edge Column + Beam)
+        ax.add_patch(patches.Rectangle((0, 0.5), 1, 1.0, linewidth=1, edgecolor=line_color, facecolor='#a0a0a0')) # Beam
+        ax.add_patch(patches.Rectangle((0, 0), 1, 1.5, color=support_color)) # Column
+        
+        # เสาขวา (Interior Column)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        ax.text(10.5, 1.75, "~", fontsize=20, ha='center')
+        
+        # Label
+        ax.text(5, 2.8, "End Span w/ Edge Beam", weight='bold', ha='center')
+        ax.text(5, 2.4, "(Stiff Edge Constraint)", **font_props)
+        ax.text(1.2, 0.2, "Stiff Beam", fontsize=8, color='red')
+        
+        # Coeffs
+        ax.text(0.5, 0.8, "Ext.Neg\n0.30", **small_font)
+        ax.text(5, 0.8, "Pos\n0.50", **small_font)
+        ax.text(9, 0.8, "Int.Neg\n0.70", **small_font)
+
+    elif "No Beam" in span_type:
+        # --- Case: Flat Plate (ไม่มีคานขอบ) ---
+        # เสาซ้าย (Edge Column Only)
+        ax.add_patch(patches.Rectangle((0, 0), 1, 1.5, color=support_color))
+        
+        # เสาขวา (Interior Column)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        ax.text(10.5, 1.75, "~", fontsize=20, ha='center')
+        
+        # Label
+        ax.text(5, 2.8, "End Span (Flat Plate)", weight='bold', ha='center')
+        ax.text(5, 2.4, "(Flexible Edge Constraint)", **font_props)
+        
+        # Coeffs
+        ax.text(0.5, 0.8, "Ext.Neg\n0.26", **small_font)
+        ax.text(5, 0.8, "Pos\n0.52", **small_font)
+        ax.text(9, 0.8, "Int.Neg\n0.70", **small_font)
+
+    return fig
 # ========================================================
 # MAIN ENTRY POINT
 # ========================================================
