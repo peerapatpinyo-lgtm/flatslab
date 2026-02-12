@@ -624,16 +624,51 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ RC Slab Design (DDM Analysis)")
     
-    with st.expander("⚙️ Span Continuity Settings", expanded=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**X-Direction ($L_x$={data_x['L_span']}m)**")
-            type_x = st.selectbox("Span Type X", ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], key="sx")
+    # ------------------------------------------------------------------
+    # ส่วนแก้ไข: Span Continuity Settings พร้อมรูปภาพประกอบ
+    # ------------------------------------------------------------------
+    with st.expander("⚙️ Span Continuity Settings & Diagrams", expanded=True):
+        st.info("💡 **Tips:** เลือกประเภทของช่วงพาด (Span Type) ให้ตรงกับตำแหน่งของแผ่นพื้นจริง เพื่อให้โปรแกรมเลือกสัมประสิทธิ์โมเมนต์ (Moment Coefficients) ตามมาตรฐาน ACI 318 ได้ถูกต้อง")
+        
+        # --- X-Direction ---
+        st.markdown(f"### ➡️ X-Direction Analysis ($L_x$={data_x['L_span']}m)")
+        c1_x, c2_x = st.columns([1, 2]) # แบ่งสัดส่วน 1:2 (เมนู : รูปภาพ)
+        
+        with c1_x:
+            # Dropdown Selection
+            type_x = st.radio(
+                "Select Span Condition (X-Axis):", 
+                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], 
+                key="sx",
+                help="Interior: ต่อเนื่อง 2 ฝั่ง / End Span: อยู่ริมอาคาร"
+            )
+            # อัปเดตข้อมูลโมเมนต์ทันที
             data_x = update_moments_based_on_config(data_x, type_x)
-        with c2:
-            st.markdown(f"**Y-Direction ($L_y$={data_y['L_span']}m)**")
-            type_y = st.selectbox("Span Type Y", ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], key="sy")
+            
+        with c2_x:
+            # แสดงรูป Schematic ทันที
+            st.pyplot(draw_span_schematic(type_x), use_container_width=False)
+
+        st.markdown("---") # เส้นคั่นแนวนอน
+
+        # --- Y-Direction ---
+        st.markdown(f"### ⬆️ Y-Direction Analysis ($L_y$={data_y['L_span']}m)")
+        c1_y, c2_y = st.columns([1, 2])
+        
+        with c1_y:
+            type_y = st.radio(
+                "Select Span Condition (Y-Axis):", 
+                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], 
+                key="sy"
+            )
             data_y = update_moments_based_on_config(data_y, type_y)
+            
+        with c2_y:
+            st.pyplot(draw_span_schematic(type_y), use_container_width=False)
+            
+    # ------------------------------------------------------------------
+    # จบส่วนแก้ไข
+    # ------------------------------------------------------------------
 
     tab_x, tab_y = st.tabs(["➡️ X-Direction Check", "⬆️ Y-Direction Check"])
     
