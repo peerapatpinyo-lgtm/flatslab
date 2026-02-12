@@ -71,20 +71,21 @@ def draw_boundary_label(ax, x, y, text, rotation=0):
             bbox=dict(facecolor=bg_col, edgecolor=border_col, alpha=1.0, pad=4, boxstyle="round,pad=0.4"))
 
 def draw_revision_cloud(ax, x, y, width, height):
-    """Draws a generic 'cloud' shape to highlight the design column."""
-    cloud = patches.Ellipse(
+    """Draws a dashed circle highlight around the design column."""
+    # Changed from Cloud to Dashed Circle (Ellipse)
+    circle = patches.Ellipse(
         (x, y), width, height,
         ec='#ff6d00', # Bright Orange
         fc='none',    
-        lw=2.5,        
-        ls='-',
+        lw=2.0,        
+        ls='--',      # Dashed Line
         zorder=15
     )
-    cloud.set_sketch_params(scale=2.0, length=10.0, randomness=5.0)
-    ax.add_patch(cloud)
+    # Removed sketch_params to make it clean lines
+    ax.add_patch(circle)
     
     ax.annotate("DESIGN\nCOLUMN", xy=(x + width/2 * 0.7, y - height/2 * 0.7), 
-                xytext=(x + width*1.2, y - height*1.2),
+                xytext=(x + width*1.0, y - height*1.0),
                 arrowprops=dict(arrowstyle="->", color='#ff6d00', connectionstyle="arc3,rad=-0.2"),
                 color='#e65100', fontsize=9, fontweight='bold', ha='left')
 
@@ -264,7 +265,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
             ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
                                             fc='#455a64', ec='black', zorder=5))
 
-        # Revision Cloud (Targeting Top-Left)
+        # Revision Cloud (Targeting Top-Left) -> NOW DASHED CIRCLE
         c_size = max(c1_m, c2_m) * 3.5
         draw_revision_cloud(ax, 0, L2, c_size, c_size)
 
