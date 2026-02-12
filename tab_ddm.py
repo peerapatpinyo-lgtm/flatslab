@@ -429,7 +429,7 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
     return
 
 # ========================================================
-# 4. UI RENDERER (INTERACTIVE)
+# 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
 # ========================================================
 # ========================================================
 # 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
@@ -447,8 +447,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     cfg = mat_props.get('rebar_cfg', {})
     
     L_span = data['L_span']
-    # ตรวจสอบว่ามี key 'L_width' หรือไม่ ถ้าไม่มีให้ใช้ค่าจากอีกแกน (Logic กัน Error)
-    L_width = data.get('L_width', L_span) 
+    L_width = data.get('L_width', L_span) # Use get to prevent key error
     c_para = data['c_para']
     Mo = data['Mo']
     m_vals = data['M_vals']
@@ -483,17 +482,19 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             st.latex(f"M_o = \\frac{{w_u l_2 l_n^2}}{{8}} = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
             st.latex(f"M_o = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
             
-            # --- Check Unbalanced Moment ---
+            # --- Unbalanced Moment Check & Note ---
             M_sc = m_vals.get('M_unbal', 0)
             if M_sc > 0:
                 st.warning(f"⚠️ **Unbalanced Moment ($M_{{sc}}$):** {M_sc:,.0f} kg-m (Transferred to Edge Column)")
                 
-                # [ADDED] English Note as requested
+                # [FIXED & IMPROVED] Explicit English Note
                 coeff_used = M_sc / Mo if Mo > 0 else 0
-                st.caption(f"""
-                📝 **Note:** Derived from **$M_{{sc}} = {coeff_used:.2f} \\times M_o$**. 
-                This represents the **Exterior Negative Moment** transferred directly to the edge column due to the lack of continuity at the slab edge (based on ACI 318 DDM Coefficients).
+                st.markdown(f"""
+                > 📝 **Engineering Note:** > This value is derived from **$M_{{sc}} = {coeff_used:.2f} \\times M_o$** (Exterior Negative Moment).  
+                > It represents the moment transferred directly to the edge column due to the **discontinuity** at the slab edge. This is the critical factor causing high punching shear stress.
                 """)
+            else:
+                 st.success("✅ **Balanced Span:** No significant unbalanced moment transfer (Interior Span).")
 
     # -----------------------------------------------------
     # SECTION 2: PUNCHING SHEAR (INTEGRATED)
