@@ -2,33 +2,59 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib as mpl
 import pandas as pd
 import numpy as np
 
 # ==========================================
-# 1. GRAPHICS ENGINE & UTILS
+# 0. CAD STYLE CONFIGURATION
 # ==========================================
-def draw_dim(ax, p1, p2, text, offset=0, color='#263238', is_vert=False, font_size=9, style='standard', check_pass=True):
-    """Render architectural dimensions with professional styling."""
+# Professional Engineering Palette
+CAD_BG = 'white'
+CAD_SLAB_EDGE = '#37474F'  # Dark Slate
+CAD_SLAB_FILL = '#FFFFFF'
+CAD_COL_FILL = '#546E7A'   # Blue Grey
+CAD_COL_EDGE = '#263238'
+CAD_DIM_COLOR = '#455A64'  # Slate Grey for dimensions
+CAD_REBAR = '#C62828'      # Deep Red
+CAD_GRID = '#CFD8DC'       # Light Grey
+
+# Drop Panel States
+DP_STRUCT_FILL = '#E3F2FD' # Light Blue
+DP_STRUCT_EDGE = '#0288D1' # Engineer Blue
+DP_FAIL_FILL = '#FFF3E0'   # Warning Orange
+DP_FAIL_EDGE = '#E65100'   # Deep Orange
+
+mpl.rcParams['font.family'] = 'sans-serif'
+mpl.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica']
+mpl.rcParams['hatch.linewidth'] = 0.5
+mpl.rcParams['hatch.color'] = '#B0BEC5' # Lighter hatch color
+
+# ==========================================
+# 1. GRAPHICS UTILS (ENHANCED)
+# ==========================================
+def draw_dim(ax, p1, p2, text, offset=0, color=CAD_DIM_COLOR, is_vert=False, font_size=9, style='standard'):
+    """Render architectural dimensions with high-end CAD styling."""
     x1, y1 = p1
     x2, y2 = p2
     
-    # Determine text position and rotation
     if is_vert:
         x1 += offset; x2 += offset
         ha, va, rot = 'center', 'center', 90
         sign = 1 if offset > 0 else -1
-        txt_x = x1 + (0.35 * sign) 
+        txt_x = x1 + (0.4 * sign) 
         txt_pos = (txt_x, (y1+y2)/2)
+        pad_box = 0.8
     else:
         y1 += offset; y2 += offset
         ha, va, rot = 'center', 'center', 0
         sign = 1 if offset > 0 else -1
-        txt_y = y1 + (0.35 * sign)
+        txt_y = y1 + (0.4 * sign)
         txt_pos = ((x1+x2)/2, txt_y)
+        pad_box = 0.6
 
-    # Extension Lines (Light gray)
-    ext_kw = dict(color=color, lw=0.5, ls='-', alpha=0.3)
+    # Extension Lines (Thin, precise)
+    ext_kw = dict(color=color, lw=0.5, ls='-', alpha=0.5)
     if is_vert:
         ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
         ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
@@ -36,58 +62,49 @@ def draw_dim(ax, p1, p2, text, offset=0, color='#263238', is_vert=False, font_si
         ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
         ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
 
-    # Main Dimension Line
+    # Main Dimension Line (Sharp arrows)
     arrow_style = '<|-|>' if style == 'standard' else '|-|'
-    line_col = color if check_pass else '#d32f2f' # Red if dimension is critical/failed
-    
     ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
-                arrowprops=dict(arrowstyle=arrow_style, color=line_col, lw=0.8, mutation_scale=10))
+                arrowprops=dict(arrowstyle=arrow_style, color=color, lw=0.8, mutation_scale=12, shrinkA=0, shrinkB=0))
     
-    # Text Label (Background to hide lines underneath)
+    # Text Label (Clean background)
     ax.text(txt_pos[0], txt_pos[1], text, 
-            color=line_col, fontsize=font_size, ha=ha, va=va, rotation=rot, 
+            color=color, fontsize=font_size, ha=ha, va=va, rotation=rot, 
             fontfamily='monospace', fontweight='bold', zorder=20,
-            bbox=dict(facecolor='white', alpha=0.85, edgecolor='none', pad=1.0))
+            bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', pad=pad_box))
 
 def draw_boundary_tag(ax, x, y, text, rotation=0):
     """Professional boundary condition tags."""
     is_edge = "EDGE" in text
-    bg_col = "#ffebee" if is_edge else "#f5f5f5"
-    txt_col = "#c62828" if is_edge else "#78909c"
-    border_col = "#ef9a9a" if is_edge else "#cfd8dc"
+    # Use cleaner colors defined in palette
+    bg_col = "#FFEBEE" if is_edge else "#ECEFF1"
+    txt_col = "#B71C1c" if is_edge else "#546E7A"
+    border_col = "#EF9A9A" if is_edge else "#B0BEC5"
     
     ax.text(x, y, text, ha='center', va='center', rotation=rotation,
-            fontsize=7, color=txt_col, fontweight='bold',
-            bbox=dict(facecolor=bg_col, edgecolor=border_col, alpha=1.0, pad=3, boxstyle="round,pad=0.3"))
+            fontsize=7.5, color=txt_col, fontweight='bold', zorder=30,
+            bbox=dict(facecolor=bg_col, edgecolor=border_col, lw=0.8, alpha=1.0, pad=4, boxstyle="round,pad=0.4"))
 
 # ==========================================
 # 2. ENGINEERING LOGIC (ACI 318)
 # ==========================================
 def check_aci_drop_panel(drop_w, drop_l, drop_h, L1, L2, c1, c2, h_slab):
-    """
-    Performs rigorous ACI 318 checks for Drop Panels.
-    Returns a dictionary with status and specific required values.
-    """
-    # 1. Clear Spans
+    # (Logic remains the same, it was correct)
     Ln_x = L1 - (c1/100.0)
     Ln_y = L2 - (c2/100.0)
     
-    # 2. Extension Requirements (Ln/6 from face of support)
-    # Convert everything to cm for comparison
-    req_ext_x = (Ln_x * 100) / 6.0
-    req_ext_y = (Ln_y * 100) / 6.0
+    req_ext_x_cm = (Ln_x * 100) / 6.0
+    req_ext_y_cm = (Ln_y * 100) / 6.0
     
-    # Total Required Width/Length (Assuming symmetric drop centered on column)
-    req_width = c1 + (2 * req_ext_x)
-    req_length = c2 + (2 * req_ext_y)
-    
-    # 3. Depth Requirement (h_slab/4 projection)
+    req_width = c1 + (2 * req_ext_x_cm)
+    req_length = c2 + (2 * req_ext_y_cm)
     req_proj = h_slab / 4.0
     
-    # 4. Status Checks
-    pass_width = drop_w >= req_width - 1.0 # Allow 1cm tolerance
-    pass_length = drop_l >= req_length - 1.0
-    pass_depth = drop_h >= req_proj - 0.1
+    # Use a small tolerance for floating point comparison
+    tol = 0.1 # cm
+    pass_width = drop_w >= req_width - tol
+    pass_length = drop_l >= req_length - tol
+    pass_depth = drop_h >= req_proj - tol
     
     is_structural = pass_width and pass_length and pass_depth
     
@@ -100,86 +117,51 @@ def check_aci_drop_panel(drop_w, drop_l, drop_h, L1, L2, c1, c2, h_slab):
         "is_structural": is_structural,
         "pass_dim": pass_width and pass_length,
         "pass_depth": pass_depth,
-        "req_width": req_width,
-        "req_length": req_length,
-        "req_proj": req_proj,
+        "req_width": req_width, "req_length": req_length, "req_proj": req_proj,
         "reasons": reasons,
-        "status_label": "STRUCTURAL DROP" if is_structural else "SHEAR CAP ONLY"
+        "status_label": "STRUCTURAL" if is_structural else "SHEAR CAP ONLY"
     }
 
 # ==========================================
-# 3. HTML REPORT GENERATOR
+# 3. HTML REPORT GENERATOR (CLEANER)
 # ==========================================
 def get_report_html(data_dict, aci_result):
-    """Generates a professional engineering summary table."""
-    
-    def row(label, val, unit, style='normal', tooltip=""):
-        # Styles: normal, header, subheader, highlight, alert, success
-        bg, txt, w = "#fff", "#000", "normal"
+    # (Slightly refined CSS for cleaner look)
+    def row(label, val, unit, style='normal'):
+        bg, txt, w, border = "#fff", "#263238", "normal", "#ECEFF1"
+        if style == 'header': return f"<tr style='background:#455A64; color:white;'><td colspan='3' style='padding:8px; font-weight:bold; letter-spacing:0.5px;'>{label}</td></tr>"
+        if style == 'highlight': bg = "#F1F8E9"
+        if style == 'alert': bg, txt = "#FFEBEE", "#C62828"
+        if style == 'success': bg, txt = "#E8F5E9", "#2E7D32"
         
-        if style == 'header':
-            bg, txt, w = "#37474f", "#fff", "bold"
-            return f"<tr style='background:{bg}; color:{txt};'><td colspan='3' style='padding:6px; font-weight:{w}; border-top:2px solid #000;'>{label}</td></tr>"
-        
-        if style == 'highlight': bg = "#f1f8e9"
-        if style == 'alert': bg, txt = "#ffebee", "#c62828"
-        if style == 'success': bg, txt = "#e8f5e9", "#2e7d32"
-        if style == 'subheader': bg, txt, w = "#eceff1", "#455a64", "bold"
+        return f"<tr style='background:{bg}; border-bottom:1px solid {border};'><td style='padding:6px 8px; color:#546E7A; font-size:0.85rem;'>{label}</td><td style='padding:6px 8px; text-align:right; font-family:monospace; font-weight:{w}; color:{txt}; font-size:0.9rem;'>{val}</td><td style='padding:6px 8px; color:#90A4AE; font-size:0.75rem;'>{unit}</td></tr>"
 
-        val_str = f"{val}"
-        return f"""
-        <tr style="background-color: {bg}; border-bottom: 1px solid #cfd8dc;">
-            <td style="padding: 5px 8px; font-size: 0.85rem; color: #546e7a;">{label}</td>
-            <td style="padding: 5px 8px; font-size: 0.9rem; font-family: monospace; text-align: right; color: {txt}; font-weight: {w if w!='normal' else 'bold'};">{val_str}</td>
-            <td style="padding: 5px 8px; font-size: 0.75rem; color: #90a4ae;">{unit}</td>
-        </tr>"""
-
-    h_s = data_dict['h_slab']
-    h_d = data_dict['h_drop']
-    
-    html = '<div style="font-family: sans-serif; border: 1px solid #cfd8dc; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">'
-    
-    # 1. GEOMETRY
+    h_s, h_d = data_dict['h_slab'], data_dict['h_drop']
+    html = '<div style="font-family:sans-serif; border:1px solid #B0BEC5; border-top:3px solid #455A64; box-shadow:0 1px 3px rgba(0,0,0,0.1);">'
     html += "<table style='width:100%; border-collapse:collapse;'>"
-    html += row("1. GEOMETRY DATA", "", "", "header")
-    html += row("Panel Type", data_dict['type'].upper(), "", "highlight")
+    
+    # 1. Geometry
+    html += row("1. PANEL GEOMETRY", "", "", "header")
+    html += row("Type", data_dict['type'].upper(), "", "highlight")
     html += row("Slab Thickness (h)", f"{h_s:.0f}", "cm")
-    html += row("Effective Depth (d)", f"{data_dict['d_eff']:.2f}", "cm")
-    html += row("Clear Span (Ln)", f"{data_dict['ln']:.2f}", "m")
+    html += row("Clear Span (Ln_max)", f"{data_dict['ln']:.2f}", "m")
 
-    # 2. DROP PANEL ANALYSIS
+    # 2. Drop Panel
     if data_dict['has_drop']:
         aci = aci_result
-        status_style = 'success' if aci['is_structural'] else 'alert'
-        
-        html += row("2. DROP PANEL CHECK (ACI 318)", "", "", "header")
-        
-        # Dimensions Comparison
-        html += row("<b>Dimensions</b> (Actual)", f"{data_dict['drop_w']:.0f} x {data_dict['drop_l']:.0f}", "cm")
-        if not aci['pass_dim']:
-             html += row("<i>Required (Min)</i>", f"{aci['req_width']:.0f} x {aci['req_length']:.0f}", "cm", "alert")
-        
-        # Depth Comparison
-        html += row("<b>Projection</b> (Actual)", f"{h_d:.0f}", "cm")
-        if not aci['pass_depth']:
-            html += row("<i>Required (h/4)</i>", f"{aci['req_proj']:.1f}", "cm", "alert")
-        
-        # Final Status
-        html += row("<b>DESIGN STATUS</b>", aci['status_label'], "", status_style)
-        
+        st_style = 'success' if aci['is_structural'] else 'alert'
+        html += row("2. DROP PANEL ANALYSIS", "", "", "header")
+        html += row("Provided Size", f"{data_dict['drop_w']:.0f}x{data_dict['drop_l']:.0f}", "cm")
+        html += row("Provided Projection", f"{h_d:.0f}", "cm")
+        html += row("ACI 318 STATUS", aci['status_label'], "", st_style)
         if not aci['is_structural']:
-             reason_str = "<br>".join([f"• {r}" for r in aci['reasons']])
-             html += f"""
-             <tr style="background-color: #ffebee;">
-                <td colspan="3" style="padding: 8px; font-size: 0.8rem; color: #b71c1c; font-style: italic;">
-                    <b>ACI Non-Compliance:</b><br>{reason_str}
-                </td>
-             </tr>"""
+             rs = "<br>• ".join(aci['reasons'])
+             html += f"<tr><td colspan='3' style='padding:8px; background:#FFEBEE; color:#C62828; font-size:0.8rem;'><b>Non-Compliance Factors:</b><br>• {rs}</td></tr>"
     else:
-        html += row("2. DROP PANEL", "NONE", "", "header")
+        html += row("2. DROP PANEL", "NOT APPLICABLE", "", "header")
 
-    # 3. LOADS
-    html += row("3. MATERIAL & LOAD", "", "", "header")
+    # 3. Loads
+    html += row("3. DESIGN LOADS", "", "", "header")
     html += row("Concrete (fc')", f"{data_dict['fc']:.0f}", "ksc")
     html += row("Ultimate Load (Wu)", f"{data_dict['wu']:,.0f}", "kg/m²", "highlight")
     
@@ -187,202 +169,171 @@ def get_report_html(data_dict, aci_result):
     return html
 
 # ==========================================
-# 4. MAIN RENDERER
+# 4. MAIN RENDERER (THE CORE UPGRADE)
 # ==========================================
 def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
-           drop_data=None, moment_vals=None, 
-           mat_props=None, loads=None, 
-           col_type="interior"):
+           drop_data=None, moment_vals=None, mat_props=None, loads=None, col_type="interior"):
     
-    # --- 4.1 Data Sanitization ---
+    # Data Initialization (Same as before)
     if drop_data is None: drop_data = {'has_drop': False, 'width': 0, 'length': 0, 'depth': 0}
-    mat_props = mat_props or {'fc': 240}
-    loads = loads or {'w_u': 0}
-    
-    # Safe Defaults
-    h_slab = h_slab if h_slab else 20
-    cover = cover if cover else 2.5
-    d_eff = d_eff if d_eff else (h_slab - cover - 1.0)
-    lc = lc if lc else 3.0
-    
-    # Geometry Prep
+    mat_props = mat_props or {'fc': 240}; loads = loads or {'w_u': 0}
+    h_slab = h_slab if h_slab else 20; cover = cover if cover else 2.5
+    d_eff = d_eff if d_eff else (h_slab - cover - 1.0); lc = lc if lc else 3.0
     c1_m, c2_m = c1_w/100.0, c2_w/100.0
-    Ln_x = L1 - c1_m
-    Ln_y = L2 - c2_m
-    Ln_max = max(Ln_x, Ln_y)
+    Ln_x, Ln_y = L1 - c1_m, L2 - c2_m
     
-    # Drop Data
     has_drop = drop_data.get('has_drop')
-    drop_w = drop_data.get('width', 0)
-    drop_l = drop_data.get('length', 0)
-    drop_h = drop_data.get('depth', 0) # Projection
+    drop_w, drop_l, drop_h = drop_data.get('width', 0), drop_data.get('length', 0), drop_data.get('depth', 0)
     
-    # Run ACI Analysis
     aci_res = check_aci_drop_panel(drop_w, drop_l, drop_h, L1, L2, c1_w, c2_w, h_slab) if has_drop else None
 
-    # --- 4.2 Streamlit Layout ---
-    col_draw, col_info = st.columns([0.65, 0.35], gap="medium")
+    # Layout
+    col_draw, col_info = st.columns([1.8, 1], gap="large")
 
     with col_draw:
         # ------------------------------------------------
-        # DRAWING 1: PLAN VIEW
+        # DRAWING 1: CAD PLAN VIEW
         # ------------------------------------------------
-        st.markdown(f"##### 📐 PLAN VIEW: {col_type.upper()}")
+        st.markdown(f"### 📐 PLAN VIEW")
         
-        # Setup Figure
-        fig, ax = plt.subplots(figsize=(8, 6.5))
-        margin = 1.2
+        # FIX: Significantly increased margin to prevent cut-off
+        margin = 2.5 
+        fig, ax = plt.subplots(figsize=(9, 7.5)) # Slightly larger figure
         ax.set_xlim(-margin, L1 + margin)
         ax.set_ylim(-margin, L2 + margin)
-        ax.axis('off')
         ax.set_aspect('equal')
+        ax.axis('off')
 
-        # Grid Lines
-        ax.plot([-margin, L1+margin], [L2/2, L2/2], color='#cfd8dc', ls='-.', lw=0.8, zorder=0)
-        ax.plot([L1/2, L1/2], [-margin, L2+margin], color='#cfd8dc', ls='-.', lw=0.8, zorder=0)
+        # Grid Lines (Subtler)
+        ax.plot([-margin, L1+margin], [L2/2, L2/2], color=CAD_GRID, ls='-.', lw=0.6, zorder=0)
+        ax.plot([L1/2, L1/2], [-margin, L2+margin], color=CAD_GRID, ls='-.', lw=0.6, zorder=0)
 
-        # Slab Panel Background
-        ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc='white', ec='#455a64', lw=1.5, zorder=1))
+        # Slab Panel (Clean Edge)
+        ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc=CAD_SLAB_FILL, ec=CAD_SLAB_EDGE, lw=1.8, zorder=1))
 
-        # Render Elements at 4 corners (representing continuous/edge)
+        # Elements Loop
         centers = [(0,0), (L1,0), (0,L2), (L1,L2)]
-        for cx, cy in centers:
-            # 1. Drop Panel
+        for i, (cx, cy) in enumerate(centers):
+            is_design_col = (cx == 0 and cy == L2)
+            
+            # Drop Panel
             if has_drop:
-                # Color Logic
                 if aci_res['is_structural']:
-                    dp_fc, dp_ec, dp_ls = '#e3f2fd', '#0288d1', '--' # Good (Blue)
+                    dp_fc, dp_ec, dp_ls, dp_lw = DP_STRUCT_FILL, DP_STRUCT_EDGE, '-', 1.0
                 else:
-                    dp_fc, dp_ec, dp_ls = '#fff3e0', '#e65100', '--' # Warning (Orange)
+                    dp_fc, dp_ec, dp_ls, dp_lw = DP_FAIL_FILL, DP_FAIL_EDGE, '--', 1.2
                 
-                # Draw Drop
                 dp_w_m, dp_l_m = drop_w/100.0, drop_l/100.0
-                ax.add_patch(patches.Rectangle(
-                    (cx - dp_w_m/2, cy - dp_l_m/2), dp_w_m, dp_l_m,
-                    fc=dp_fc, ec=dp_ec, lw=1.0, ls=dp_ls, zorder=2
-                ))
+                ax.add_patch(patches.Rectangle((cx - dp_w_m/2, cy - dp_l_m/2), dp_w_m, dp_l_m,
+                                             fc=dp_fc, ec=dp_ec, lw=dp_lw, ls=dp_ls, zorder=2))
 
-                # Annotation (Only on Design Column: Top-Left)
-                if cx == 0 and cy == L2:
-                    # Size Label
-                    lbl = f"DROP: {drop_w:.0f}x{drop_l:.0f}"
-                    ax.text(cx, cy - dp_l_m/2 - 0.25, lbl, ha='center', va='top', 
-                            fontsize=8, color=dp_ec, fontweight='bold', 
-                            bbox=dict(fc='white', ec='none', alpha=0.7, pad=0))
+                # Smart Annotation on Design Column
+                if is_design_col:
+                    lbl_col = dp_ec
+                    ax.text(cx, cy - dp_l_m/2 - 0.2, f"DROP {drop_w:.0f}x{drop_l:.0f}", 
+                            ha='center', va='top', fontsize=8, color=lbl_col, fontweight='bold',
+                            bbox=dict(fc='white', ec=lbl_col, lw=0.5, pad=2))
                     
-                    # Status Label (If Fail)
                     if not aci_res['is_structural']:
-                        fail_txt = "⚠️ SHEAR CAP"
-                        if not aci_res['pass_dim']: fail_txt += "\n(TOO SMALL)"
-                        elif not aci_res['pass_depth']: fail_txt += "\n(TOO THIN)"
-                        
-                        ax.text(cx, cy - dp_l_m/2 - 0.6, fail_txt, ha='center', va='top', 
-                                fontsize=7, color='#d32f2f', fontweight='bold')
+                        ax.text(cx, cy - dp_l_m/2 - 0.55, "(SHEAR CAP)", 
+                                ha='center', va='top', fontsize=7, color=DP_FAIL_EDGE, fontweight='bold')
 
-            # 2. Column
-            ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, fc='#546e7a', ec='#263238', zorder=5))
+            # Column
+            ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, fc=CAD_COL_FILL, ec=CAD_COL_EDGE, zorder=5))
 
-        # Boundary Labels
-        lbls = {"top": "CONTINUOUS", "bot": "CONTINUOUS", "left": "CONTINUOUS", "right": "CONTINUOUS"}
-        if col_type == 'edge': lbls["left"] = "BUILDING EDGE"
-        elif col_type == 'corner': lbls["left"] = "BUILDING EDGE"; lbls["top"] = "BUILDING EDGE"
+        # Boundary Tags (Now safe from cut-off due to large margin)
+        lbls = {"t": "CONTINUOUS", "b": "CONTINUOUS", "l": "CONTINUOUS", "r": "CONTINUOUS"}
+        if 'edge' in col_type: lbls["l"] = "BUILDING EDGE"
+        if 'corner' in col_type: lbls["l"] = "BUILDING EDGE"; lbls["t"] = "BUILDING EDGE"
         
-        draw_boundary_tag(ax, -0.8, L2/2, lbls["left"], 90)
-        draw_boundary_tag(ax, L1+0.8, L2/2, lbls["right"], 90)
-        draw_boundary_tag(ax, L1/2, L2+0.8, lbls["top"])
-        draw_boundary_tag(ax, L1/2, -0.8, lbls["bot"])
+        # Position tags further out
+        tag_offset = 1.2
+        draw_boundary_tag(ax, -tag_offset, L2/2, lbls["l"], 90)
+        draw_boundary_tag(ax, L1+tag_offset, L2/2, lbls["r"], 90)
+        draw_boundary_tag(ax, L1/2, L2+tag_offset, lbls["t"])
+        draw_boundary_tag(ax, L1/2, -tag_offset, lbls["b"])
 
-        # Dimensions
-        draw_dim(ax, (0, L2), (L1, L2), f"L1 = {L1:.2f} m", offset=0.6)
-        draw_dim(ax, (L1, 0), (L1, L2), f"L2 = {L2:.2f} m", offset=0.6, is_vert=True)
-        draw_dim(ax, (c1_m/2, L2/3), (L1-c1_m/2, L2/3), f"Ln = {Ln_x:.2f} m", color='#2e7d32', style='clear')
+        # Dimensions (Moved further out)
+        dim_offset = 0.8
+        draw_dim(ax, (0, L2), (L1, L2), f"L1 = {L1:.2f} m", offset=dim_offset)
+        draw_dim(ax, (L1, 0), (L1, L2), f"L2 = {L2:.2f} m", offset=dim_offset, is_vert=True)
+        # Clear span inside
+        draw_dim(ax, (c1_m/2, L2/5), (L1-c1_m/2, L2/5), f"Ln = {Ln_x:.2f} m", color='#2E7D32', style='clear')
 
-        st.pyplot(fig, use_container_width=True)
+        # Use explicit bbox_inches to prevent clipping just in case
+        st.pyplot(fig, use_container_width=True, bbox_inches='tight', pad_inches=0.1)
 
         # ------------------------------------------------
-        # DRAWING 2: SECTION VIEW
+        # DRAWING 2: CAD SECTION VIEW
         # ------------------------------------------------
-        st.markdown(f"##### 🏗️ SECTION A-A")
-        fig_s, ax_s = plt.subplots(figsize=(8, 3.5))
+        st.markdown(f"### 🏗️ SECTION A-A")
+        fig_s, ax_s = plt.subplots(figsize=(8, 4))
         
-        # Scaling params
-        view_w = 250 # cm width of view
-        view_h_top = h_slab + 30
-        view_h_bot = -100
+        # Scaling & Limits
+        view_w = 300 # Wider view
+        col_h_draw = 180
+        
+        # FIX: Explicit limits to prevent cut-off of side dimensions
+        ax_s.set_xlim(-view_w/2 - 60, view_w/2 + 60)
+        ax_s.set_ylim(-col_h_draw - 40, h_slab + 40)
+        ax_s.set_aspect('equal')
+        ax_s.axis('off')
         
         # 1. Column
-        ax_s.add_patch(patches.Rectangle((-c1_w/2, -200), c1_w, 200+h_slab, fc='#546e7a', ec='black', zorder=2))
+        ax_s.add_patch(patches.Rectangle((-c1_w/2, -col_h_draw), c1_w, col_h_draw+h_slab, fc=CAD_COL_FILL, ec=CAD_COL_EDGE, zorder=2))
         
-        # 2. Slab
-        ax_s.add_patch(patches.Rectangle((-view_w/2, 0), view_w, h_slab, fc='white', ec='black', hatch='///', lw=1.2, zorder=3))
-        
+        # 2. Slab with Concrete Stipple Hatch (Circles instead of lines for realism)
+        # Note: Matplotlib's default hatch is limited. Using 'ooo' or '...' for concrete look.
+        slab_patch = patches.Rectangle((-view_w/2, 0), view_w, h_slab, fc='white', ec=CAD_SLAB_EDGE, lw=1.2, zorder=3)
+        slab_patch.set_hatch('...') # Stipple pattern
+        ax_s.add_patch(slab_patch)
+
         # 3. Drop Panel
         y_bot_dim = 0
         if has_drop:
-            # Color logic same as plan
             if aci_res['is_structural']:
-                ds_fc, ds_ec, ds_hatch = 'white', 'black', '///'
-                ds_ls = '-'
+                ds_fc, ds_ec, ds_ls = 'white', CAD_SLAB_EDGE, '-'
+                ds_hatch = '...'
+                ds_lbl_col = CAD_DIM_COLOR
             else:
-                ds_fc, ds_ec, ds_hatch = '#fff3e0', '#e65100', None
-                ds_ls = '--'
+                ds_fc, ds_ec, ds_ls = DP_FAIL_FILL, DP_FAIL_EDGE, '--'
+                ds_hatch = None # No hatch for shear cap
+                ds_lbl_col = DP_FAIL_EDGE
             
-            draw_dw = min(view_w * 0.6, drop_w)
-            
-            # The Drop
-            ax_s.add_patch(patches.Rectangle(
-                (-draw_dw/2, -drop_h), draw_dw, drop_h, 
-                fc=ds_fc, ec=ds_ec, hatch=ds_hatch, ls=ds_ls, zorder=3
-            ))
+            draw_dw = min(view_w * 0.65, drop_w)
+            drop_patch = patches.Rectangle((-draw_dw/2, -drop_h), draw_dw, drop_h, 
+                                           fc=ds_fc, ec=ds_ec, ls=ds_ls, lw=1.2, zorder=3)
+            if ds_hatch: drop_patch.set_hatch(ds_hatch)
+            ax_s.add_patch(drop_patch)
             
             y_bot_dim = -drop_h
-            # Dimension for Drop Depth
-            draw_dim(ax_s, (draw_dw/2 + 15, 0), (draw_dw/2 + 15, -drop_h), f"{drop_h}cm", is_vert=True, color='#0277bd')
+            # Projection Dimension
+            draw_dim(ax_s, (draw_dw/2 + 20, 0), (draw_dw/2 + 20, -drop_h), f"Proj. {drop_h:.0f}cm", is_vert=True, color=ds_lbl_col)
 
-            # Fail Label in Section
             if not aci_res['is_structural']:
-                ax_s.text(0, -drop_h - 10, "(NON-STRUCTURAL / SHEAR CAP)", ha='center', va='top', 
-                          fontsize=8, color='#e65100', fontweight='bold')
+                ax_s.text(0, -drop_h - 15, "(SHEAR CAP ONLY)", ha='center', va='top', 
+                          fontsize=8, color=DP_FAIL_EDGE, fontweight='bold')
 
-        # 4. Rebar (Symbolic)
+        # 4. Rebar (Clearer representation)
         rb_y = h_slab - cover - 0.5
-        ax_s.plot([-view_w/2+10, view_w/2-10], [rb_y, rb_y], color='#d32f2f', lw=3, ls='-', zorder=4)
-        ax_s.text(view_w/2-10, rb_y+2, "Main Bar", color='#d32f2f', fontsize=7, ha='right')
-
-        # 5. Dimensions
-        draw_dim(ax_s, (-view_w/2 - 10, 0), (-view_w/2 - 10, h_slab), f"h={h_slab:.0f}", is_vert=True)
-        draw_dim(ax_s, (view_w/4, rb_y), (view_w/4, y_bot_dim), f"d={d_eff:.2f}", is_vert=True, color='#c62828')
-
-        ax_s.set_xlim(-view_w/2 - 30, view_w/2 + 30)
-        ax_s.set_ylim(view_h_bot, view_h_top)
-        ax_s.axis('off')
-        ax_s.set_aspect('equal')
+        ax_s.plot([-view_w/2+20, view_w/2-20], [rb_y, rb_y], color=CAD_REBAR, lw=3, ls='-', zorder=4)
+        ax_s.plot([-view_w/2+20], [rb_y], marker='|', color=CAD_REBAR, ms=12, zorder=4) # End hooks marker
+        ax_s.plot([view_w/2-20], [rb_y], marker='|', color=CAD_REBAR, ms=12, zorder=4)
         
-        st.pyplot(fig_s, use_container_width=True)
+        # 5. Dimensions (Moved further out)
+        draw_dim(ax_s, (-view_w/2 - 30, 0), (-view_w/2 - 30, h_slab), f"h={h_slab:.0f}", is_vert=True)
+        draw_dim(ax_s, (-c1_w/2 - 50, 0), (-c1_w/2 - 50, -col_h_draw), f"H={lc:.2f}m", is_vert=True, color='#E65100')
+
+        st.pyplot(fig_s, use_container_width=True, bbox_inches='tight', pad_inches=0.1)
 
     with col_info:
         # ------------------------------------------------
-        # DATA REPORT
+        # ENGINEER'S SUMMARY
         # ------------------------------------------------
-        # Pack data for report
+        st.markdown("### 📋 ENGINEER'S SUMMARY")
         rpt_data = {
-            'type': col_type,
-            'h_slab': h_slab,
-            'd_eff': d_eff,
-            'ln': Ln_max,
-            'has_drop': has_drop,
-            'drop_w': drop_w,
-            'drop_l': drop_l,
-            'h_drop': drop_h,
-            'fc': mat_props.get('fc', 240),
-            'wu': loads.get('w_u', 0)
+            'type': col_type, 'h_slab': h_slab, 'd_eff': d_eff, 'ln': max(Ln_x, Ln_y),
+            'has_drop': has_drop, 'drop_w': drop_w, 'drop_l': drop_l, 'h_drop': drop_h,
+            'fc': mat_props.get('fc', 240), 'wu': loads.get('w_u', 0)
         }
-        
         st.markdown(get_report_html(rpt_data, aci_res), unsafe_allow_html=True)
-        
-        if has_drop and not aci_res['is_structural']:
-            st.info("""
-            **💡 Engineer's Note:** To upgrade this to a **Structural Drop Panel**:
-            1. Ensure extension $\ge L_n/6$ from support face.
-            2. Ensure projection $\ge h_{slab}/4$.
-            """, icon="👷‍♂️")
