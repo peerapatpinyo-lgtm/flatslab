@@ -2,7 +2,78 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.ticker as ticker
 import numpy as np
+import streamlit as st
 
+def draw_span_schematic(span_type):
+    """
+    สร้างรูปตัดขวาง (Schematic Section) ตามประเภท Span ที่เลือก
+    เพื่อให้วิศวกรเห็นภาพ Boundary Condition
+    """
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.set_xlim(-1, 11)
+    ax.set_ylim(-1, 3)
+    ax.axis('off') # ปิดแกนเลข
+
+    # สไตล์คอนกรีต
+    slab_color = '#e0e0e0' # สีเทาอ่อน
+    support_color = '#404040' # สีเทาเข้ม
+    line_color = 'black'
+
+    # วาดพื้น Slab หลัก (ยาวตลอด)
+    # สมมติ Span ยาวจาก x=0 ถึง x=10
+    rect = patches.Rectangle((0, 1.5), 10, 0.5, linewidth=1, edgecolor=line_color, facecolor=slab_color)
+    ax.add_patch(rect)
+    
+    # Text Properties
+    font_props = {'ha': 'center', 'va': 'center', 'fontsize': 9, 'color': 'blue'}
+
+    if "Interior" in span_type:
+        # Case 1: Interior Span (ต่อเนื่องทั้งสองฝั่ง)
+        # วาดเสา 3 ต้น (ซ้าย กลาง ขวา) เพื่อแสดงความต่อเนื่อง
+        
+        # Left Support (Continuous)
+        ax.add_patch(patches.Rectangle((-0.5, 0), 1, 1.5, color=support_color))
+        # Right Support (Continuous)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        
+        # สัญลักษณ์ความต่อเนื่อง (Break lines)
+        ax.text(-0.8, 1.75, "~", fontsize=20, ha='center') 
+        ax.text(10.8, 1.75, "~", fontsize=20, ha='center')
+        
+        ax.text(5, 2.5, "Interior Span\n(Continuous Both Ends)", **font_props)
+        ax.text(5, 0.5, "Moment Coeff: Neg 0.65 | Pos 0.35", fontsize=8, ha='center', color='gray')
+
+    elif "Edge Beam" in span_type:
+        # Case 2: End Span with Edge Beam (ขอบมีคานลึก)
+        
+        # Left Support (Edge Beam) - วาดให้ลึกกว่าพื้น
+        # Beam size: 1x2.5
+        ax.add_patch(patches.Rectangle((0, 0.5), 1, 1.0, linewidth=1, edgecolor=line_color, facecolor='#a0a0a0')) 
+        ax.add_patch(patches.Rectangle((0, 0), 1, 1.5, color=support_color)) # Column under beam
+        
+        # Right Support (Interior Column)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        ax.text(10.8, 1.75, "~", fontsize=20, ha='center') # Continuous Right
+        
+        ax.text(5, 2.5, "End Span w/ Edge Beam\n(Stiff Edge)", **font_props)
+        ax.text(1.5, 0.2, "Stiff Beam", fontsize=8, color='red')
+        ax.text(5, 0.5, "Moment Coeff: Ext.Neg 0.30 | Pos 0.50 | Int.Neg 0.70", fontsize=8, ha='center', color='gray')
+
+    elif "No Beam" in span_type:
+        # Case 3: End Span (Flat Plate) - ไม่มีคานขอบ
+        
+        # Left Support (Column Only)
+        ax.add_patch(patches.Rectangle((0, 0), 1, 1.5, color=support_color))
+        
+        # Right Support (Interior Column)
+        ax.add_patch(patches.Rectangle((9.5, 0), 1, 1.5, color=support_color))
+        ax.text(10.8, 1.75, "~", fontsize=20, ha='center') # Continuous Right
+        
+        ax.text(5, 2.5, "End Span (Flat Plate)\n(Flexible Edge)", **font_props)
+        ax.text(0.5, 2.2, "Free Edge", fontsize=8, color='red', ha='center')
+        ax.text(5, 0.5, "Moment Coeff: Ext.Neg 0.26 | Pos 0.52 | Int.Neg 0.70", fontsize=8, ha='center', color='gray')
+
+    return fig
 # ==========================================
 # 🎨 ENGINEERING STYLE CONSTANTS
 # ==========================================
