@@ -6,315 +6,399 @@ import pandas as pd
 import numpy as np
 
 # ==========================================
-# 1. CONFIGURATION & STYLES
+# 1. HELPER: DIMENSIONS
 # ==========================================
-# Professional CAD Color Palette
-STYLE = {
-    'bg': '#ffffff',
-    'grid': '#cfd8dc',       # Light Grey
-    'dim': '#37474f',        # Slate Grey
-    'col_fill': '#546e7a',   # Muted Blue-Grey
-    'col_edge': '#263238',   # Dark Grey
-    'slab_edge': '#000000',
-    'pass_main': '#0277bd',  # Engineering Blue
-    'pass_bg': '#e1f5fe',
-    'fail_main': '#c62828',  # Alert Red
-    'fail_bg': '#ffebee',
-    'focus': '#ff6f00',      # Amber/Orange
-    'rebar': '#d32f2f'       # Rebar Red
-}
+def draw_dim(ax, p1, p2, text, offset=0, color='#000000', is_vert=False, font_size=10, style='standard'):
+    """Render architectural dimensions nicely."""
+    x1, y1 = p1
+    x2, y2 = p2
+    
+    if is_vert:
+        x1 += offset; x2 += offset
+        ha, va, rot = 'center', 'center', 90
+        sign = 1 if offset > 0 else -1
+        txt_x = x1 + (0.45 * sign) 
+        txt_pos = (txt_x, (y1+y2)/2)
+    else:
+        y1 += offset; y2 += offset
+        ha, va, rot = 'center', 'center', 0
+        sign = 1 if offset > 0 else -1
+        txt_y = y1 + (0.45 * sign)
+        txt_pos = ((x1+x2)/2, txt_y)
 
-# ==========================================
-# 2. HELPER FUNCTIONS
-# ==========================================
+    # Extension Lines
+    ext_kw = dict(color=color, lw=0.6, ls='-', alpha=0.4)
+    if is_vert:
+        ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
+        ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
+    else:
+        ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
+        ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
 
-def draw_smart_dim(ax, p1, p2, text, offset=0, is_vert=False, color=STYLE['dim'], style='arrow'):
-    """
-    Draws a dimension line with architectural ticks and background masking.
-    """
-    x1, y1 = p1
-    x2, y2 = p2
-    
-    # Calculate positions
-    if is_vert:
-        x1 += offset; x2 += offset
-        ha, va, rot = 'center', 'center', 90
-        # Text position: slightly offset from line center
-        txt_pos = (x1 + (0.35 if offset > 0 else -0.35), (y1+y2)/2)
-    else:
-        y1 += offset; y2 += offset
-        ha, va, rot = 'center', 'center', 0
-        txt_pos = ((x1+x2)/2, y1 + (0.35 if offset > 0 else -0.35))
-
-    # Extension Lines (Thin, lighter)
-    ext_kw = dict(color=color, lw=0.5, ls='-', alpha=0.5)
-    if is_vert:
-        ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
-        ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
-    else:
-        ax.plot([p1[0], x1], [p1[1], y1], **ext_kw)
-        ax.plot([p2[0], x2], [p2[1], y2], **ext_kw)
-
-    # Dimension Line
-    arrow = '<|-|>' if style == 'arrow' else '|-|'
-    ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
-                arrowprops=dict(arrowstyle=arrow, color=color, lw=0.8, shrinkA=0, shrinkB=0))
-    
-    # Text with Halo (Background Mask)
-    ax.text(txt_pos[0], txt_pos[1], text, color=color, fontsize=9, 
-            ha=ha, va=va, rotation=rot, family='monospace', weight='bold',
-            bbox=dict(facecolor='white', edgecolor='none', alpha=0.85, pad=1.5))
-
-def draw_revision_cloud(ax, x, y, w, h):
-    """
-    Draws a 'sketch-style' cloud to highlight the design element.
-    """
-    cloud = patches.Ellipse((x, y), w, h, ec=STYLE['focus'], fc='none', lw=1.5, ls='-')
-    # This creates the "hand-drawn" squiggly effect
-    cloud.set_sketch_params(scale=1.5, length=10.0, randomness=4.0)
-    ax.add_patch(cloud)
-    
-    # Annotation text
-    ax.annotate("DESIGN\nCOLUMN", xy=(x + w/3, y - h/3), xytext=(x + w*0.8, y - h*0.8),
-                arrowprops=dict(arrowstyle="->", color=STYLE['focus'], connectionstyle="arc3,rad=-0.2"),
-                color=STYLE['focus'], fontsize=8, weight='bold')
-
-def draw_boundary_tag(ax, x, y, text, rotation=0):
-    """
-    Draws tags for boundary conditions (Edge vs Continuous).
-    """
-    is_edge = "EDGE" in text
-    
-    props = dict(boxstyle='round,pad=0.3', 
-                 facecolor=STYLE['fail_bg'] if is_edge else '#f5f5f5', 
-                 edgecolor=STYLE['fail_main'] if is_edge else '#b0bec5',
-                 alpha=1.0)
-    
-    ax.text(x, y, text, ha='center', va='center', rotation=rotation,
-            fontsize=7, weight='bold' if is_edge else 'normal',
-            color=STYLE['fail_main'] if is_edge else '#78909c',
-            bbox=props, zorder=10)
-
-def get_html_row(label, val, unit, header=False, highlight=False, status_col=None):
-    """Generates a clean HTML table row."""
-    if header:
-        return f"""
-        <tr style="background-color: #37474f; color: white;">
-            <td colspan="3" style="padding: 6px 10px; font-weight: bold; border-top: 2px solid #263238;">{label}</td>
-        </tr>"""
-    
-    bg = "#f1f8e9" if highlight else "white"
-    color = status_col if status_col else ("#2e7d32" if highlight else "#263238")
-    weight = "bold" if (highlight or status_col) else "normal"
-    
-    return f"""
-    <tr style="background-color: {bg}; border-bottom: 1px solid #eceff1;">
-        <td style="padding: 5px 10px; color: #546e7a; font-size: 0.85rem;">{label}</td>
-        <td style="text-align: right; padding: 5px 10px; color: {color}; font-weight: {weight}; font-family: monospace; font-size: 0.9rem;">{val}</td>
-        <td style="padding: 5px 10px; color: #90a4ae; font-size: 0.75rem;">{unit}</td>
-    </tr>"""
+    # Main Dimension Line
+    arrow_style = '<|-|>'
+    if style == 'clear': arrow_style = '|-|'
+        
+    ax.annotate('', xy=(x1, y1), xytext=(x2, y2),
+                arrowprops=dict(arrowstyle=arrow_style, color=color, lw=0.8, mutation_scale=12))
+    
+    # Text Label (Background to hide lines underneath)
+    ax.text(txt_pos[0], txt_pos[1], text, 
+            color=color, fontsize=font_size, ha=ha, va=va, rotation=rot, 
+            fontfamily='monospace', fontweight='bold', zorder=20,
+            bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', pad=1.5))
 
 # ==========================================
-# 3. MAIN RENDER LOGIC
+# 2. HELPER: VISUAL ANNOTATIONS
 # ==========================================
-def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
-           drop_data=None, moment_vals=None, mat_props=None, loads=None, col_type="interior"):
-    
-    # --- Data Normalization ---
-    drop_data = drop_data or {'has_drop': False, 'width': 0, 'length': 0, 'depth': 0}
-    mat_props = mat_props or {'fc': 240}
-    loads = loads or {'w_u': 0}
-    
-    # Conversions (cm to m for drawing)
-    c1_m, c2_m = c1_w/100, c2_w/100
-    dw, dl, dh = drop_data['width'], drop_data['length'], drop_data['depth']
-    dw_m, dl_m = dw/100, dl/100
-    Ln_x = L1 - c1_m
-    
-    # --- ACI 318 CHECK: Structural vs Shear Cap ---
-    is_structural = False
-    fail_reasons = []
-    has_drop = drop_data['has_drop']
-    
-    if has_drop:
-        # Check 1: Extension >= Ln/6
-        req_ext = (Ln_x * 100) / 6
-        req_w = c1_w + (2 * req_ext)
-        req_l = c2_w + (2 * ((L2-c2_m)*100/6)) # Simplified logic for Y
-        pass_dim = (dw >= req_w - 1) and (dl >= req_l - 1) # 1cm tolerance
-        
-        # Check 2: Depth >= h/4
-        pass_depth = dh >= (h_slab/4 - 0.1)
-        
-        is_structural = pass_dim and pass_depth
-        if not pass_dim: fail_reasons.append("Size < Ln/6")
-        if not pass_depth: fail_reasons.append("Depth < h/4")
+def draw_boundary_label(ax, x, y, text, rotation=0):
+    """Draws a tag indicating if the side is Continuous or Edge."""
+    if "EDGE" in text:
+        bg_col = "#ffebee" # Light Red (Warning)
+        txt_col = "#c62828"
+        border_col = "#ef9a9a"
+        weight = "bold"
+    else:
+        bg_col = "#f5f5f5" # Light Grey
+        txt_col = "#90a4ae"
+        border_col = "#cfd8dc"
+        weight = "normal"
+        
+    ax.text(x, y, text, ha='center', va='center', rotation=rotation,
+            fontsize=8, color=txt_col, fontweight=weight,
+            bbox=dict(facecolor=bg_col, edgecolor=border_col, alpha=1.0, pad=4, boxstyle="round,pad=0.4"))
 
-    # --- LAYOUT ---
-    col_draw, col_info = st.columns([0.65, 0.35], gap="medium")
+def draw_revision_cloud(ax, x, y, width, height):
+    """Draws a generic 'cloud' shape to highlight the design column."""
+    cloud = patches.Ellipse(
+        (x, y), width, height,
+        ec='#ff6d00', # Bright Orange
+        fc='none',    
+        lw=2.5,        
+        ls='-',
+        zorder=15
+    )
+    cloud.set_sketch_params(scale=2.0, length=10.0, randomness=5.0)
+    ax.add_patch(cloud)
+    
+    ax.annotate("DESIGN\nCOLUMN", xy=(x + width/2 * 0.7, y - height/2 * 0.7), 
+                xytext=(x + width*1.2, y - height*1.2),
+                arrowprops=dict(arrowstyle="->", color='#ff6d00', connectionstyle="arc3,rad=-0.2"),
+                color='#e65100', fontsize=9, fontweight='bold', ha='left')
 
-    with col_draw:
-        # ==========================
-        # 1. PLAN VIEW
-        # ==========================
-        st.markdown(f"**📐 PLAN VIEW** ({col_type.upper()} Panel)")
-        
-        fig, ax = plt.subplots(figsize=(8, 6.5))
-        
-        # Boundary Labels Logic
-        lbls = {"top": "CONTINUOUS", "left": "CONTINUOUS"}
-        if col_type in ['edge', 'corner']: lbls["left"] = "BUILDING EDGE"
-        if col_type == 'corner': lbls["top"] = "BUILDING EDGE"
+# ==========================================
+# 3. HELPER: HTML TABLE RENDERER
+# ==========================================
+def get_row_html(label, value, unit, is_header=False, is_highlight=False):
+    if is_header:
+        return f"""
+        <tr style="background-color: #263238; color: white;">
+            <td colspan="3" style="padding: 8px 10px; font-weight: 700; font-size: 0.9rem; border-top: 2px solid #000;">{label}</td>
+        </tr>"""
+    
+    bg = "#e8f5e9" if is_highlight else "#ffffff"
+    col_val = "#1b5e20" if is_highlight else "#000000"
+    w_val = "700" if is_highlight else "500"
+    
+    return f"""
+    <tr style="background-color: {bg}; border-bottom: 1px solid #eceff1;">
+        <td style="padding: 5px 10px; color: #546e7a; font-weight: 500; font-size: 0.85rem;">{label}</td>
+        <td style="padding: 5px 10px; text-align: right; color: {col_val}; font-weight: {w_val}; font-family: monospace; font-size: 0.9rem;">{value}</td>
+        <td style="padding: 5px 10px; color: #90a4ae; font-size: 0.75rem;">{unit}</td>
+    </tr>"""
 
-        # Grid Lines
-        margin = 1.5
-        ax.plot([-margin, L1+margin], [L2/2, L2/2], color=STYLE['grid'], ls='-.', lw=1, zorder=0)
-        ax.plot([L1/2, L1/2], [-margin, L2+margin], color=STYLE['grid'], ls='-.', lw=1, zorder=0)
+# ==========================================
+# 4. MAIN RENDERER
+# ==========================================
+def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff, 
+           drop_data=None, moment_vals=None, 
+           mat_props=None, loads=None, 
+           col_type="interior"):
+    
+    # --- 4.1 Data Prep & Safety Defaults ---
+    if drop_data is None: drop_data = {'has_drop': False, 'width': 0, 'length': 0, 'depth': 0}
+    if mat_props is None: mat_props = {}
+    if loads is None: loads = {}
+    
+    # Safety: Handle None or 0 values
+    h_slab = h_slab if h_slab else 20
+    cover = cover if cover else 2.5
+    d_eff = d_eff if d_eff else (h_slab - cover - 1.0)
+    lc = lc if lc else 3.0
+    
+    c1_m, c2_m = c1_w/100.0, c2_w/100.0
+    Ln_x = L1 - c1_m
+    Ln_y = L2 - c2_m
+    
+    has_drop = drop_data.get('has_drop')
+    drop_w_val = drop_data.get('width', 0) # cm
+    drop_l_val = drop_data.get('length', 0) # cm
+    h_drop_val = drop_data.get('depth', 0) # cm (Projection)
+    
+    # Unit Conversions for Drawing
+    drop_w_m = drop_w_val/100.0
+    drop_l_m = drop_l_val/100.0
+    
+    fc_val = mat_props.get('fc', 0)
+    wu = loads.get('w_u', 0)
 
-        # Slab Panel
-        ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc='white', ec='black', lw=1.5, zorder=1))
+    # --- 4.2 LOGIC CHECK: Is Drop Panel Structural? (ACI 318) ---
+    is_structural_drop = False
+    dp_status_label = ""
+    dp_reason = ""
+    
+    if has_drop:
+        # 1. Extension Check: Must extend Ln/6 from support
+        ln_x_cm = Ln_x * 100.0
+        ln_y_cm = Ln_y * 100.0
+        
+        req_ext_x = ln_x_cm / 6.0
+        req_ext_y = ln_y_cm / 6.0
+        
+        # Total required width (assuming centered)
+        req_w_total = (2 * req_ext_x) + c1_w
+        req_l_total = (2 * req_ext_y) + c2_w
+        
+        pass_dim = (drop_w_val >= req_w_total) and (drop_l_val >= req_l_total)
 
-        # Loop Columns
-        centers = [(0,0), (L1,0), (0,L2), (L1,L2)] # BL, BR, TL, TR
-        for i, (cx, cy) in enumerate(centers):
-            # Draw Drop Panel
-            if has_drop:
-                # Design Column is usually top-left or bottom-left depending on convention
-                # Let's assume Top-Left (0, L2) is our target for the cloud
-                is_target = (cx == 0 and cy == L2)
-                
-                color = STYLE['pass_main'] if is_structural else STYLE['fail_main']
-                bg_col = STYLE['pass_bg'] if is_structural else STYLE['fail_bg']
-                line_style = '-' if is_structural else '--'
-                
-                ax.add_patch(patches.Rectangle(
-                    (cx - dw_m/2, cy - dl_m/2), dw_m, dl_m,
-                    fc=bg_col, ec=color, ls=line_style, lw=1, zorder=2
-                ))
-                
-                if is_target:
-                    # Label for Drop Panel
-                    txt = f"DROP {dw:.0f}x{dl:.0f}"
-                    ax.text(cx, cy - dl_m/2 - 0.15, txt, ha='center', va='top', 
-                            fontsize=8, color=color, weight='bold',
-                            bbox=dict(fc='white', ec='none', alpha=0.7, pad=0))
-                    
-                    if not is_structural:
-                        reason = ", ".join(fail_reasons)
-                        ax.text(cx, cy - dl_m/2 - 0.45, f"(SHEAR CAP)\n{reason}", 
-                                ha='center', va='top', fontsize=7, color=color)
+        # 2. Depth Check: Projection must be >= h_slab/4
+        req_depth = h_slab / 4.0
+        pass_depth = (h_drop_val >= req_depth)
+        
+        # 3. Final Status
+        is_structural_drop = pass_dim and pass_depth
+        
+        if not is_structural_drop:
+            dp_status_label = "SHEAR CAP"
+            reasons = []
+            if not pass_dim: reasons.append("Too Small")
+            if not pass_depth: reasons.append("Too Thin")
+            dp_reason = "\n".join(reasons) # For drawing
+            dp_reason_inline = ", ".join(reasons) # For table
 
-            # Draw Column
-            ax.add_patch(patches.Rectangle(
-                (cx - c1_m/2, cy - c2_m/2), c1_m, c2_m,
-                fc=STYLE['col_fill'], ec=STYLE['col_edge'], zorder=5
-            ))
+    # --- 4.3 Styles ---
+    st.markdown("""
+    <style>
+        .sheet-container {
+            font-family: sans-serif; border: 1px solid #cfd8dc; 
+            background-color: #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .sheet-header {
+            background-color: #37474f; color: #fff; padding: 10px; 
+            text-align: center; font-weight: bold; font-size: 1rem;
+        }
+        .sheet-table { width: 100%; border-collapse: collapse; }
+        .sheet-footer {
+            padding: 10px; background-color: #f5f5f5; border-top: 1px solid #ddd;
+            font-size: 0.75rem; color: #78909c;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-        # Focus Cloud (Targeting Top-Left Column)
-        draw_revision_cloud(ax, 0, L2, max(c1_m, c2_m)*3.5, max(c1_m, c2_m)*3.5)
+    # --- 4.4 Layout ---
+    col_draw, col_data = st.columns([2, 1])
 
-        # Boundary Tags
-        draw_boundary_tag(ax, -0.8, L2/2, lbls["left"], 90)
-        draw_boundary_tag(ax, L1/2, L2+0.8, lbls["top"])
+    # === LEFT: ENGINEERING DRAWINGS ===
+    with col_draw:
+        # ------------------------------------
+        # A. PLAN VIEW
+        # ------------------------------------
+        st.markdown(f"**📐 PLAN VIEW: {col_type.upper()} PANEL**")
+        fig, ax = plt.subplots(figsize=(8, 6))
+        
+        lbls = {"top": "CONTINUOUS", "bot": "CONTINUOUS", "left": "CONTINUOUS", "right": "CONTINUOUS"}
+        # Assume design column is Top-Left (0, L2) for visualization consistency
+        
+        if col_type == 'edge':
+            lbls["left"] = "BUILDING EDGE"
+        elif col_type == 'corner':
+            lbls["left"] = "BUILDING EDGE"
+            lbls["top"] = "BUILDING EDGE"
 
-        # Dimensions
-        draw_smart_dim(ax, (0, L2), (L1, L2), f"L1 = {L1:.2f} m", offset=1.0)
-        draw_smart_dim(ax, (L1, 0), (L1, L2), f"L2 = {L2:.2f} m", offset=1.0, is_vert=True)
-        # Clear Span Dim
-        draw_smart_dim(ax, (c1_m/2, L2/2 - 0.5), (L1 - c1_m/2, L2/2 - 0.5), 
-                      f"Ln = {Ln_x:.2f}m", offset=0, color=STYLE['pass_main'], style='tick')
+        # Grid & Slab
+        margin = 1.5
+        ax.plot([-margin, L1+margin], [L2/2, L2/2], color='#b0bec5', ls='-.', lw=0.8) # Grid X
+        ax.plot([L1/2, L1/2], [-margin, L2+margin], color='#b0bec5', ls='-.', lw=0.8) # Grid Y
+        
+        ax.add_patch(patches.Rectangle((0, 0), L1, L2, fc='#ffffff', ec='#263238', lw=1.5, zorder=1))
 
-        ax.set_aspect('equal')
-        ax.axis('off')
-        st.pyplot(fig, use_container_width=True)
+        # Columns Loop
+        centers = [(0,0), (L1,0), (0,L2), (L1,L2)]
+        for cx, cy in centers:
+            # --- Draw Drop Panel ---
+            if has_drop:
+                # Style Logic
+                if is_structural_drop:
+                    # Pass (Blue)
+                    dp_fc, dp_ec, dp_ls = '#e1f5fe', '#0288d1', '--'
+                    dp_lw = 0.8
+                else:
+                    # Fail (Orange/Red)
+                    dp_fc, dp_ec, dp_ls = '#ffccbc', '#d32f2f', '--'
+                    dp_lw = 1.2
 
-        # ==========================
-        # 2. SECTION VIEW
-        # ==========================
-        st.markdown("**🏗️ SECTION A-A**")
-        fig_s, ax_s = plt.subplots(figsize=(8, 3.5))
-        
-        cut_w = 2.5 # Width of section in meters to show
-        scale_x = 100 # Convert m to cm for easier drawing logic
-        
-        # Draw Column
-        ax_s.add_patch(patches.Rectangle((-c1_w/2, -150), c1_w, 150+h_slab, fc=STYLE['col_fill'], ec='black', zorder=2))
-        
-        # Draw Slab
-        sw = 300 # Section display width
-        ax_s.add_patch(patches.Rectangle((-sw/2, 0), sw, h_slab, fc='white', ec='black', lw=1.2, hatch='///', zorder=3))
-        
-        # Draw Drop
-        if has_drop:
-            d_hatch = '///' if is_structural else None
-            d_fc = 'white' if is_structural else STYLE['fail_bg']
-            d_ec = 'black' if is_structural else STYLE['fail_main']
-            d_ls = '-' if is_structural else '--'
-            
-            # Limit draw width
-            draw_dw = min(dw, sw*0.8)
-            ax_s.add_patch(patches.Rectangle((-draw_dw/2, -dh), draw_dw, dh, 
-                                           fc=d_fc, ec=d_ec, ls=d_ls, hatch=d_hatch, zorder=3))
-            
-            # Dim for drop depth
-            draw_smart_dim(ax_s, (draw_dw/2 + 15, 0), (draw_dw/2 + 15, -dh), 
-                          f"{dh:.0f}", is_vert=True, color=STYLE['pass_main'])
+                ax.add_patch(patches.Rectangle(
+                    (cx-drop_w_m/2, cy-drop_l_m/2), drop_w_m, drop_l_m, 
+                    fc=dp_fc, ec=dp_ec, lw=dp_lw, ls=dp_ls, zorder=2
+                ))
+                
+                # Special Label ONLY on Top-Left Column (Design Column)
+                if cx == 0 and cy == L2:
+                    # Size Text
+                    label_text = f"DROP: {drop_w_val:.0f}x{drop_l_val:.0f}"
+                    ax.text(cx, cy - drop_l_m/2 - 0.2, label_text, 
+                            ha='center', va='top', fontsize=8, color=dp_ec, fontweight='bold',
+                            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=0.5))
+                    
+                    # Status/Warning Text
+                    if not is_structural_drop:
+                        warn_text = f"({dp_status_label})\n{dp_reason}"
+                        ax.text(cx, cy - drop_l_m/2 - 0.55, warn_text, 
+                                ha='center', va='top', fontsize=7, color='#c62828', fontweight='bold')
 
-        # Effective Depth Line (Rebar)
-        y_rebar = h_slab - cover - 0.5 # approx bar radius
-        ax_s.plot([-sw/2+20, sw/2-20], [y_rebar, y_rebar], color=STYLE['rebar'], ls='--', lw=1.5, zorder=4)
-        ax_s.text(sw/4, y_rebar + 2, f"d = {d_eff:.2f} cm", color=STYLE['rebar'], fontsize=8, weight='bold')
+            # --- Draw Column ---
+            ax.add_patch(patches.Rectangle((cx-c1_m/2, cy-c2_m/2), c1_m, c2_m, 
+                                         fc='#455a64', ec='black', zorder=5))
 
-        # Main Dims
-        draw_smart_dim(ax_s, (-sw/2 - 20, 0), (-sw/2 - 20, h_slab), f"h={h_slab:.0f}", is_vert=True)
-        
-        ax_s.set_xlim(-sw/2 - 40, sw/2 + 40)
-        ax_s.set_ylim(-dh - 50 if has_drop else -50, h_slab + 40)
-        ax_s.set_aspect('equal')
-        ax_s.axis('off')
-        st.pyplot(fig_s, use_container_width=True)
+        # Revision Cloud (Targeting Top-Left)
+        c_size = max(c1_m, c2_m) * 3.5
+        draw_revision_cloud(ax, 0, L2, c_size, c_size)
 
-    with col_info:
-        # ==========================
-        # 3. DATA TABLE (HTML)
-        # ==========================
-        
-        html = """
-        <style>
-            .eng-table { width: 100%; border-collapse: collapse; font-family: sans-serif; box-shadow: 0 0 10px rgba(0,0,0,0.05); }
-            .eng-footer { font-size: 0.7rem; color: #b0bec5; text-align: right; padding: 5px; margin-top: 5px;}
-        </style>
-        <div style="border: 1px solid #cfd8dc; border-radius: 4px; overflow: hidden;">
-        <table class="eng-table">
-        """
-        
-        # Geometry Section
-        html += get_html_row("GEOMETRY DATA", "", "", header=True)
-        html += get_html_row("Panel Type", col_type.upper(), "", highlight=True)
-        html += get_html_row("Slab Thickness (h)", f"{h_slab:.0f}", "cm")
-        html += get_html_row("Eff. Depth (d)", f"{d_eff:.2f}", "cm", status_col=STYLE['rebar'])
-        html += get_html_row("Clear Span (Ln)", f"{Ln_x:.2f}", "m")
+        # Labels
+        draw_boundary_label(ax, L1/2, L2 + 1.2, lbls["top"])
+        draw_boundary_label(ax, L1/2, -1.2, lbls["bot"])
+        draw_boundary_label(ax, -1.2, L2/2, lbls["left"], rotation=90)
+        draw_boundary_label(ax, L1 + 1.2, L2/2, lbls["right"], rotation=90)
 
-        # Drop Panel Section
-        if has_drop:
-            html += get_html_row("DROP PANEL", "", "", header=True)
-            html += get_html_row("Size", f"{dw:.0f} x {dl:.0f}", "cm")
-            html += get_html_row("Projection (h_d)", f"{dh:.0f}", "cm")
-            
-            status_txt = "STRUCTURAL" if is_structural else "SHEAR CAP"
-            status_c = STYLE['pass_main'] if is_structural else STYLE['fail_main']
-            html += get_html_row("Classification", status_txt, "", status_col=status_c)
-            
-            if not is_structural:
-                html += f"""<tr><td colspan="3" style="padding: 5px 10px; font-size: 0.75rem; color: {STYLE['fail_main']}; background: {STYLE['fail_bg']};">
-                ⚠️ <b>Warning:</b> {', '.join(fail_reasons)}<br>Neglect stiffness, use for shear only.</td></tr>"""
+        # Dims
+        draw_dim(ax, (0, L2), (L1, L2), f"{L1:.2f}m", offset=0.8)
+        draw_dim(ax, (L1, 0), (L1, L2), f"{L2:.2f}m", offset=0.8, is_vert=True)
+        draw_dim(ax, (c1_m/2, L2/4), (L1 - c1_m/2, L2/4), f"Ln={Ln_x:.2f}m", offset=0, color='#2e7d32', style='clear')
+        
+        ax.set_aspect('equal')
+        ax.axis('off')
+        ax.set_xlim(-margin-0.5, L1+margin+0.5)
+        ax.set_ylim(-margin-0.5, L2+margin+0.5)
+        st.pyplot(fig, use_container_width=True)
 
-        # Materials Section
-        html += get_html_row("MATERIALS & LOADS", "", "", header=True)
-        html += get_html_row("Concrete (fc')", f"{mat_props['fc']:.0f}", "ksc")
-        html += get_html_row("Design Load (Wu)", f"{loads['w_u']:,.0f}", "kg/m²", highlight=True)
+        # ------------------------------------
+        # B. SECTION VIEW
+        # ------------------------------------
+        st.markdown(f"**🏗️ SECTION A-A** (Storey H = {lc:.2f} m)")
+        fig_s, ax_s = plt.subplots(figsize=(8, 4))
+        
+        cut_w = 250
+        col_draw_h = 150
+        
+        # 1. Column
+        ax_s.add_patch(patches.Rectangle((-c1_w/2, -col_draw_h), c1_w, col_draw_h, fc='#546e7a', ec='black', zorder=2))
+        
+        # 2. Slab
+        ax_s.add_patch(patches.Rectangle((-cut_w/2, 0), cut_w, h_slab, fc='white', ec='black', hatch='//', zorder=3))
+        
+        # 3. Drop Panel
+        y_bottom_slab = 0
+        if has_drop:
+            # Consistent Styling with Plan
+            if is_structural_drop:
+                dp_sec_fc, dp_sec_ec = 'white', 'black' # Standard Concrete
+                dp_sec_style = '-'
+                dp_sec_label = None
+            else:
+                dp_sec_fc, dp_sec_ec = '#ffccbc', '#d32f2f' # Warning
+                dp_sec_style = '--'
+                dp_sec_label = "Shear Cap Only\n(Stiffness Ignored)"
 
-        html += "</table></div>"
-        html += "<div class='eng-footer'>Generated by RC Slab Design Pro • ACI 318-19</div>"
-        
-        st.markdown(html, unsafe_allow_html=True)
+            drop_draw_w = min(cut_w * 0.7, drop_w_val)
+            
+            # Draw Drop
+            ax_s.add_patch(patches.Rectangle(
+                (-drop_draw_w/2, -h_drop_val), drop_draw_w, h_drop_val, 
+                fc=dp_sec_fc, ec=dp_sec_ec, hatch='//' if is_structural_drop else None, 
+                ls=dp_sec_style, zorder=3
+            ))
+            
+            y_bottom_slab = -h_drop_val
+            draw_dim(ax_s, (drop_draw_w/2 + 10, 0), (drop_draw_w/2 + 10, -h_drop_val), f"{h_drop_val}cm", is_vert=True, color='#0277bd')
+
+            # Section Label
+            if dp_sec_label:
+                ax_s.annotate(
+                    dp_sec_label,
+                    xy=(drop_draw_w/2, -h_drop_val),
+                    xytext=(drop_draw_w/2 + 30, -h_drop_val - 30),
+                    arrowprops=dict(arrowstyle='->', color=dp_sec_ec, connectionstyle="arc3,rad=0.2"),
+                    color=dp_sec_ec, fontsize=9, fontweight='bold', zorder=100,
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=dp_sec_ec, alpha=0.9)
+                )
+
+        # 4. Rebar
+        eff_depth_line = h_slab - cover - 0.5
+        ax_s.plot([-cut_w/2 + 10, cut_w/2 - 10], [eff_depth_line, eff_depth_line], color='#d32f2f', lw=2.5, zorder=4)
+        
+        # 5. Dimensions
+        draw_dim(ax_s, (-cut_w/2 - 15, 0), (-cut_w/2 - 15, h_slab), f"h={h_slab:.0f}cm", is_vert=True)
+        draw_dim(ax_s, (cut_w/4, eff_depth_line), (cut_w/4, y_bottom_slab), f"d={d_eff:.2f}cm", is_vert=True, color='#d32f2f')
+        draw_dim(ax_s, (-c1_w/2 - 30, 0), (-c1_w/2 - 30, -col_draw_h), f"H={lc:.2f}m", is_vert=True, color='#e65100')
+
+        ax_s.set_aspect('equal')
+        ax_s.axis('off')
+        ax_s.set_xlim(-cut_w/2 - 50, cut_w/2 + 50)
+        ax_s.set_ylim(-col_draw_h - 20, h_slab + 30)
+        
+        st.pyplot(fig_s, use_container_width=True)
+
+    # === RIGHT: DATA SHEET ===
+    with col_data:
+        html = ""
+        html += '<div class="sheet-container">'
+        html += '<div class="sheet-header">DESIGN DATA</div>'
+        html += '<table class="sheet-table">'
+        
+        html += get_row_html("1. GEOMETRY", "", "", is_header=True)
+        html += get_row_html("Panel Type", f"{col_type.upper()}", "", is_highlight=True)
+        html += get_row_html("Thickness (h)", f"{h_slab:.0f}", "cm")
+        html += get_row_html("Cover (c)", f"{cover:.1f}", "cm")
+        html += get_row_html("Eff. Depth (d)", f"{d_eff:.2f}", "cm")
+        
+        html += get_row_html("2. SPANS", "", "", is_header=True)
+        html += get_row_html("L1 (Center)", f"{L1:.2f}", "m")
+        html += get_row_html("L2 (Center)", f"{L2:.2f}", "m")
+        html += get_row_html("Ln (Clear)", f"{max(Ln_x, Ln_y):.2f}", "m")
+        
+        if has_drop:
+            html += get_row_html("3. DROP PANEL", "", "", is_header=True)
+            html += get_row_html("Size (WxL)", f"{drop_w_val:.0f}x{drop_l_val:.0f}", "cm")
+            html += get_row_html("Depth (Ext)", f"{h_drop_val:.0f}", "cm")
+            html += get_row_html("Total Depth", f"{h_slab+h_drop_val:.0f}", "cm")
+            
+            # Status Indicator in Table with Reason
+            status_text = "STRUCTURAL" if is_structural_drop else "SHEAR CAP"
+            status_color = "green" if is_structural_drop else "red"
+            status_bg = "#e8f5e9" if is_structural_drop else "#ffebee"
+            
+            html += f"""
+            <tr style="background-color: {status_bg}; border-bottom: 1px solid #eceff1;">
+                <td style="padding: 5px 10px; color: #e65100; font-weight: bold;">STATUS</td>
+                <td style="padding: 5px 10px; text-align: right; color: {status_color}; font-weight: bold;">{status_text}</td>
+                <td></td>
+            </tr>"""
+            
+            if not is_structural_drop:
+                html += f"""
+                <tr style="background-color: {status_bg};">
+                    <td colspan="3" style="padding: 2px 10px 8px 10px; text-align: right; font-size: 0.75rem; color: #c62828;">
+                        *Reason: {dp_reason_inline}
+                    </td>
+                </tr>"""
+
+        html += get_row_html("4. LOADING", "", "", is_header=True)
+        html += get_row_html("fc'", f"{fc_val:.0f}", "ksc")
+        html += get_row_html("Load (Wu)", f"{wu:,.0f}", "kg/m²", is_highlight=True)
+        
+        html += '</table>'
+        html += f'<div class="sheet-footer">Date: {pd.Timestamp.now().strftime("%d-%b-%Y")}</div>'
+        html += '</div>'
+
+        st.markdown(html, unsafe_allow_html=True)
