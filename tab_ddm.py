@@ -431,20 +431,24 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 # ========================================================
 # 4. UI RENDERER (INTERACTIVE)
 # ========================================================
+# ========================================================
+# 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
+# ========================================================
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     # Unpack basic props
     h_slab = mat_props['h_slab']
     cover = mat_props['cover']
     fc = mat_props['fc']
     fy = mat_props['fy']
-    phi_bend = mat_props.get('phi', 0.90)       
+    phi_bend = mat_props.get('phi', 0.90)        
     phi_shear = mat_props.get('phi_shear', 0.85) 
     
     # Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
     
     L_span = data['L_span']
-    L_width = data['L_width']
+    # ตรวจสอบว่ามี key 'L_width' หรือไม่ ถ้าไม่มีให้ใช้ค่าจากอีกแกน (Logic กัน Error)
+    L_width = data.get('L_width', L_span) 
     c_para = data['c_para']
     Mo = data['Mo']
     m_vals = data['M_vals']
@@ -479,8 +483,17 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             st.latex(f"M_o = \\frac{{w_u l_2 l_n^2}}{{8}} = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
             st.latex(f"M_o = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
             
-            if m_vals.get('M_unbal', 0) > 0:
-                st.warning(f"⚠️ **Unbalanced Moment ($M_{{sc}}$):** {m_vals['M_unbal']:,.0f} kg-m (Transferred to Edge Column)")
+            # --- Check Unbalanced Moment ---
+            M_sc = m_vals.get('M_unbal', 0)
+            if M_sc > 0:
+                st.warning(f"⚠️ **Unbalanced Moment ($M_{{sc}}$):** {M_sc:,.0f} kg-m (Transferred to Edge Column)")
+                
+                # [ADDED] English Note as requested
+                coeff_used = M_sc / Mo if Mo > 0 else 0
+                st.caption(f"""
+                📝 **Note:** Derived from **$M_{{sc}} = {coeff_used:.2f} \\times M_o$**. 
+                This represents the **Exterior Negative Moment** transferred directly to the edge column due to the lack of continuity at the slab edge (based on ACI 318 DDM Coefficients).
+                """)
 
     # -----------------------------------------------------
     # SECTION 2: PUNCHING SHEAR (INTEGRATED)
@@ -488,7 +501,6 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check")
-        
         
         c_col = float(c_para)
         load_area = (L_span * L_width) - ((c_col/100)**2)
@@ -500,6 +512,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         else:
             col_cond = "edge"
         
+        # Perform Calculation
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
@@ -523,6 +536,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         
         with c_ps2:
             st.markdown(f"**Condition:** {col_cond.capitalize()} Column")
+            
             if col_cond == "edge" and m_vals.get('M_unbal', 0) > 0:
                  st.info(f"ℹ️ **Note:** Edge column check considers Moment Transfer ($M_{{sc}}$) = {m_vals['M_unbal']:,.0f} kg-m")
 
@@ -533,9 +547,11 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                 st.write("👉 Suggestion: Increase slab thickness, column size, or add drop panel.")
             
             with st.expander("Show Punching Calculation"):
-                st.latex(f"v_u = \\frac{{V_u}}{{b_o d}} + \\frac{{\\gamma_v M_{{sc}} c}}{{J_c}}")
-                st.write(f"Shear Capacity ($V_c$): {ps_res['phi_Vc']:,.0f} kg")
+                st.latex(r"v_u = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c}")
+                st.write(f"Shear Capacity ($\\phi V_c$): {ps_res['phi_Vc']:,.0f} kg")
                 st.write(f"Shear Demand ($V_u$): {ps_res['Vu']:,.0f} kg")
+
+
 
     # -----------------------------------------------------
     # SECTION 3: DEFLECTION
