@@ -234,7 +234,7 @@ try:
     check_res = results.get('checks', {})
     ddm_res = results.get('ddm', {'x': {}, 'y': {}})
     
-    # [FIX] Define wu explicitly here (Re-added)
+    # [FIX] Define wu explicitly here to prevent NameError in tabs
     wu = loads_res.get('w_u', 0)
 
 except Exception as e:
@@ -245,16 +245,9 @@ except Exception as e:
 # 4. MAIN DASHBOARD UI
 # =========================================================
 
-# Title Section
-c_title1, c_title2 = st.columns([3, 1])
-with c_title1:
-    st.title("🏗️ ProFlat: Structural Dashboard")
-    st.caption(f"Design Code: ACI 318 / EIT | Concrete: {fc} ksc | Steel: {fy} ksc")
-with c_title2:
-    # Quick Status Badge
-    overall_status = "PASS" if (punch_res.get('status') == "OK" and shear_res.get('status') == "OK") else "CHECK"
-    color = "green" if overall_status == "PASS" else "red"
-    st.markdown(f"<h2 style='text-align:right; color:{color}; border: 2px solid {color}; padding: 5px; border-radius: 10px;'>{overall_status}</h2>", unsafe_allow_html=True)
+# Title Section (Clean - No Status Badge)
+st.title("🏗️ ProFlat: Structural Dashboard")
+st.caption(f"Design Code: ACI 318 / EIT | Concrete: {fc} ksc | Steel: {fy} ksc")
 
 st.markdown("---")
 
