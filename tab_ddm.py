@@ -622,41 +622,53 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 
 
 # ========================================================
-# HELPER: ENGINEERING SCHEMATIC DIAGRAM (ENGLISH ONLY)
+# HELPER: ENGINEERING SCHEMATIC + COEFFICIENTS (FINAL)
 # ========================================================
 def draw_span_schematic(span_type):
     """
     Draws a technical schematic section of the slab span.
-    Features: English annotations, clear structural definitions, and phantom lines for comparison.
+    Features: English annotations, clear structural definitions, and ACI 318 Moment Coefficients.
     """
-    # Canvas Setup
-    fig, ax = plt.subplots(figsize=(8, 3.5)) 
+    # Canvas Setup (Wider for clarity)
+    fig, ax = plt.subplots(figsize=(9, 3.5)) 
     ax.set_xlim(-2.0, 12.0)
-    ax.set_ylim(-1.0, 5.0)
+    ax.set_ylim(-1.5, 5.5) # Increased top margin for coefficients
     ax.axis('off')
 
     # --- Styles ---
-    concrete_color = '#e8e8e8' 
+    concrete_color = '#f0f0f0' 
     hatch_style = '///'
-    line_color = '#404040'
+    line_color = '#202020'
     
     # Material Styles
     slab_style = {'facecolor': concrete_color, 'edgecolor': line_color, 'linewidth': 1.5, 'hatch': hatch_style}
-    col_style = {'facecolor': '#707070', 'edgecolor': 'black', 'zorder': 5} # Dark Grey Columns
-    beam_phantom_style = {'facecolor': 'none', 'edgecolor': '#d9534f', 'linestyle': '--', 'linewidth': 1} # Red Dashed
+    col_style = {'facecolor': '#606060', 'edgecolor': 'black', 'zorder': 10} 
+    beam_phantom_style = {'facecolor': 'none', 'edgecolor': '#d9534f', 'linestyle': '--', 'linewidth': 1} 
 
     # --- Geometry Parameters ---
-    slab_y = 2.5         # Soffit Elevation
+    slab_y = 2.0         # Soffit Elevation
     slab_h = 0.6         # Slab Thickness
     col_w = 0.8          # Column Width
     beam_depth = 1.2     # Beam Depth
     col_h = 2.5          # Column Height
 
-    # --- Helper: Annotations ---
-    # Arrow for Structural Parts (Black)
-    part_arrow = dict(arrowstyle="->", color='black', connectionstyle="arc3,rad=0.2", linewidth=1.2)
-    # Arrow for Properties/Notes (Blue/Red)
-    note_arrow = dict(arrowstyle="->", color='#0275d8', connectionstyle="arc3,rad=-0.2", linewidth=1.2)
+    # --- Helper: Draw Coefficients ---
+    def plot_coeffs(c_neg_ext, c_pos, c_neg_int):
+        # Text Style for Coefficients
+        bbox_style = dict(boxstyle="round,pad=0.3", fc="white", ec="#0056b3", alpha=0.9)
+        font_style = dict(ha='center', va='center', fontsize=9, weight='bold', color='#0056b3')
+        
+        # 1. Left Support (Ext)
+        ax.text(0, slab_y + slab_h + 0.8, f"Ext. Neg\n{c_neg_ext:.2f}", **font_style, bbox=bbox_style)
+        ax.plot([0, 0], [slab_y+slab_h, slab_y+slab_h+0.4], color='#0056b3', linewidth=1) # Leader line
+        
+        # 2. Midspan (Pos)
+        ax.text(5, slab_y + slab_h + 0.8, f"Positive\n{c_pos:.2f}", **font_style, bbox=bbox_style)
+        ax.plot([5, 5], [slab_y+slab_h, slab_y+slab_h+0.4], color='#0056b3', linewidth=1)
+        
+        # 3. Right Support (Int)
+        ax.text(10, slab_y + slab_h + 0.8, f"Int. Neg\n{c_neg_int:.2f}", **font_style, bbox=bbox_style)
+        ax.plot([10, 10], [slab_y+slab_h, slab_y+slab_h+0.4], color='#0056b3', linewidth=1)
 
     # ---------------- Drawing Logic ----------------
 
@@ -664,94 +676,83 @@ def draw_span_schematic(span_type):
         # ==========================================
         # CASE 1: INTERIOR SPAN
         # ==========================================
-        # 1. Columns (Interior)
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Left
-        ax.add_patch(patches.Rectangle((10-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Right
-        
-        # 2. Slab (Continuous through supports)
-        ax.add_patch(patches.Rectangle((-2, slab_y), 14, slab_h, **slab_style))
+        # 1. Geometry
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Left Col
+        ax.add_patch(patches.Rectangle((10-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Right Col
+        ax.add_patch(patches.Rectangle((-2, slab_y), 14, slab_h, **slab_style)) # Slab (Continuous)
 
-        # 3. Continuity Symbols (Break Lines)
-        ax.text(-1.5, slab_y+slab_h/2, "≈", fontsize=20, ha='center', va='center', rotation=90)
-        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=20, ha='center', va='center', rotation=90)
+        # 2. Continuity Symbols
+        ax.text(-1.5, slab_y+slab_h/2, "≈", fontsize=24, ha='center', va='center', rotation=90)
+        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=24, ha='center', va='center', rotation=90)
+
+        # 3. Coefficients (ACI 318)
+        plot_coeffs(0.65, 0.35, 0.65)
 
         # 4. Annotations
-        # Header
-        ax.text(5, 4.2, "INTERIOR SPAN", ha='center', fontsize=12, weight='bold', color='#333')
-        ax.text(5, 3.8, "(Continuous Support Conditions)", ha='center', fontsize=9, color='#555')
-
-        # Labels
-        ax.annotate('Interior Column', xy=(0, slab_y - 1.0), xytext=(-2.5, 0.5),
-                    arrowprops=part_arrow, fontsize=9, weight='bold', ha='center')
-        
-        ax.annotate('Continuous Slab', xy=(2, slab_y + slab_h), xytext=(2, 4.0),
-                    arrowprops=part_arrow, fontsize=9, ha='center')
+        ax.text(5, 5.0, "INTERIOR SPAN", ha='center', fontsize=12, weight='bold', color='black')
+        ax.annotate('Continuous Support', xy=(0, slab_y-0.5), xytext=(-2.5, 1.0),
+                    arrowprops=dict(arrowstyle="->"), fontsize=9, ha='center')
 
     elif "Edge Beam" in span_type:
         # ==========================================
         # CASE 2: END SPAN + EDGE BEAM
         # ==========================================
-        # 1. Columns
+        # 1. Geometry
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Edge Col
         ax.add_patch(patches.Rectangle((10-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Int Col
-
-        # 2. Slab & Beam
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 12, slab_h, **slab_style)) # Slab
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_depth), col_w*1.5, beam_depth, **slab_style)) # Beam
         
-        # 3. Continuity Symbol (Right Only)
-        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=20, ha='center', va='center', rotation=90)
+        # Slab & Beam
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 12, slab_h, **slab_style))
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_depth), col_w*1.5, beam_depth, **slab_style)) # BEAM
+
+        # 2. Continuity Symbols
+        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=24, ha='center', va='center', rotation=90)
+
+        # 3. Coefficients (ACI 318)
+        plot_coeffs(0.30, 0.50, 0.70)
 
         # 4. Annotations
-        # Header
-        ax.text(5, 4.2, "END SPAN - EDGE BEAM", ha='center', fontsize=12, weight='bold', color='#333')
-        ax.text(5, 3.8, "(Stiff Edge Restraint)", ha='center', fontsize=9, color='#555')
-
-        # Labels
-        ax.annotate('Deep Edge Beam\n(High Torsional Stiffness)', xy=(0.5, slab_y - beam_depth/2), xytext=(3.5, 0.5),
-                    arrowprops=dict(arrowstyle="->", color='#d9534f', linewidth=1.5), 
-                    fontsize=9, weight='bold', color='#d9534f')
+        ax.text(5, 5.0, "END SPAN - EDGE BEAM", ha='center', fontsize=12, weight='bold', color='black')
         
-        ax.annotate('Edge Column', xy=(0, slab_y - beam_depth - 0.5), xytext=(-2.5, 0),
-                    arrowprops=part_arrow, fontsize=9, ha='center')
+        # Specific Note
+        ax.annotate('Stiff Edge Beam\n(Torsional Resistance)', xy=(0.8, slab_y - beam_depth/2), xytext=(4.0, 0.5),
+                    arrowprops=dict(arrowstyle="->", color='#d9534f', linewidth=1.5), 
+                    fontsize=9, weight='bold', color='#d9534f', ha='left')
 
     elif "No Beam" in span_type:
         # ==========================================
         # CASE 3: END SPAN - FLAT PLATE
         # ==========================================
-        # 1. Columns
+        # 1. Geometry
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Edge Col
         ax.add_patch(patches.Rectangle((10-col_w/2, slab_y - col_h), col_w, col_h, **col_style)) # Int Col
-
-        # 2. Slab (Flat Soffit)
+        
+        # Slab (Flat Soffit)
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 12, slab_h, **slab_style))
 
-        # 3. Phantom Beam (Visual Aid)
+        # Phantom Beam (Visual Aid)
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_depth), col_w, beam_depth, **beam_phantom_style))
 
-        # 4. Continuity Symbol (Right Only)
-        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=20, ha='center', va='center', rotation=90)
+        # 2. Continuity Symbols
+        ax.text(11.5, slab_y+slab_h/2, "≈", fontsize=24, ha='center', va='center', rotation=90)
 
-        # 5. Annotations
-        # Header
-        ax.text(5, 4.2, "END SPAN - FLAT PLATE", ha='center', fontsize=12, weight='bold', color='#333')
-        ax.text(5, 3.8, "(Flexible Edge / No Beam)", ha='center', fontsize=9, color='#555')
+        # 3. Coefficients (ACI 318)
+        plot_coeffs(0.26, 0.52, 0.70)
 
-        # Labels
-        ax.annotate('Flat Soffit\n(No Beam)', xy=(0.5, slab_y), xytext=(3.5, 1.0),
-                    arrowprops=dict(arrowstyle="->", color='#d9534f', linewidth=1.5), 
-                    fontsize=9, weight='bold', color='#d9534f')
+        # 4. Annotations
+        ax.text(5, 5.0, "END SPAN - FLAT PLATE", ha='center', fontsize=12, weight='bold', color='black')
         
-        ax.annotate('Slab-Column Joint', xy=(0, slab_y), xytext=(-2.5, 2.0),
-                    arrowprops=part_arrow, fontsize=9, ha='center')
-
-        # Phantom Label
-        ax.text(0, slab_y - beam_depth/2, "No Beam Here", color='#d9534f', fontsize=8, ha='center', va='center', rotation=90)
+        # Specific Note
+        ax.annotate('Flat Soffit\n(Flexible Connection)', xy=(0.5, slab_y), xytext=(3.5, 0.5),
+                    arrowprops=dict(arrowstyle="->", color='#d9534f', linewidth=1.5), 
+                    fontsize=9, weight='bold', color='#d9534f', ha='left')
+        
+        ax.text(0, slab_y - beam_depth/2, "NO BEAM", color='#d9534f', fontsize=8, ha='center', va='center', rotation=90)
 
     # --- Common Elements ---
     # Dimension Line
-    ax.annotate('', xy=(0, -0.5), xytext=(10, -0.5), arrowprops=dict(arrowstyle='<->', linewidth=1.0, color='black'))
-    ax.text(5, -0.8, "Span Length (L)", ha='center', fontsize=10, fontstyle='italic')
+    ax.annotate('', xy=(0, -0.8), xytext=(10, -0.8), arrowprops=dict(arrowstyle='<->', linewidth=1.0, color='black'))
+    ax.text(5, -1.2, "Span Length (L)", ha='center', fontsize=10, fontstyle='italic')
 
     return fig
 # ========================================================
