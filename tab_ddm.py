@@ -20,8 +20,20 @@ except ImportError:
     HAS_CALC = False
 
 # ========================================================
-# 1. CORE CALCULATION ENGINE
+# 1. CORE ENGINEERING LOGIC (ACI 318 / EIT)
 # ========================================================
+
+def get_beta1(fc: float) -> float:
+    """
+    Calculate Beta1 factor for equivalent rectangular concrete stress distribution.
+    ACI 318: 0.85 for fc <= 280 ksc (4000 psi).
+    Reduces by 0.05 for every 70 ksc above 280, min 0.65.
+    """
+    if fc <= 280:
+        return 0.85
+    else:
+        beta = 0.85 - 0.05 * ((fc - 280) / 70)
+        return max(0.65, beta)
 
 def calc_rebar_logic(
     M_u: float, b_width: float, d_bar: float, s_bar: float, 
@@ -29,52 +41,72 @@ def calc_rebar_logic(
     is_main_dir: bool, phi_factor: float = 0.90
 ) -> Dict[str, Any]:
     """
-    Core Logic: Calculate Flexural Reinforcement per ACI 318.
+    Perform Flexural Design with detailed intermediate steps.
     """
+    # Units: kg, cm
     b_cm = b_width * 100.0
     h_cm = float(h_slab)
     Mu_kgcm = M_u * 100.0
     
-    # --- Effective Depth Logic ---
-    # If main direction (outer layer), offset is 0. 
-    # If secondary direction (inner layer), offset is approx 1 bar diameter.
+    # 1. Effective Depth (d)
+    # Layer 1 (Outer) or Layer 2 (Inner)
     d_offset = 0.0 if is_main_dir else (d_bar / 10.0)
     d_eff = h_cm - cover - (d_bar / 20.0) - d_offset
     
-    # Handle negligible moment or invalid depth
-    if M_u < 10 or d_eff <= 0:
-        return {
-            "d": max(d_eff, 0), "Rn": 0, "rho_req": 0, "As_min": 0, "As_flex": 0, 
-            "As_req": 0, "As_prov": 0, "a": 0, "PhiMn": 0, "DC": 0, 
-            "Status": True, "Note": "M -> 0" if M_u < 10 else "Depth Err", "s_max": 45
-        }
+    if d_eff <= 0:
+        return {"Status": False, "Note": "Depth Error", "d": 0, "As_req": 0}
 
-    # --- Strength Design ---
-    Rn = Mu_kgcm / (phi_factor * b_cm * d_eff**2)
+    # 2. Beta 1
+    beta1 = get_beta1(fc)
+
+    # 3. Required Strength (Rn)
+    # Rn = Mu / (phi * b * d^2)
+    try:
+        Rn = Mu_kgcm / (phi_factor * b_cm * (d_eff**2))
+    except ZeroDivisionError:
+        Rn = 0
+
+    # 4. Reinforcement Ratio (rho)
+    # rho = (0.85*fc/fy) * (1 - sqrt(1 - 2Rn/(0.85*fc)))
+    term_inside = 1 - (2 * Rn) / (0.85 * fc)
     
-    term_val = 1 - (2 * Rn) / (0.85 * fc)
-    
-    if term_val < 0:
-        rho_req = 999.0 # Fail indicator
+    rho_calc = 0.0
+    if term_inside < 0:
+        rho_req = 999.0 # Section too small (Fail)
     else:
-        rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term_val))
-        
+        if M_u < 100: # Negligible moment
+            rho_req = 0.0
+        else:
+            rho_req = (0.85 * fc / fy) * (1 - np.sqrt(term_inside))
+            rho_calc = rho_req
+
+    # 5. Steel Areas
     As_flex = rho_req * b_cm * d_eff
-    As_min = 0.0018 * b_cm * h_cm
+    As_min = 0.0018 * b_cm * h_cm # Temp & Shrinkage (ACI Standard for Slabs)
+    
+    # Control Logic: Use Max(As_flex, As_min)
+    # Even if Moment is 0 (e.g. Mid Strip Top), we need As_min for shrinkage
     As_req_final = max(As_flex, As_min) if rho_req != 999 else 999.0
     
-    # --- Provided Reinforcement ---
+    # 6. Provided Steel
     Ab_area = np.pi * (d_bar / 10.0)**2 / 4.0
     As_prov = (b_cm / s_bar) * Ab_area
     
-    # --- Capacity Check ---
+    # 7. Capacity Check (Phi Mn)
     if rho_req == 999:
         PhiMn = 0; a_depth = 0; dc_ratio = 999.0
     else:
+        # a = As*fy / (0.85*fc*b)
         a_depth = (As_prov * fy) / (0.85 * fc * b_cm)
+        # Mn = As*fy*(d - a/2)
         Mn = As_prov * fy * (d_eff - a_depth / 2.0)
-        PhiMn = phi_factor * Mn / 100.0
-        dc_ratio = M_u / PhiMn if PhiMn > 0 else 999.0
+        PhiMn = phi_factor * Mn / 100.0 # kg-m
+        
+        # DC Ratio check (avoid div by zero)
+        if M_u < 50: # Ignore check for zero moment zones
+            dc_ratio = 0.0
+        else:
+            dc_ratio = M_u / PhiMn if PhiMn > 0 else 999.0
 
     s_max = min(2 * h_cm, 45.0)
     
@@ -82,192 +114,231 @@ def calc_rebar_logic(
     if dc_ratio > 1.0: checks.append("Strength Fail")
     if As_prov < As_min: checks.append("As < Min")
     if s_bar > s_max: checks.append("Spacing > Max")
-    if rho_req == 999: checks.append("Section Fail")
+    if rho_req == 999: checks.append("Section Too Small")
     
+    status_bool = (len(checks) == 0)
+
     return {
-        "d": d_eff, "Rn": Rn, "rho_req": rho_req, "As_min": As_min, "As_flex": As_flex,
-        "As_req": As_req_final, "As_prov": As_prov, "a": a_depth, 
-        "PhiMn": PhiMn, "DC": dc_ratio, "Status": len(checks) == 0, 
-        "Note": ", ".join(checks) if checks else "OK", "s_max": s_max
+        "d": d_eff, "beta1": beta1, "Rn": Rn, 
+        "rho_req": rho_req, "rho_calc": rho_calc,
+        "As_min": As_min, "As_flex": As_flex,
+        "As_req": As_req_final, "As_prov": As_prov, 
+        "a": a_depth, "PhiMn": PhiMn, "DC": dc_ratio, 
+        "Status": status_bool, 
+        "Note": ", ".join(checks) if checks else "OK", 
+        "s_max": s_max
     }
 
-def calc_deflection_check(
-    L_span: float, L_width: float, h_slab: float, w_u: float, 
-    fc: float, fy: float, span_type: str
-) -> Dict[str, Any]:
+def calc_deflection_check(L_span, h_slab, w_u, fc, span_type):
     """
-    Serviceability Logic: Check Minimum Thickness (ACI Table 8.3.1.1) 
-    and Estimate Elastic Deflection.
+    Simplified Serviceability Check.
+    Note: Real deflection requires effective inertia (Ie).
+    Here we use Ig with a conservative multiplier for long-term effects.
     """
-    # 1. Minimum Thickness Check (ACI 318 Table 8.3.1.1)
-    if "Interior" in span_type:
-        denom = 33.0
-    elif "Edge Beam" in span_type:
-        denom = 30.0 # End span with edge beam
-    elif "No Beam" in span_type:
-        denom = 30.0 # End span without edge beam (Conservative)
-    else:
-        denom = 30.0
-
-    # Fy modification factor logic simplified for typical grades
-    h_min_req = (L_span * 100.0) / denom
+    # Minimum Thickness Table (ACI 318)
+    denom = 30.0 # Default
+    if "Interior" in span_type: denom = 33.0
+    elif "Edge" in span_type: denom = 30.0
     
-    # Apply factor if Fy is significantly different (simplified check)
-    if fy > 3000:
-        pass 
-        
-    status_h = "OK" if h_slab >= h_min_req else "CHECK"
+    h_min = (L_span * 100) / denom
     
-    # 2. Elastic Deflection Estimation (Simplified - Gross Inertia)
-    # Note: This is a rough estimate using Gross Inertia only.
-    w_service = w_u / 1.4 # Rough approximation to get service load
-    w_line = w_service * L_width # kg/m
+    # Elastic Deflection (Approximate)
+    # 5wL^4 / 384EI (Simple) * Continuity Factor
+    # Continuity Factor: 0.6 for interior, 0.8 for end span (Rough approx)
+    k_cont = 0.6 if "Interior" in span_type else 0.8
     
     Ec = 15100 * np.sqrt(fc) # ksc
-    Ig = (L_width * 100 * (h_slab)**3) / 12.0 # cm4
+    b_design = 100.0 # Consider 1m strip width for check
+    Ig = (b_design * h_slab**3) / 12.0
     
-    w_line_cm = w_line / 100.0
+    w_service = w_u / 1.45 # Approx service load
+    w_line = (w_service * 1.0) / 100.0 # kg/cm per strip width
     L_cm = L_span * 100.0
     
-    continuity_factor = 0.6 # Reduces deflection compared to simple span
-    delta_imm = continuity_factor * (5 * w_line_cm * L_cm**4) / (384 * Ec * Ig)
+    delta_imm = k_cont * (5 * w_line * L_cm**4) / (384 * Ec * Ig)
     
-    # Long term multiplier
-    lambda_delta = 2.0
-    delta_long = delta_imm * (1 + lambda_delta)
+    # Long term multiplier (Creep + Shrinkage)
+    # ACI: lambda = xi / (1 + 50rho')
+    # Conservative assume lambda = 2.0 -> Total = 3.0 * Immediate
+    lambda_long = 2.0
+    delta_total = delta_imm * (1 + lambda_long)
     
-    limit_delta = L_cm / 240.0 # General limit
+    limit = L_cm / 240.0
     
     return {
-        "h_min": h_min_req,
-        "status_h": status_h,
-        "delta_imm": delta_imm,
-        "delta_long": delta_long,
-        "limit": limit_delta,
-        "denom": denom
+        "h_min": h_min, "status_h": h_slab >= h_min,
+        "delta_imm": delta_imm, "delta_total": delta_total,
+        "limit": limit, "denom": denom
     }
 
 # ========================================================
-# 2. HELPER: DDM COEFFICIENT RECALCULATION
+# 2. DDM COEFFICIENT ENGINE
 # ========================================================
-def get_ddm_coeffs(span_type: str) -> Dict[str, Any]:
+def get_ddm_coeffs(span_type: str) -> Dict[str, float]:
     """
-    Return dictionaries of Moment Coefficients based on Span Type (ACI 318).
+    Returns ACI 318 Moment Coefficients.
+    Now includes 'ext_neg' for Unbalanced Moment calculation at edge.
     """
     if "Interior" in span_type:
-        return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Interior: Neg 0.65, Pos 0.35' }
+        # Case: Interior Span
+        return {'neg': 0.65, 'pos': 0.35, 'ext_neg': 0.0, 'desc': 'Interior Span'}
+    
     elif "Edge Beam" in span_type:
-        return { 'neg': 0.70, 'pos': 0.57, 'desc': 'End w/ Beam: IntNeg 0.70, Pos 0.57' }
+        # Case: Exterior Span with Stiff Edge Beam
+        # Ext Neg: 0.30, Pos: 0.50, Int Neg: 0.70
+        return {'neg': 0.70, 'pos': 0.50, 'ext_neg': 0.30, 'desc': 'End Span (Stiff Beam)'}
+    
     elif "No Beam" in span_type:
-        return { 'neg': 0.70, 'pos': 0.52, 'desc': 'End No Beam: IntNeg 0.70, Pos 0.52' }
-    return { 'neg': 0.65, 'pos': 0.35, 'desc': 'Default' }
+        # Case: Exterior Span (Flat Plate)
+        # Ext Neg: 0.26, Pos: 0.52, Int Neg: 0.70
+        return {'neg': 0.70, 'pos': 0.52, 'ext_neg': 0.26, 'desc': 'End Span (Flat Plate)'}
+        
+    return {'neg': 0.65, 'pos': 0.35, 'ext_neg': 0.0, 'desc': 'Default'}
 
 def update_moments_based_on_config(data_obj: Dict, span_type: str) -> Dict:
-    """
-    Recalculate M_vals in data_obj based on the selected span type.
-    """
     Mo = data_obj['Mo']
     coeffs = get_ddm_coeffs(span_type)
     
-    M_neg_total = coeffs['neg'] * Mo
-    M_pos_total = coeffs['pos'] * Mo
+    # Total Static Moment Distribution
+    M_neg_total = coeffs['neg'] * Mo    # Interior Negative
+    M_pos_total = coeffs['pos'] * Mo    # Positive
+    M_ext_neg_total = coeffs['ext_neg'] * Mo # Exterior Negative (Unbalanced)
+
+    # Column Strip / Middle Strip Distribution (ACI 318)
+    # Simplified assumptions for Flat Plate (Beta_t = 0 for no beam)
+    # Interior Negative: 75% CS, 25% MS
+    # Positive: 60% CS, 40% MS
+    # Exterior Negative: 100% CS (Conservative for Flat Plate)
     
-    # Distribution factors (ACI)
     M_cs_neg = 0.75 * M_neg_total
     M_ms_neg = 0.25 * M_neg_total
     
     M_cs_pos = 0.60 * M_pos_total
     M_ms_pos = 0.40 * M_pos_total
     
+    # Store Values
     data_obj['M_vals'] = {
         'M_cs_neg': M_cs_neg,
         'M_ms_neg': M_ms_neg,
         'M_cs_pos': M_cs_pos,
-        'M_ms_pos': M_ms_pos
+        'M_ms_pos': M_ms_pos,
+        'M_unbal': M_ext_neg_total # Important for Edge Column Punching
     }
     data_obj['coeffs_desc'] = coeffs['desc'] 
     data_obj['span_type_str'] = span_type
     return data_obj
 
 # ========================================================
-# 3. DETAILED CALCULATION RENDERER
+# 3. DETAILED CALCULATION RENDERER (THE EXPLAINER)
 # ========================================================
 def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
     Mu, b, h, cover, fc, fy, db, s, phi_bend = inputs
     
-    st.markdown(f"#### 📐 Detailed Design Sheet: {zone_name}")
-    st.caption(f"Design Parameters: $f_c'={fc}$ ksc, $f_y={fy}$ ksc, $h={h}$ cm, $\\phi_b={phi_bend}$")
+    st.markdown(f"""
+    <div style="background-color:#f8f9fa; padding:15px; border-radius:10px; border-left: 5px solid #3b82f6;">
+        <h4 style="margin:0; color:#1e3a8a;">📐 Detailed Design Sheet: {zone_name}</h4>
+        <p style="margin:5px 0 0 0; color:#64748b; font-size:0.9em;">
+            Method: Strength Design (USD) per ACI 318 / EIT Standard
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    step1, step2, step3 = st.tabs(["1. Moment & Depth", "2. Steel Area", "3. Capacity Check"])
+    c1, c2, c3 = st.tabs(["1️⃣ Moment & Geometry", "2️⃣ Reinforcement Calculation", "3️⃣ Capacity & Summary"])
     
-    with step1:
-        st.markdown("**1.1 Design Moment ($M_u$) Calculation**")
-        st.write("Determine design moment using Direct Design Method coefficients:")
-        st.latex(f"M_u = (\\text{{Coeff}}) \\times M_o")
-        st.latex(f"M_u = {coeff_pct/100:.3f} \\times {Mo_val:,.0f} = \\mathbf{{{Mu:,.0f}}} \\; \\text{{kg-m}}")
+    # --- TAB 1: MOMENT & GEOMETRY ---
+    with c1:
+        st.markdown("**1.1 Design Moment ($M_u$)**")
+        st.write("Calculated using Direct Design Method (DDM) coefficients:")
+        st.latex(f"M_o = \\text{{Total Static Moment}} = {Mo_val:,.0f} \\; \\text{{kg-m}}")
+        st.latex(f"M_u = (\\text{{Coeff}} \\% ) \\times M_o = {coeff_pct/100:.3f} \\times {Mo_val:,.0f}")
+        st.info(f"👉 **Design Moment ($M_u$): {Mu:,.0f} kg-m**")
         
+        st.markdown("---")
         st.markdown("**1.2 Effective Depth ($d$)**")
-        if res['d'] < (h - cover - db/20.0):
-            st.info("Note: Inner layer calculation (Subtracting assumed main bar diameter)")
-        st.latex(r"d_{eff} = \mathbf{" + f"{res['d']:.2f}" + r"} \; \text{cm}")
+        st.write("Distance from compression fiber to centroid of tension reinforcement.")
+        st.latex(r"d = h - C_c - \frac{d_b}{2} - (\text{Layer Offset})")
+        st.latex(f"d = {h} - {cover} - {db/20.0:.2f} - ...")
+        
+        if res['d'] < (h - cover - db/10.0):
+            st.caption("ℹ️ Note: Calculation for Inner Layer (Secondary Direction)")
+            
+        st.success(f"**Effective Depth ($d$): {res['d']:.2f} cm**")
 
-    with step2:
-        st.markdown("**2.1 Required Reinforcement ($A_{s,req}$)**")
-        # As min
-        st.latex(f"A_{{s,min}} = 0.0018 \\cdot ({b*100:.0f}) \\cdot {h} = {res['As_min']:.2f} \\; \\text{{cm}}^2")
-        
-        # As flexure
-        st.markdown("Flexural strength design (ACI 318):")
-        st.latex(f"R_n = \\frac{{M_u}}{{\\phi_b b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}} = {res['Rn']:.2f} \\; \\text{{ksc}}")
-        
-        if res['rho_req'] != 999:
-            st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
-            st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['As_flex']:.2f} \\; \\text{{cm}}^2")
+    # --- TAB 2: REINFORCEMENT ---
+    with c2:
+        st.markdown("**2.1 Determine $\\beta_1$ Factor**")
+        st.write(f"For concrete strength $f_c' = {fc}$ ksc:")
+        if fc <= 280:
+            st.latex(r"\beta_1 = 0.85 \quad (\text{for } f_c' \le 280 \text{ ksc})")
         else:
-            st.error("❌ Section dimensions are too small (Rn too high). Increase Depth.")
+            st.latex(r"\beta_1 = 0.85 - 0.05 \left( \frac{f_c' - 280}{70} \right) \ge 0.65")
+        st.write(f"**Use $\\beta_1 = {res['beta1']:.2f}$**")
 
-        st.info(f"👉 **Control:** $A_{{s,req}} = \\max({res['As_min']:.2f}, {res['As_flex']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2$")
+        st.markdown("---")
+        st.markdown("**2.2 Required Reinforcement Area ($A_{s,req}$)**")
+        
+        # Step A: Rn
+        st.write("**A) Flexural Resistance Factor ($R_n$)**")
+        st.latex(f"R_n = \\frac{{M_u}}{{\\phi b d^2}} = \\frac{{{Mu*100:,.0f}}}{{{phi_bend} \\cdot {b*100:.0f} \\cdot {res['d']:.2f}^2}}")
+        st.latex(f"R_n = \\mathbf{{{res['Rn']:.2f}}} \\; \\text{{ksc}}")
 
-    with step3:
-        st.markdown("**3.1 Provided Reinforcement ($A_{s,prov}$)**")
-        bar_prefix = "RB" if db == 9 else "DB"
-        st.write(f"Selection: **{bar_prefix}{db} @ {s:.0f} cm**")
+        # Step B: Rho Required
+        st.write("**B) Required Ratio ($\\rho_{req}$)**")
+        if res['rho_req'] == 999:
+            st.error("❌ $R_n$ exceeds limit. Section is too thin or concrete too weak.")
+        elif res['rho_req'] == 0:
+            st.info("Moment is negligible. Theoretical $\\rho_{req} = 0$.")
+        else:
+            st.latex(r"\rho_{req} = \frac{0.85 f_c'}{f_y} \left( 1 - \sqrt{1 - \frac{2 R_n}{0.85 f_c'}} \right)")
+            st.latex(f"\\rho_{{req}} = {res['rho_calc']:.5f}")
+            st.latex(f"A_{{s,flex}} = \\rho_{{req}} b d = {res['rho_calc']:.5f} \\cdot {b*100:.0f} \\cdot {res['d']:.2f} = {res['As_flex']:.2f} \\; \\text{{cm}}^2")
+
+        # Step C: Minimum Steel
+        st.write("**C) Minimum Temperature & Shrinkage Steel ($A_{s,min}$)**")
+        st.latex(r"A_{s,min} = 0.0018 \cdot b \cdot h \quad (\text{for Grade 40/60})")
+        st.latex(f"A_{{s,min}} = 0.0018 \\cdot {b*100:.0f} \\cdot {h} = \\mathbf{{{res['As_min']:.2f}}} \\; \\text{{cm}}^2")
+
+        st.markdown("---")
+        st.info(f"📌 **Design Control:** $A_{{s,req}} = \\max({res['As_flex']:.2f}, {res['As_min']:.2f}) = \\mathbf{{{res['As_req']:.2f}}} \\; \\text{{cm}}^2$")
+
+    # --- TAB 3: SUMMARY ---
+    with c3:
+        st.markdown("**3.1 Provided Reinforcement**")
+        bar_txt = f"DB{db}" if db > 9 else f"RB{db}"
+        st.markdown(f"Try: **{bar_txt} @ {s:.0f} cm**")
         
-        bar_area = 3.1416 * (db/10)**2 / 4
-        st.latex(f"A_{{s,prov}} = \\frac{{{b*100:.0f}}}{{{s:.0f}}} \\cdot {bar_area:.2f} = \\mathbf{{{res['As_prov']:.2f}}} \\; \\text{{cm}}^2")
+        area_one_bar = 3.1416 * (db/10)**2 / 4
+        st.latex(f"A_{{s,prov}} = \\frac{{b}}{{s}} \\cdot A_{{bar}} = \\frac{{{b*100:.0f}}}{{{s:.0f}}} \\cdot {area_one_bar:.2f}")
         
-        st.markdown("**3.2 Moment Capacity Check ($\\phi M_n$)**")
-        st.latex(f"a = \\frac{{{res['As_prov']:.2f} \\cdot {fy}}}{{0.85 \\cdot {fc} \\cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
-        
-        st.latex(f"\\phi_b M_n = \\frac{{{phi_bend} \\cdot {res['As_prov']:.2f} \\cdot {fy} \\cdot ({res['d']:.2f} - {res['a']:.2f}/2)}}{{100}}")
-        st.latex(f"\\phi_b M_n = \\mathbf{{{res['PhiMn']:,.0f}}} \\; \\text{{kg-m}}")
+        val_color = "green" if res['As_prov'] >= res['As_req'] else "red"
+        st.markdown(f"<h3 style='color:{val_color}'>Provided: {res['As_prov']:.2f} cm²</h3>", unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("**3.2 Moment Capacity Check**")
+        st.latex(f"a = \\frac{{A_s f_y}}{{0.85 f_c' b}} = \\frac{{{res['As_prov']:.2f} \cdot {fy}}}{{0.85 \cdot {fc} \cdot {b*100:.0f}}} = {res['a']:.2f} \\; \\text{{cm}}")
+        st.latex(f"\\phi M_n = \\phi A_s f_y (d - a/2) = {res['PhiMn']:,.0f} \\; \\text{{kg-m}}")
         
         dc = res['DC']
-        color = "green" if dc <= 1.0 else "red"
-        st.markdown(f"**Verification:** Ratio = {dc:.2f} ... :{color}[{'✅ PASS' if dc <=1 else '❌ FAIL'}]")
+        if dc <= 1.0:
+            st.success(f"✅ **PASS** (Demand/Capacity = {dc:.2f})")
+        else:
+            st.error(f"❌ **FAIL** (Demand/Capacity = {dc:.2f})")
+
 
 # ========================================================
-# 4. UI RENDERER
+# 4. UI RENDERER (INTERACTIVE)
 # ========================================================
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
-    """
-    Render DDM analysis for one direction.
-    """
-    # Unpack Materials
+    # Unpack basic props
     h_slab = mat_props['h_slab']
     cover = mat_props['cover']
     fc = mat_props['fc']
     fy = mat_props['fy']
-    
     phi_bend = mat_props.get('phi', 0.90)       
     phi_shear = mat_props.get('phi_shear', 0.85) 
     
-    # Unpack Rebar Config
+    # Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
-    
-    # Unpack Opening Data
-    open_w = mat_props.get('open_w', 0.0)
-    open_dist = mat_props.get('open_dist', 0.0)
     
     L_span = data['L_span']
     L_width = data['L_width']
@@ -277,282 +348,205 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     coeff_desc = data.get('coeffs_desc', 'Standard')
     span_type_str = data.get('span_type_str', 'Interior')
     
-    # Dynamic Labeling
-    if axis_id == "X":
-        span_sym, width_sym = "L_x", "L_y"
-        span_val, width_val = L_span, L_width
-    else:
-        span_sym, width_sym = "L_y", "L_x"
-        span_val, width_val = L_span, L_width
-
-    ln_val = span_val - (c_para/100.0)
-    w_cs = min(span_val, width_val) / 2.0
-    w_ms = width_val - w_cs
+    # Dimension Symbols
+    span_sym, width_sym = ("L_x", "L_y") if axis_id == "X" else ("L_y", "L_x")
+    ln_val = L_span - (c_para/100.0)
+    
+    # Strip Widths
+    w_cs = min(L_span, L_width) / 2.0
+    w_ms = L_width - w_cs
     
     # -----------------------------------------------------
-    # 1. ANALYSIS & DISTRIBUTION
+    # SECTION 1: ANALYSIS & LOAD
     # -----------------------------------------------------
     st.markdown(f"### 1️⃣ Analysis: {axis_id}-Direction")
     
-    with st.expander(f"📝 Derivation of $M_o$ & $M_u$ ({axis_id}-Direction)", expanded=True):
-        col_diagram, col_calc = st.columns([1, 1.5])
-        
-        with col_diagram:
-            st.info(f"**Definitions for {axis_id}-Axis:**")
+    with st.expander(f"📊 Load & Moment Distribution ({axis_id})", expanded=True):
+        c_an1, c_an2 = st.columns([1, 1.5])
+        with c_an1:
+            st.info(f"**Span Configuration:** {span_type_str}")
             st.markdown(f"""
-            - **Span Type:** {coeff_desc}
-            - **Span Length ({span_sym}):** {span_val:.2f} m
-            - **Strip Width ({width_sym}):** {width_val:.2f} m
+            - **Span {span_sym}:** {L_span:.2f} m
+            - **Width {width_sym}:** {L_width:.2f} m
             - **Clear Span ($l_n$):** {ln_val:.2f} m
+            - **Total Load ($w_u$):** {w_u:,.0f} kg/m²
             """)
-            st.caption(f"*Note: $l_n = {span_sym} - \\text{{Column}}$")
+        with c_an2:
+            st.markdown("#### Total Static Moment ($M_o$)")
+            st.latex(f"M_o = \\frac{{w_u l_2 l_n^2}}{{8}} = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
+            st.latex(f"M_o = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
             
-
-        with col_calc:
-            st.markdown(f"#### Step 1: Total Static Moment ($M_o$)")
-            st.latex(f"M_o = \\frac{{w_u {width_sym} ({span_sym} - c)^2}}{{8}}")
-            st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {width_val:.2f} \\cdot ({ln_val:.2f})^2}}{{8}} = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
-        
-        st.divider()
-        st.markdown(f"#### Step 2: Distribution to $M_u$")
-        
-        def get_pct(val): return (val / Mo * 100) if Mo > 0 else 0
-        
-        dist_data = [
-            {"Pos": "Top (-)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_neg']):.1f}%", "Mu": m_vals['M_cs_neg']},
-            {"Pos": "Top (-)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_neg']):.1f}%", "Mu": m_vals['M_ms_neg']},
-            {"Pos": "Bot (+)", "Strip": "🟥 Column Strip", "% of Mo": f"{get_pct(m_vals['M_cs_pos']):.1f}%", "Mu": m_vals['M_cs_pos']},
-            {"Pos": "Bot (+)", "Strip": "🟦 Middle Strip", "% of Mo": f"{get_pct(m_vals['M_ms_pos']):.1f}%", "Mu": m_vals['M_ms_pos']},
-        ]
-        st.dataframe(pd.DataFrame(dist_data).style.format({"Mu": "{:,.0f}"}), use_container_width=True, hide_index=True)
+            # Show Unbalanced Moment if exists
+            if m_vals.get('M_unbal', 0) > 0:
+                st.warning(f"⚠️ **Unbalanced Moment ($M_{{sc}}$):** {m_vals['M_unbal']:,.0f} kg-m (Transferred to Edge Column)")
 
     # -----------------------------------------------------
-    # 2. PUNCHING SHEAR & DEFLECTION
+    # SECTION 2: PUNCHING SHEAR (INTEGRATED)
     # -----------------------------------------------------
-    
-    # --- 2.1 PUNCHING SHEAR ---
     if HAS_CALC:
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check")
         
+        # Geometry setup
         c_col = float(c_para)
-        load_area = (span_val * width_val) - ((c_col/100.0) * (c_col/100.0))
+        load_area = (L_span * L_width) - ((c_col/100)**2)
         Vu_approx = float(w_u) * load_area 
+        d_eff_avg = float(h_slab) - float(cover) - 1.6
         
-        d_bar_val = 1.6 # Avg assumption
-        d_eff = float(h_slab) - float(cover) - d_bar_val
-        if d_eff <= 0: d_eff = 1.0
-
-        # [UPDATED] Determine Column Type based on Span Type selection
-        if "End Span" in span_type_str or "Edge Beam" in span_type_str or "No Beam" in span_type_str:
-            calculated_col_type = "edge"
+        # Determine Column Condition for Calculation
+        if "Interior" in span_type_str:
+            col_cond = "interior"
         else:
-            calculated_col_type = "interior"
-
-        # Call calculation with DYNAMIC col_type
+            col_cond = "edge"
+        
+        # Call Calculation Module
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
             c1=c_col,            
             c2=c_col,            
-            d=d_eff,                
-            col_type=calculated_col_type, # <-- FIXED: Now dynamic
-            open_w=open_w,
-            open_dist=open_dist,
+            d=d_eff_avg,                
+            col_type=col_cond,
+            open_w=mat_props.get('open_w', 0),
+            open_dist=mat_props.get('open_dist', 0),
             phi=phi_shear 
         )
         
-        col_p1, col_p2 = st.columns([1, 1.5])
-        
-        with col_p1:
-            st.info(f"**Condition:** {calculated_col_type.capitalize()} Column") # Show User what we are checking
+        c_ps1, c_ps2 = st.columns([1, 2])
+        with c_ps1:
             if HAS_PLOTS:
+                
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
                     c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
                 ))
             else:
-                st.info("ℹ️ Plotting module not available.")
-            
-            if open_w > 0:
-                st.warning(f"⚠️ **Opening Detected:** {open_w:.0f}cm x {open_w:.0f}cm")
+                st.info("Visual module unavailable")
         
-        with col_p2:
+        with c_ps2:
+            st.markdown(f"**Condition:** {col_cond.capitalize()} Column")
+            
+            # Add Unbalanced Moment Warning
+            if col_cond == "edge" and m_vals.get('M_unbal', 0) > 0:
+                 st.info(f"ℹ️ **Note:** Edge column check considers Moment Transfer ($M_{{sc}}$) = {m_vals['M_unbal']:,.0f} kg-m")
+
             if ps_res['status'] == "OK":
                 st.success(f"✅ **PASSED** (Ratio: {ps_res['ratio']:.2f})")
             else:
                 st.error(f"❌ **FAILED** (Ratio: {ps_res['ratio']:.2f})")
-                st.warning("⚠️ Suggestions: Increase slab thickness, column size, or add drop panel.")
+                st.write("👉 Suggestion: Increase slab thickness, column size, or add drop panel.")
             
-            with st.expander("Calculation Details", expanded=False):
-                st.write(f"**1. Factored Shear ($V_u$):** {ps_res['Vu']:,.0f} kg")
-                
-                if 'Munbal' in ps_res and ps_res['Munbal'] > 0:
-                    st.info(f"ℹ️ **Combined Stress:** Includes $M_{{unbal}}$")
-                
-                st.write(f"**2. Perimeter ($b_o$):** {ps_res['bo']:.2f} cm")
-                st.caption(f"Using Strength Reduction Factor $\phi_v = {phi_shear}$")
-                
-                st.latex(rf"\phi_v V_c = \mathbf{{{ps_res['phi_Vc']:,.0f}}} \text{{ kg}}")
-                st.latex(rf"{ps_res['Vu']:,.0f} \le {ps_res['phi_Vc']:,.0f} \rightarrow \text{{{ps_res['status']}}}")
-    
-    # --- 2.2 DEFLECTION (SERVICEABILITY) ---
+            with st.expander("Show Punching Calculation"):
+                st.latex(f"v_u = \\frac{{V_u}}{{b_o d}} + \\frac{{\\gamma_v M_{{sc}} c}}{{J_c}}")
+                st.write(f"Shear Capacity ($V_c$): {ps_res['phi_Vc']:,.0f} kg")
+                st.write(f"Shear Demand ($V_u$): {ps_res['Vu']:,.0f} kg")
+
+    # -----------------------------------------------------
+    # SECTION 3: DEFLECTION (SERVICEABILITY)
+    # -----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 3️⃣ Serviceability & Deflection Check")
+    st.markdown("### 3️⃣ Serviceability (Deflection)")
+    
+    def_res = calc_deflection_check(L_span, h_slab, w_u, fc, span_type_str)
     
     with st.container(border=True):
-        def_res = calc_deflection_check(span_val, width_val, h_slab, w_u, fc, fy, span_type_str)
-        
-        c_def1, c_def2 = st.columns(2)
-        with c_def1:
-            st.markdown("**A) Minimum Thickness Check ($h_{min}$)**")
-            st.caption(f"Based on ACI 318 Table 8.3.1.1 (Divisor L/{def_res['denom']:.0f})")
-            
-            if def_res['status_h'] == "OK":
-                st.success(f"✅ $h_{{prov}} = {h_slab} \\text{{ cm}} \\ge h_{{min}} = {def_res['h_min']:.2f} \\text{{ cm}}$")
+        c_d1, c_d2 = st.columns(2)
+        with c_d1:
+            st.markdown("**A) Minimum Thickness (ACI Table 8.3.1.1)**")
+            if def_res['status_h']:
+                st.success(f"✅ Provided {h_slab} cm $\ge$ Min {def_res['h_min']:.2f} cm")
             else:
-                st.error(f"❌ $h_{{prov}} = {h_slab} \\text{{ cm}} < h_{{min}} = {def_res['h_min']:.2f} \\text{{ cm}}$")
-                st.caption("Warning: Detailed deflection calculation required.")
+                st.error(f"❌ Provided {h_slab} cm < Min {def_res['h_min']:.2f} cm")
+            st.caption(f"Based on $L_n / {def_res['denom']:.0f}$")
 
-        with c_def2:
-            st.markdown("**B) Elastic Deflection Est. ($\Delta$)**")
-            # [UPDATED] Added explicit warning about Gross Inertia
-            st.warning("⚠️ **NOTE:** This estimate uses Gross Inertia ($I_g$). Actual deflection with Cracked Section ($I_{eff}$) will be higher.")
+        with c_d2:
+            st.markdown("**B) Estimated Deflection ($\Delta_{total}$)**")
+            st.write(f"Immediate (Elastic): {def_res['delta_imm']:.2f} cm")
+            st.write(f"Long-term Multiplier: 3.0x (Creep+Shrinkage)")
             
-            st.write(f"$\\Delta_{{imm}} \\approx {def_res['delta_imm']:.2f}$ cm")
-            st.write(f"$\\Delta_{{long}} (\\lambda=2.0) \\approx \\mathbf{{{def_res['delta_long']:.2f}}}$ **cm**")
+            val = def_res['delta_total']
+            lim = def_res['limit']
             
-            is_ok_def = def_res['delta_long'] < def_res['limit']
-            limit_txt = f"L/240 ({def_res['limit']:.2f} cm)"
-            
-            if is_ok_def:
-                st.success(f"✅ Within Limit {limit_txt}")
+            if val < lim:
+                st.success(f"✅ **{val:.2f} cm** (Limit L/240 = {lim:.2f} cm)")
             else:
-                st.warning(f"⚠️ Exceeds Limit {limit_txt}")
+                st.warning(f"⚠️ **{val:.2f} cm** (Exceeds Limit {lim:.2f} cm)")
 
     # -----------------------------------------------------
-    # 4. REINFORCEMENT SELECTION
+    # SECTION 4: REINFORCEMENT DESIGN
     # -----------------------------------------------------
     st.markdown("---")
-    st.markdown("### 4️⃣ Reinforcement Status")
+    st.markdown("### 4️⃣ Reinforcement Design")
     
-    # Map Config to Local Variables
+    # Map Rebar Config
     d_cst, s_cst = cfg.get('cs_top_db', 12), cfg.get('cs_top_spa', 20)
     d_csb, s_csb = cfg.get('cs_bot_db', 12), cfg.get('cs_bot_spa', 20)
     d_mst, s_mst = cfg.get('ms_top_db', 12), cfg.get('ms_top_spa', 20)
     d_msb, s_msb = cfg.get('ms_bot_db', 12), cfg.get('ms_bot_spa', 20)
     
-    col_cs, gap, col_ms = st.columns([1, 0.05, 1])
-    def fmt_bar(db, spa): return f"DB{db} @ {spa} cm" if db > 9 else f"RB{db} @ {spa} cm"
-
-    with col_cs:
-        st.markdown(f"""<div style="background-color:#ffebee; padding:8px; border-radius:5px; border-left:4px solid #ef5350;">
-            <b>🟥 COLUMN STRIP</b> (Width {w_cs:.2f} m)</div>""", unsafe_allow_html=True)
-        st.write(f"Top (-): **{fmt_bar(d_cst, s_cst)}**")
-        st.write(f"Bot (+): **{fmt_bar(d_csb, s_csb)}**")
-
-    with col_ms:
-        st.markdown(f"""<div style="background-color:#e3f2fd; padding:8px; border-radius:5px; border-left:4px solid #2196f3;">
-            <b>🟦 MIDDLE STRIP</b> (Width {w_ms:.2f} m)</div>""", unsafe_allow_html=True)
-        st.write(f"Top (-): **{fmt_bar(d_mst, s_mst)}**")
-        st.write(f"Bot (+): **{fmt_bar(d_msb, s_msb)}**")
-
-    # --- CALCULATION LOOP ---
-    calc_configs = [
-        {"Label": "Col Strip - Top (-)", "PlotKey": "CS_Top", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
-        {"Label": "Col Strip - Bot (+)", "PlotKey": "CS_Bot", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
-        {"Label": "Mid Strip - Top (-)", "PlotKey": "MS_Top", "Mu": m_vals['M_ms_neg'], "b": w_ms, "db": d_mst, "s": s_mst},
-        {"Label": "Mid Strip - Bot (+)", "PlotKey": "MS_Bot", "Mu": m_vals['M_ms_pos'], "b": w_ms, "db": d_msb, "s": s_msb},
+    # Calculate all zones
+    zones = [
+        {"Label": "Col Strip - Top (-)", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
+        {"Label": "Col Strip - Bot (+)", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
+        {"Label": "Mid Strip - Top (-)", "Mu": m_vals['M_ms_neg'], "b": w_ms, "db": d_mst, "s": s_mst},
+        {"Label": "Mid Strip - Bot (+)", "Mu": m_vals['M_ms_pos'], "b": w_ms, "db": d_msb, "s": s_msb},
     ]
-
+    
     results = []
-    for c in calc_configs:
-        res = calc_rebar_logic(c['Mu'], c['b'], c['db'], c['s'], h_slab, cover, fc, fy, is_main_dir, phi_factor=phi_bend)
-        res.update(c) 
+    for z in zones:
+        res = calc_rebar_logic(z['Mu'], z['b'], z['db'], z['s'], h_slab, cover, fc, fy, is_main_dir, phi_bend)
+        res.update(z)
         results.append(res)
-
-    # --- SUMMARY TABLE ---
-    st.write("")
-    st.markdown("### 5️⃣ Verification Summary")
     
-    df_show = pd.DataFrame(results)
-    cols_to_show = ["Label", "Mu", "d", "As_req", "As_prov", "PhiMn", "DC", "Note"]
-    
-    for col in cols_to_show:
-        if col not in df_show.columns: df_show[col] = 0
-            
+    # Summary Table
+    df_res = pd.DataFrame(results)[["Label", "Mu", "As_req", "As_prov", "DC", "Note"]]
     st.dataframe(
-        df_show[cols_to_show].style.format({
-            "Mu": "{:,.0f}", "d": "{:.2f}", "As_req": "{:.2f}", "As_prov": "{:.2f}", 
-            "PhiMn": "{:,.0f}", "DC": "{:.2f}"
-        }).background_gradient(subset=["DC"], cmap="RdYlGn_r", vmin=0, vmax=1.2),
-        use_container_width=True
+        df_res.style.format({"Mu": "{:,.0f}", "As_req": "{:.2f}", "As_prov": "{:.2f}", "DC": "{:.2f}"})
+        .background_gradient(subset=["DC"], cmap="RdYlGn_r", vmin=0, vmax=1.2),
+        use_container_width=True, hide_index=True
     )
-
-    # --- DETAILED SHEET ---
-    st.markdown("---")
-    st.markdown("### 6️⃣ Detailed Calculation Sheet")
     
-    sel_label = st.selectbox(f"Select Zone to View Details ({axis_id}):", [r['Label'] for r in results])
-    target = next(r for r in results if r['Label'] == sel_label)
+    # Detailed Calculation View
+    st.markdown("#### 🔍 Select Zone for Detailed Calculation")
+    sel_zone = st.selectbox(f"Show details for ({axis_id}):", [z['Label'] for z in zones])
+    target = next(z for z in results if z['Label'] == sel_zone)
     
     raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_bend)
+    pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
     
-    with st.container(border=True):
-        pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
-        show_detailed_calculation(sel_label, target, raw_inputs, pct_val, Mo)
+    show_detailed_calculation(sel_zone, target, raw_inputs, pct_val, Mo)
 
-    # --- DRAWINGS ---
+    # Drawings
     if HAS_PLOTS:
         st.markdown("---")
-        t1, t2, t3 = st.tabs(["📉 Moment Diagram", "🏗️ Section Detail", "📐 Plan View"])
-        
-        rebar_map = {r['PlotKey']: f"{'RB' if r['db']==9 else 'DB'}{r['db']}@{r['s']:.0f}" for r in results}
-        
-        with t1: st.pyplot(ddm_plots.plot_ddm_moment(span_val, c_para/100, m_vals))
-        with t2: st.pyplot(ddm_plots.plot_rebar_detailing(span_val, h_slab, c_para, rebar_map, axis_id))
-        with t3: st.pyplot(ddm_plots.plot_rebar_plan_view(span_val, width_val, c_para, rebar_map, axis_id))
+        t1, t2 = st.tabs(["📉 Moment Diagram", "🏗️ Rebar Detailing"])
+        rebar_map = {
+            "CS_Top": f"DB{d_cst}@{s_cst}", "CS_Bot": f"DB{d_csb}@{s_csb}",
+            "MS_Top": f"DB{d_mst}@{s_mst}", "MS_Bot": f"DB{d_msb}@{s_msb}"
+        }
+        with t1: st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
+        with t2: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
 
 # ========================================================
-# MAIN ENTRY
+# MAIN ENTRY POINT
 # ========================================================
 def render_dual(data_x, data_y, mat_props, w_u):
-    st.markdown("## 🏗️ RC Slab Design (DDM Method)")
-
-    # ------------------------------------------------------------------------
-    # CONFIGURATION
-    # ------------------------------------------------------------------------
-    with st.expander("⚙️ Span & Continuity Settings", expanded=True):
-        st.info("💡 **Tips:** The program automatically adjusts Moment Coefficients based on the selected span type.")
-        
+    st.markdown("## 🏗️ RC Slab Design (DDM Analysis)")
+    
+    # Span Configuration Selectors
+    with st.expander("⚙️ Span Continuity Settings", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown(f"**X-Direction ($L_x$ = {data_x['L_span']} m):**")
-            type_x = st.selectbox(
-                "Span Type (X-Axis)",
-                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"],
-                index=0, key="span_type_x"
-            )
+            st.markdown(f"**X-Direction ($L_x$={data_x['L_span']}m)**")
+            type_x = st.selectbox("Span Type X", ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], key="sx")
             data_x = update_moments_based_on_config(data_x, type_x)
-
         with c2:
-            st.markdown(f"**Y-Direction ($L_y$ = {data_y['L_span']} m):**")
-            type_y = st.selectbox(
-                "Span Type (Y-Axis)",
-                ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"],
-                index=0, key="span_type_y"
-            )
+            st.markdown(f"**Y-Direction ($L_y$={data_y['L_span']}m)**")
+            type_y = st.selectbox("Span Type Y", ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], key="sy")
             data_y = update_moments_based_on_config(data_y, type_y)
-            
-    # ------------------------------------------------------------------------
-    # TABS RENDERING
-    # ------------------------------------------------------------------------
-    tab_x, tab_y = st.tabs([
-        f"➡️ X-Direction (Lx={data_x['L_span']}m)", 
-        f"⬆️ Y-Direction (Ly={data_y['L_span']}m)"
-    ])
+
+    tab_x, tab_y = st.tabs(["➡️ X-Direction Check", "⬆️ Y-Direction Check"])
     
     with tab_x:
         render_interactive_direction(data_x, mat_props, "X", w_u, True)
-        
     with tab_y:
         render_interactive_direction(data_y, mat_props, "Y", w_u, False)
