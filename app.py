@@ -55,10 +55,9 @@ except ImportError as e:
 # =========================================================
 st.sidebar.title("🏗️ Design Parameters")
 
-# --- Section 1: Location & Geometry (CRITICAL FIX) ---
+# --- Section 1: Location & Geometry ---
 st.sidebar.header("1. Column & Span Location")
 with st.sidebar.expander("📍 Column Position & Boundaries", expanded=True):
-    # นี่คือส่วนที่คุณถามหา: เลือกตำแหน่งเสาเพื่อกำหนด Behavior
     col_type_options = {
         "Interior Column (ใน)": "interior",
         "Edge Column (ขอบ)": "edge",
@@ -73,7 +72,6 @@ with st.sidebar.expander("📍 Column Position & Boundaries", expanded=True):
     )
     col_type = col_type_options[col_display]
 
-    # [Engineer Logic] Show Alpha_s immediately
     if col_type == "interior":
         alpha_s = 40
         st.info(f"✅ Interior: αs = {alpha_s} (4 Sides)")
@@ -84,7 +82,6 @@ with st.sidebar.expander("📍 Column Position & Boundaries", expanded=True):
         alpha_s = 20
         st.warning(f"🔥 Corner: αs = {alpha_s} (2 Sides)")
 
-    # [Addition] Edge Beam Check for DDM
     has_edge_beam = False
     if col_type != "interior":
         has_edge_beam = st.checkbox("Has Edge Beam?", value=False, help="Affects DDM Coefficients (αf)")
@@ -109,7 +106,6 @@ with st.sidebar.expander("2. Material & Slab Thickness", expanded=False):
     h_slab = st.number_input("Slab Thickness (cm)", value=20.0, step=1.0)
     cover = st.number_input("Cover (cm)", value=2.5)
     
-    # Drop Panel Logic
     has_drop = st.checkbox("Add Drop Panel")
     h_drop, drop_w, drop_l = 0.0, 0.0, 0.0
     use_drop_as_support = False
@@ -141,20 +137,16 @@ with st.sidebar.expander("3. Loads & Factors", expanded=False):
     phi_bend = c_phi2.number_input("φ Bending", value=0.90)
 
 
-# --- Section 4: Reinforcement (FIXED) ---
+# --- Section 4: Reinforcement ---
 with st.sidebar.expander("4. Reinforcement", expanded=False):
     st.markdown("### 🛠️ Rebar Configuration")
-    
-    # Checkbox เพื่อเปิดโหมดละเอียด
-    use_detailed_rebar = st.checkbox("🔧 Advanced/Zone Control", value=False, help="กำหนดขนาดเหล็กและระยะเรียงแยกตามโซน (Column/Middle Strip)")
+    use_detailed_rebar = st.checkbox("🔧 Advanced/Zone Control", value=False)
 
     if not use_detailed_rebar:
-        # --- SIMPLE MODE ---
         st.caption("🔹 Global Settings (Apply to All)")
         base_db = st.selectbox("Main Bar Diameter (mm)", [10, 12, 16, 20, 25, 28, 32], index=1)
         base_spa = st.number_input("Typical Spacing (cm)", value=20.0, step=5.0)
 
-        # [FIX] กำหนดค่า rebar_db เพื่อให้บรรทัด 233 ไม่ Error
         rebar_db = base_db 
 
         rebar_cfg = {
@@ -163,11 +155,9 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
             'ms_top_db': base_db, 'ms_top_spa': base_spa,
             'ms_bot_db': base_db, 'ms_bot_spa': base_spa
         }
-        
         st.info(f"Setting: DB{base_db}@{base_spa:.0f}cm (All Zones)")
 
     else:
-        # --- ADVANCED MODE ---
         st.markdown("---")
         st.caption("📍 **Column Strip (แถบเสา)**")
         c_cs1, c_cs2 = st.columns(2)
@@ -192,7 +182,6 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
             ms_bot_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="ms_b_d")
             ms_bot_spa = st.number_input("Spa.", value=25.0, step=2.5, key="ms_b_s")
 
-        # [FIX] ใช้ค่า Top Column Strip เป็นตัวแทนหลักไปก่อน (เพื่อกัน Error)
         rebar_db = cs_top_db 
 
         rebar_cfg = {
@@ -212,38 +201,25 @@ user_inputs = {
     # Material
     "fc": fc, "fy": fy,
     "h_slab": h_slab, "cover": cover,
-    
-    # Geometry
     "Lx": Lx, "Ly": Ly,
     "cx": cx, "cy": cy,
     "lc": lc,
-    
-    # Logic Keys (Fixed)
-    "col_type": col_type,       # interior, edge, corner
-    "alpha_s": alpha_s,         # 40, 30, 20 passed explicitly
+    "col_type": col_type,
+    "alpha_s": alpha_s,
     "has_edge_beam": has_edge_beam,
-    
-    # Components
     "has_drop": has_drop,
     "h_drop": h_drop, "drop_w": drop_w, "drop_l": drop_l,
     "use_drop_as_support": use_drop_as_support,
-    
-    # Loads
     "SDL": SDL, "LL": LL,
     "factor_dl": factor_dl, "factor_ll": factor_ll,
-    "phi": phi_bend,          # For Flexure
-    "phi_shear": phi_shear,   # For Shear
-    
-    # Rebar
+    "phi": phi_bend,
+    "phi_shear": phi_shear,
     "d_bar": rebar_db,
     "rebar_cfg": rebar_cfg,
-    
-    # Openings (Default 0 for now)
     "open_w": 0.0, "open_dist": 0.0
 }
 
 # 3.2 Initialize & Run Model
-# Load Factors Dictionary
 factors = {'DL': factor_dl, 'LL': factor_ll, 'phi': phi_shear}
 
 try:
@@ -257,6 +233,9 @@ try:
     punch_res = results.get('shear_punching', {})
     check_res = results.get('checks', {})
     ddm_res = results.get('ddm', {'x': {}, 'y': {}})
+    
+    # [FIX] Define wu explicitly here (Re-added)
+    wu = loads_res.get('w_u', 0)
 
 except Exception as e:
     st.error(f"❌ Calculation Error: {str(e)}")
@@ -279,8 +258,6 @@ with c_title2:
 
 st.markdown("---")
 
-# *** NOTE: Removed KPI Cards Row (Punching Shear, One-way Shear, Thickness, Loads) as requested ***
-
 # =========================================================
 # 5. DETAILED TABS
 # =========================================================
@@ -294,7 +271,7 @@ with t1:
             L1=Lx, L2=Ly, c1_w=cx, c2_w=cy, h_slab=h_slab, lc=lc, cover=cover,
             d_eff=geo_res.get('d_slab', h_slab-3),
             drop_data=drop_data,
-            moment_vals=ddm_res['x'].get('M_vals', {}), # Mock passing
+            moment_vals=ddm_res['x'].get('M_vals', {}), 
             mat_props=user_inputs,
             loads=loads_res,
             col_type=col_type
