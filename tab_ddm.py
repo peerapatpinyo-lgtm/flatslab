@@ -627,14 +627,14 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 
 def draw_span_schematic(span_type):
     """
-    Final Refined Schematic (Fixed Font Weight):
-    - Replaced 'extrabold' with 'bold' to prevent ValueError on Cloud environments.
-    - Perfect alignment of text and colored strips.
-    - Visually demonstrates Moment Apportionment (Total -> CS -> MS).
+    Final Refined Schematic (Fixed Overlapping Text):
+    - Expanded Left Margin (xlim -4.0) to prevent Label collision.
+    - Cleaned up text alignment for CS/MS strips.
     """
     fig, ax = plt.subplots(figsize=(10, 6)) 
-    ax.set_xlim(-2.5, 12.5)
-    ax.set_ylim(-1.5, 8.0) # Increased top margin slightly
+    # ขยายแกน X ด้านซ้ายเพิ่มขึ้น เพื่อกันตัวหนังสือชนกัน
+    ax.set_xlim(-4.0, 12.5)
+    ax.set_ylim(-1.5, 8.0) 
     ax.axis('off')
 
     # --- Color Palette ---
@@ -642,23 +642,20 @@ def draw_span_schematic(span_type):
     
     # Column Strip (CS) - Blue Theme
     cs_band_color = '#e1f5fe'  # Light Blue Background
-    cs_text_color = '#01579b'  # Dark Blue Text
+    cs_text_color = '#0277bd'  # Darker Blue Text for readability
     
     # Middle Strip (MS) - Orange Theme
     ms_band_color = '#fff3e0'  # Light Orange Background
-    ms_text_color = '#e65100'  # Dark Orange Text
+    ms_text_color = '#ef6c00'  # Darker Orange Text
 
     # --- Helper: Draw Distribution Data ---
     def draw_data_column(x, m_total, is_flat_plate, section_type):
         """
         Draws the vertical stack of data: Total -> CS -> MS
         """
-        # 1. Determine Distribution Factors (Typical DDM values for viz)
         if section_type == 'neg':
-            # Negative Moment: CS takes heavily (75-90%)
             cs_ratio = 0.75 if is_flat_plate else 0.85 
         else:
-            # Positive Moment: CS takes moderate (60-75%)
             cs_ratio = 0.60 if is_flat_plate else 0.75
             
         ms_ratio = 1.0 - cs_ratio
@@ -668,19 +665,21 @@ def draw_span_schematic(span_type):
 
         # --- DRAWING THE DATA STACK ---
         
-        # A. Total Moment Box (Top)
-        ax.text(x, 6.8, f"Total $M_o$\n{m_total:.2f}", 
-                ha='center', va='center', weight='bold', fontsize=10, 
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=1.5))
+        # A. Total Moment Box (Top) - Raised slightly to y=7.0
+        ax.text(x, 7.0, f"Total $M_o$\n{m_total:.2f}", 
+                ha='center', va='center', weight='bold', fontsize=9, 
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=1.2))
 
-        # B. Connection Line (Flow)
-        ax.plot([x, x], [6.3, 5.8], color='#90a4ae', linestyle='-', linewidth=1.5) # Line down
+        # B. Connection Line
+        ax.plot([x, x], [6.5, 6.0], color='#b0bec5', linestyle='-', linewidth=1.2)
 
-        # C. Column Strip Value (Blue Band Zone)
-        ax.text(x, 5.5, f"CS: {val_cs:.3f}", 
+        # C. Column Strip Value (Inside Blue Band)
+        # Center vertically in the band (y=5.6)
+        ax.text(x, 5.6, f"CS: {val_cs:.3f}", 
                 ha='center', va='center', weight='bold', fontsize=9, color=cs_text_color)
 
-        # D. Middle Strip Value (Orange Band Zone)
+        # D. Middle Strip Value (Inside Orange Band)
+        # Center vertically in the band (y=4.8)
         ax.text(x, 4.8, f"MS: {val_ms:.3f}", 
                 ha='center', va='center', weight='bold', fontsize=9, color=ms_text_color)
         
@@ -689,14 +688,16 @@ def draw_span_schematic(span_type):
 
     # ---------------- DRAWING LOGIC ----------------
 
-    # 1. BACKGROUND STRIPS (The Layers)
-    # CS Band (Upper Layer) - Blue
-    ax.add_patch(patches.Rectangle((-2.5, 5.2), 15, 0.6, facecolor=cs_band_color, edgecolor='none'))
-    ax.text(-2.4, 5.5, "Column Strip (CS)", color=cs_text_color, fontsize=9, weight='bold', ha='left', va='center')
+    # 1. BACKGROUND STRIPS (The Layers) - ขยับไปทางซ้ายสุดที่ x=-4.0
+    # CS Band (Upper Layer) - Blue (y=5.2 to 6.0)
+    ax.add_patch(patches.Rectangle((-4.0, 5.2), 16.5, 0.8, facecolor=cs_band_color, edgecolor='none'))
+    # Label for CS - อยู่ซ้ายสุด ไม่ชนใครแน่นอน
+    ax.text(-3.8, 5.6, "Column Strip\n(CS)", color=cs_text_color, fontsize=9, weight='bold', ha='left', va='center')
 
-    # MS Band (Lower Layer) - Orange
-    ax.add_patch(patches.Rectangle((-2.5, 4.5), 15, 0.6, facecolor=ms_band_color, edgecolor='none'))
-    ax.text(-2.4, 4.8, "Middle Strip (MS)", color=ms_text_color, fontsize=9, weight='bold', ha='left', va='center')
+    # MS Band (Lower Layer) - Orange (y=4.4 to 5.2)
+    ax.add_patch(patches.Rectangle((-4.0, 4.4), 16.5, 0.8, facecolor=ms_band_color, edgecolor='none'))
+    # Label for MS
+    ax.text(-3.8, 4.8, "Middle Strip\n(MS)", color=ms_text_color, fontsize=9, weight='bold', ha='left', va='center')
 
     # 2. STRUCTURAL GEOMETRY
     slab_y, slab_h = 2.0, 0.6
@@ -705,60 +706,45 @@ def draw_span_schematic(span_type):
     col_style = {'facecolor': '#546e7a', 'edgecolor': 'black', 'zorder': 5}
     slab_style = {'facecolor': concrete_color, 'edgecolor': '#333', 'linewidth': 1.5}
 
-    # Draw Columns (Standard positions)
+    # Draw Columns
     ax.add_patch(patches.Rectangle((-col_w/2, slab_y-col_h), col_w, col_h, **col_style))
     ax.add_patch(patches.Rectangle((10-col_w/2, slab_y-col_h), col_w, col_h, **col_style))
 
     # 3. SPAN SPECIFIC DRAWING
     if "Interior" in span_type:
-        # === INTERIOR SPAN ===
         ax.add_patch(patches.Rectangle((-2.5, slab_y), 15, slab_h, **slab_style))
-        # Continuity symbols
         ax.text(-2.0, slab_y+slab_h/2, "≈", fontsize=24, rotation=90, va='center')
         ax.text(12.0, slab_y+slab_h/2, "≈", fontsize=24, rotation=90, va='center')
         
-        # Data Points (Ext Neg / Pos / Int Neg)
         draw_data_column(0, 0.65, True, 'neg')
         draw_data_column(5, 0.35, True, 'pos')
         draw_data_column(10, 0.65, True, 'neg')
         
-        # Changed 'extrabold' to 'bold'
-        ax.text(5, 7.6, "INTERIOR SPAN DISTRIBUTION", ha='center', fontsize=12, weight='bold')
+        ax.text(5, 7.8, "INTERIOR SPAN DISTRIBUTION", ha='center', fontsize=12, weight='bold')
 
     elif "Edge Beam" in span_type:
-        # === END SPAN WITH BEAM ===
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 13, slab_h, **slab_style))
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y-beam_d), col_w*1.5, beam_d, **slab_style)) # Beam
-        
-        # Continuity
         ax.text(12.0, slab_y+slab_h/2, "≈", fontsize=24, rotation=90, va='center')
 
-        # Data Points
         draw_data_column(0, 0.30, False, 'neg')
         draw_data_column(5, 0.50, False, 'pos')
         draw_data_column(10, 0.70, False, 'neg')
         
-        # Changed 'extrabold' to 'bold'
-        ax.text(5, 7.6, "END SPAN - EDGE BEAM DISTRIBUTION", ha='center', fontsize=12, weight='bold')
+        ax.text(5, 7.8, "END SPAN - EDGE BEAM DISTRIBUTION", ha='center', fontsize=12, weight='bold')
         ax.annotate('Stiff Edge Beam', xy=(0.8, slab_y-beam_d/2), xytext=(3, 0),
                     arrowprops=dict(arrowstyle="->", color='#d32f2f'), color='#d32f2f', weight='bold')
 
     elif "No Beam" in span_type:
-        # === END SPAN FLAT PLATE ===
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 13, slab_h, **slab_style))
-        # Phantom Beam
         ax.add_patch(patches.Rectangle((-col_w/2, slab_y-beam_d), col_w, beam_d, fc='none', ec='#d32f2f', ls='--'))
-        
-        # Continuity
         ax.text(12.0, slab_y+slab_h/2, "≈", fontsize=24, rotation=90, va='center')
 
-        # Data Points
         draw_data_column(0, 0.26, True, 'neg')
         draw_data_column(5, 0.52, True, 'pos')
         draw_data_column(10, 0.70, True, 'neg')
         
-        # Changed 'extrabold' to 'bold'
-        ax.text(5, 7.6, "END SPAN - FLAT PLATE DISTRIBUTION", ha='center', fontsize=12, weight='bold')
+        ax.text(5, 7.8, "END SPAN - FLAT PLATE DISTRIBUTION", ha='center', fontsize=12, weight='bold')
         ax.annotate('No Beam (Flexible)', xy=(0.5, slab_y), xytext=(3, 0.5),
                     arrowprops=dict(arrowstyle="->", color='#d32f2f'), color='#d32f2f', weight='bold')
 
