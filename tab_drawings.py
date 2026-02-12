@@ -76,7 +76,7 @@ def draw_revision_cloud(ax, x, y, width, height):
         (x, y), width, height,
         ec='#ff6d00', # Bright Orange
         fc='none',    
-        lw=2.5,       
+        lw=2.5,        
         ls='-',
         zorder=15
     )
@@ -125,7 +125,6 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     if loads is None: loads = {}
     
     # Safety: Handle None or 0 values from main app during initialization
-    # (ป้องกัน error กรณีข้อมูลยังไม่ถูกคำนวณ)
     h_slab = h_slab if h_slab else 20
     cover = cover if cover else 2.5
     d_eff = d_eff if d_eff else (h_slab - cover - 1.0) # Approx default
@@ -136,9 +135,13 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
     Ln_y = L2 - c2_m
     
     has_drop = drop_data.get('has_drop')
-    drop_w_m = drop_data.get('width', 0)/100.0
-    drop_l_m = drop_data.get('length', 0)/100.0
-    h_drop = drop_data.get('depth', 0)
+    drop_w_val = drop_data.get('width', 0) # cm
+    drop_l_val = drop_data.get('length', 0) # cm
+    h_drop_val = drop_data.get('depth', 0) # cm
+    
+    # Unit Conversions for Drawing
+    drop_w_m = drop_w_val/100.0
+    drop_l_m = drop_l_val/100.0
     
     fc = mat_props.get('fc', 0)
     wu = loads.get('w_u', 0)
@@ -198,7 +201,7 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # Columns
         centers = [(0,0), (L1,0), (0,L2), (L1,L2)]
         for cx, cy in centers:
-            # Drop Panel
+            # Drop Panel (Plan View - Simplified)
             if has_drop:
                 ax.add_patch(patches.Rectangle((cx-drop_w_m/2, cy-drop_l_m/2), drop_w_m, drop_l_m, 
                                              fc='#e1f5fe', ec='#0288d1', lw=0.8, ls='--', zorder=2))
@@ -230,12 +233,12 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         st.pyplot(fig, use_container_width=True)
 
         # ------------------------------------
-        # B. SECTION VIEW (FIXED)
+        # B. SECTION VIEW (ENHANCED)
         # ------------------------------------
         st.markdown(f"**🏗️ SECTION A-A** (Storey H = {lc:.2f} m)")
         fig_s, ax_s = plt.subplots(figsize=(8, 4))
         
-        cut_w = 250 # cm width of cut
+        cut_w = 250 # cm width of cut for drawing
         col_draw_h = 150 # cm height of column to draw
         
         # 1. Column
@@ -244,13 +247,55 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # 2. Slab
         ax_s.add_patch(patches.Rectangle((-cut_w/2, 0), cut_w, h_slab, fc='white', ec='black', hatch='//', zorder=3))
         
-        # 3. Drop Panel (if any)
+        # 3. Drop Panel Logic (Structural vs Shear Cap)
         y_bottom_slab = 0
         if has_drop:
-            drop_draw_w = min(cut_w * 0.7, drop_data['width']) # Clamp width for drawing
-            ax_s.add_patch(patches.Rectangle((-drop_draw_w/2, -h_drop), drop_draw_w, h_drop, fc='white', ec='black', hatch='//', zorder=3))
-            y_bottom_slab = -h_drop
-            draw_dim(ax_s, (drop_draw_w/2 + 10, 0), (drop_draw_w/2 + 10, -h_drop), f"{h_drop}cm", is_vert=True, color='#0277bd')
+            # === LOGIC START: Check Structural Validity ===
+            # ACI: Extension >= L/6 (Total Width >= L/3) AND Projection >= h_slab/4
+            req_width_cm = (L1 * 100) / 3.0  # Approx L/3 of span
+            req_depth_cm = h_slab / 4.0
+            
+            is_structural_drop = (drop_w_val >= req_width_cm) and (h_drop_val >= req_depth_cm)
+
+            # Determine Style
+            if is_structural_drop:
+                # ✅ Valid Structural Drop
+                dp_style = '-'
+                dp_color = 'white'
+                dp_edge = 'black'
+                dp_hatch = '//'
+                dp_alpha = 1.0
+                dp_label = None
+            else:
+                # ⚠️ Shear Cap / Non-Structural
+                dp_style = '--'
+                dp_color = '#FFF3E0' # Light Orange
+                dp_edge = '#E65100'  # Dark Orange
+                dp_hatch = None
+                dp_alpha = 0.8
+                dp_label = "Shear Cap Only\n(Stiffness Ignored)"
+
+            # Draw Drop Panel
+            drop_draw_w = min(cut_w * 0.7, drop_w_val) # Clamp for drawing width
+            ax_s.add_patch(patches.Rectangle(
+                (-drop_draw_w/2, -h_drop_val), drop_draw_w, h_drop_val, 
+                fc=dp_color, ec=dp_edge, hatch=dp_hatch, ls=dp_style, alpha=dp_alpha, zorder=3
+            ))
+            
+            y_bottom_slab = -h_drop_val
+            draw_dim(ax_s, (drop_draw_w/2 + 10, 0), (drop_draw_w/2 + 10, -h_drop_val), f"{h_drop_val}cm", is_vert=True, color='#0277bd')
+
+            # Add Warning Label if needed
+            if dp_label:
+                ax_s.annotate(
+                    dp_label,
+                    xy=(drop_draw_w/2, -h_drop_val/2),
+                    xytext=(drop_draw_w/2 + 40, -h_drop_val - 20),
+                    arrowprops=dict(arrowstyle='->', color=dp_edge, connectionstyle="arc3,rad=-0.2"),
+                    color=dp_edge, fontsize=9, fontweight='bold',
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=dp_edge, alpha=0.9)
+                )
+            # === LOGIC END ===
 
         # 4. Rebar (Red Line)
         eff_depth_line = h_slab - cover - 0.5 # Center of bar approx
@@ -264,11 +309,11 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         # Storey Height
         draw_dim(ax_s, (-c1_w/2 - 30, 0), (-c1_w/2 - 30, -col_draw_h), f"H={lc:.2f}m", is_vert=True, color='#e65100')
 
-        # [IMPORTANT FIX]: Set Limits explicitly (สำคัญมาก: บังคับขอบเขตแกน X, Y ไม่งั้นรูปหาย)
+        # [IMPORTANT FIX]: Set Limits explicitly
         ax_s.set_aspect('equal')
         ax_s.axis('off')
-        ax_s.set_xlim(-cut_w/2 - 50, cut_w/2 + 50) # Fixes horizontal visibility
-        ax_s.set_ylim(-col_draw_h - 20, h_slab + 30) # Fixes vertical visibility
+        ax_s.set_xlim(-cut_w/2 - 50, cut_w/2 + 50) 
+        ax_s.set_ylim(-col_draw_h - 20, h_slab + 30)
         
         st.pyplot(fig_s, use_container_width=True)
 
@@ -292,8 +337,8 @@ def render(L1, L2, c1_w, c2_w, h_slab, lc, cover, d_eff,
         
         if has_drop:
             html += get_row_html("3. DROP PANEL", "", "", is_header=True)
-            html += get_row_html("Size", f"{drop_data['width']:.0f}x{drop_data['length']:.0f}", "cm")
-            html += get_row_html("Total Depth", f"{h_slab+h_drop:.0f}", "cm")
+            html += get_row_html("Size", f"{drop_w_val:.0f}x{drop_l_val:.0f}", "cm")
+            html += get_row_html("Total Depth", f"{h_slab+h_drop_val:.0f}", "cm")
 
         html += get_row_html("4. LOADING", "", "", is_header=True)
         html += get_row_html("fc'", f"{fc:.0f}", "ksc")
