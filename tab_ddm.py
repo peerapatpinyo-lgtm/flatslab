@@ -431,24 +431,25 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 # ========================================================
 # 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
 # ========================================================
-# ========================================================
-# 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
-# ========================================================
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
+    # -----------------------------------------------------
+    # 0. SETUP & UNPACKING
+    # -----------------------------------------------------
     # Unpack basic props
-    h_slab = mat_props['h_slab']
-    cover = mat_props['cover']
-    fc = mat_props['fc']
-    fy = mat_props['fy']
+    h_slab = float(mat_props['h_slab'])
+    cover = float(mat_props['cover'])
+    fc = float(mat_props['fc'])
+    fy = float(mat_props['fy'])
     phi_bend = mat_props.get('phi', 0.90)        
     phi_shear = mat_props.get('phi_shear', 0.85) 
     
     # Rebar Config
     cfg = mat_props.get('rebar_cfg', {})
     
+    # Data from Analysis
     L_span = data['L_span']
-    L_width = data.get('L_width', L_span) # Use get to prevent key error
-    c_para = data['c_para']
+    L_width = data.get('L_width', L_span) # Use get to prevent key error if square
+    c_para = float(data['c_para'])
     Mo = data['Mo']
     m_vals = data['M_vals']
     coeff_desc = data.get('coeffs_desc', 'Standard')
@@ -458,7 +459,7 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     span_sym, width_sym = ("L_x", "L_y") if axis_id == "X" else ("L_y", "L_x")
     ln_val = L_span - (c_para/100.0)
     
-    # Strip Widths
+    # Strip Widths (Column Strip / Middle Strip)
     w_cs = min(L_span, L_width) / 2.0
     w_ms = L_width - w_cs
     
@@ -482,16 +483,20 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             st.latex(f"M_o = \\frac{{w_u l_2 l_n^2}}{{8}} = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.2f}^2}}{{8}}")
             st.latex(f"M_o = \\mathbf{{{Mo:,.0f}}} \\; \\text{{kg-m}}")
             
-            # --- Unbalanced Moment Check & Note ---
+            # --- Unbalanced Moment Check & Note (CRITICAL SECTION) ---
             M_sc = m_vals.get('M_unbal', 0)
+            
             if M_sc > 0:
                 st.warning(f"⚠️ **Unbalanced Moment ($M_{{sc}}$):** {M_sc:,.0f} kg-m (Transferred to Edge Column)")
                 
-                # [FIXED & IMPROVED] Explicit English Note
-                coeff_used = M_sc / Mo if Mo > 0 else 0
+                # Calculate coefficient used for display
+                coeff_used = M_sc / Mo if Mo > 0 else 0.30
+                
+                # [ENGLISH NOTE AS REQUESTED]
                 st.markdown(f"""
                 > 📝 **Engineering Note:** > This value is derived from **$M_{{sc}} = {coeff_used:.2f} \\times M_o$** (Exterior Negative Moment).  
-                > It represents the moment transferred directly to the edge column due to the **discontinuity** at the slab edge. This is the critical factor causing high punching shear stress.
+                > It represents the moment transferred directly to the edge column due to the **discontinuity** at the slab edge (no adjacent slab to balance the moment).  
+                > **This is the critical factor causing high punching shear stress.**
                 """)
             else:
                  st.success("✅ **Balanced Span:** No significant unbalanced moment transfer (Interior Span).")
@@ -503,17 +508,20 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         st.markdown("---")
         st.markdown("### 2️⃣ Punching Shear Check")
         
+        # Prepare inputs
         c_col = float(c_para)
+        # Approximate Vu (Total load on panel minus column area)
         load_area = (L_span * L_width) - ((c_col/100)**2)
         Vu_approx = float(w_u) * load_area 
-        d_eff_avg = float(h_slab) - float(cover) - 1.6
+        d_eff_avg = float(h_slab) - float(cover) - 1.6 # Avg effective depth
         
+        # Determine Condition
         if "Interior" in span_type_str:
             col_cond = "interior"
         else:
             col_cond = "edge"
         
-        # Perform Calculation
+        # Perform Calculation (Call helper function)
         ps_res = calc.check_punching_shear(
             Vu=Vu_approx,        
             fc=float(fc),
@@ -527,6 +535,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
         )
         
         c_ps1, c_ps2 = st.columns([1, 2])
+        
+        # Left: Plot
         with c_ps1:
             if HAS_PLOTS:
                 st.pyplot(ddm_plots.plot_punching_shear_geometry(
@@ -535,27 +545,32 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
             else:
                 st.info("Visual module unavailable")
         
+        # Right: Data & Status
         with c_ps2:
             st.markdown(f"**Condition:** {col_cond.capitalize()} Column")
             
-            if col_cond == "edge" and m_vals.get('M_unbal', 0) > 0:
-                 st.info(f"ℹ️ **Note:** Edge column check considers Moment Transfer ($M_{{sc}}$) = {m_vals['M_unbal']:,.0f} kg-m")
+            # Show Note again if Edge
+            if col_cond == "edge" and M_sc > 0:
+                 st.info(f"ℹ️ **Calculation Note:** Edge column check considers Moment Transfer ($M_{{sc}}$) = {M_sc:,.0f} kg-m")
 
+            # Status Display
             if ps_res['status'] == "OK":
                 st.success(f"✅ **PASSED** (Ratio: {ps_res['ratio']:.2f})")
             else:
                 st.error(f"❌ **FAILED** (Ratio: {ps_res['ratio']:.2f})")
-                st.write("👉 Suggestion: Increase slab thickness, column size, or add drop panel.")
+                st.write("👉 **Suggestion:** Increase slab thickness, column size, or add drop panel.")
             
-            with st.expander("Show Punching Calculation"):
+            # Detailed Formula Expander
+            with st.expander("Show Punching Calculation Formula"):
                 st.latex(r"v_u = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c}")
-                st.write(f"Shear Capacity ($\\phi V_c$): {ps_res['phi_Vc']:,.0f} kg")
-                st.write(f"Shear Demand ($V_u$): {ps_res['Vu']:,.0f} kg")
-
-
+                st.markdown("**Key Parameters:**")
+                st.write(f"- Shear Demand ($V_u$): {ps_res['Vu']:,.0f} kg")
+                st.write(f"- Moment ($M_{{sc}}$): {M_sc:,.0f} kg-m")
+                st.write(f"- Perimeter ($b_o$): {ps_res['bo']:.2f} cm")
+                st.write(f"- Capacity ($\\phi V_c$): {ps_res['phi_Vc']:,.0f} kg")
 
     # -----------------------------------------------------
-    # SECTION 3: DEFLECTION
+    # SECTION 3: SERVICEABILITY (DEFLECTION)
     # -----------------------------------------------------
     st.markdown("---")
     st.markdown("### 3️⃣ Serviceability (Deflection)")
@@ -564,6 +579,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     
     with st.container(border=True):
         c_d1, c_d2 = st.columns(2)
+        
+        # A) Thickness Check
         with c_d1:
             st.markdown("**A) Minimum Thickness (ACI Table 8.3.1.1)**")
             if def_res['status_h']:
@@ -572,15 +589,17 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                 st.error(f"❌ Provided {h_slab} cm < Min {def_res['h_min']:.2f} cm")
             st.caption(f"Based on $L_n / {def_res['denom']:.0f}$")
 
+        # B) Deflection Calc
         with c_d2:
             st.markdown("**B) Estimated Deflection ($\Delta_{total}$)**")
             st.write(f"Immediate (Elastic): {def_res['delta_imm']:.2f} cm")
-            st.write(f"Long-term Multiplier: 3.0x (Creep+Shrinkage)")
+            # Using 3.0x as requested (Immediate + Creep/Shrinkage ~ 2.0)
+            st.write(f"Long-term Multiplier: 3.0x") 
             
             val = def_res['delta_total']
             lim = def_res['limit']
             
-            if val < lim:
+            if val <= lim:
                 st.success(f"✅ **{val:.2f} cm** (Limit L/240 = {lim:.2f} cm)")
             else:
                 st.warning(f"⚠️ **{val:.2f} cm** (Exceeds Limit {lim:.2f} cm)")
@@ -591,11 +610,13 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     st.markdown("---")
     st.markdown("### 4️⃣ Reinforcement Design")
     
+    # Get Rebar Settings (Diameter/Spacing) for each zone
     d_cst, s_cst = cfg.get('cs_top_db', 12), cfg.get('cs_top_spa', 20)
     d_csb, s_csb = cfg.get('cs_bot_db', 12), cfg.get('cs_bot_spa', 20)
     d_mst, s_mst = cfg.get('ms_top_db', 12), cfg.get('ms_top_spa', 20)
     d_msb, s_msb = cfg.get('ms_bot_db', 12), cfg.get('ms_bot_spa', 20)
     
+    # Define Zones Data
     zones = [
         {"Label": "Col Strip - Top (-)", "Mu": m_vals['M_cs_neg'], "b": w_cs, "db": d_cst, "s": s_cst},
         {"Label": "Col Strip - Bot (+)", "Mu": m_vals['M_cs_pos'], "b": w_cs, "db": d_csb, "s": s_csb},
@@ -604,38 +625,61 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
     ]
     
     results = []
+    # Calculate for all zones
     for z in zones:
-        res = calc_rebar_logic(z['Mu'], z['b'], z['db'], z['s'], h_slab, cover, fc, fy, is_main_dir, phi_bend)
+        # Call Logic
+        res = calc_rebar_logic(
+            z['Mu'], z['b'], z['db'], z['s'], 
+            h_slab, cover, fc, fy, is_main_dir, phi_bend
+        )
+        # Merge results with label info
         res.update(z)
         results.append(res)
     
+    # Display Summary Table
     df_res = pd.DataFrame(results)[["Label", "Mu", "As_req", "As_prov", "DC", "Note"]]
+    
+    # Style the dataframe (Gradient for D/C Ratio)
     st.dataframe(
-        df_res.style.format({"Mu": "{:,.0f}", "As_req": "{:.2f}", "As_prov": "{:.2f}", "DC": "{:.2f}"})
+        df_res.style.format({
+            "Mu": "{:,.0f}", 
+            "As_req": "{:.2f}", 
+            "As_prov": "{:.2f}", 
+            "DC": "{:.2f}"
+        })
         .background_gradient(subset=["DC"], cmap="RdYlGn_r", vmin=0, vmax=1.2),
-        use_container_width=True, hide_index=True
+        use_container_width=True, 
+        hide_index=True
     )
     
-    # --- IMPORTANT: THIS IS THE TRIGGER FOR THE DETAILED VIEW ---
+    # --- DETAILED CALCULATION SELECTOR ---
     st.markdown("#### 🔍 Select Zone for Detailed Calculation")
     sel_zone = st.selectbox(f"Show details for ({axis_id}):", [z['Label'] for z in zones], key=f"sel_{axis_id}")
+    
+    # Retrieve data for selected zone
     target = next(z for z in results if z['Label'] == sel_zone)
     
+    # Prepare tuple for display function
     raw_inputs = (target['Mu'], target['b'], h_slab, cover, fc, fy, target['db'], target['s'], phi_bend)
     pct_val = (target['Mu'] / Mo * 100) if Mo > 0 else 0
     
-    # CALL THE FUNCTION
+    # CALL THE DETAILED DISPLAY FUNCTION
     show_detailed_calculation(sel_zone, target, raw_inputs, pct_val, Mo)
 
+    # --- PLOTS (Moment & Detailing) ---
     if HAS_PLOTS:
         st.markdown("---")
         t1, t2 = st.tabs(["📉 Moment Diagram", "🏗️ Rebar Detailing"])
+        
         rebar_map = {
             "CS_Top": f"DB{d_cst}@{s_cst}", "CS_Bot": f"DB{d_csb}@{s_csb}",
             "MS_Top": f"DB{d_mst}@{s_mst}", "MS_Bot": f"DB{d_msb}@{s_msb}"
         }
-        with t1: st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
-        with t2: st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
+        
+        with t1: 
+            st.pyplot(ddm_plots.plot_ddm_moment(L_span, c_para/100, m_vals))
+        with t2: 
+            st.pyplot(ddm_plots.plot_rebar_detailing(L_span, h_slab, c_para, rebar_map, axis_id))
 
 
 # ========================================================
