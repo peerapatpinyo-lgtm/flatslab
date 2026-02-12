@@ -502,161 +502,212 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                  st.success("✅ **Balanced Span:** No significant unbalanced moment transfer (Interior Span).")
 
     # -----------------------------------------------------
-    # SECTION 2: PUNCHING SHEAR (PRO VERSION - DETAILED & VERIFIED)
+    # SECTION 2: PUNCHING SHEAR (ULTIMATE DETAILED MODE)
     # -----------------------------------------------------
     if HAS_CALC:
         st.markdown("---")
-        st.markdown("### 2️⃣ Punching Shear Check (Detailed)")
+        st.markdown("### 2️⃣ Punching Shear Check (Explicit Calculation)")
         
-        # --- 2.1 Prepare Data & Geometry ---
-        # Convert inputs to float to ensure precision
+        # --- PREPARE DATA ---
         h_slab_val = float(h_slab)
         cover_val = float(cover)
-        c_col = float(c_para) # Assuming Square Column from input
+        c_para_val = float(c_para) # Column Dimension Parallel to Span (c1)
+        c_perp_val = float(c_para) # Column Dimension Perpendicular (c2) - Assuming Square
         
-        # Calculate Effective Depth (d)
-        # Average d for two layers of rebar (assuming ~DB12-16)
-        # d = h - cover - bar_dia
-        d_eff_avg = h_slab_val - cover_val - 1.6 
+        # Load Data
+        w_u_val = float(w_u)
+        L_1 = L_span
+        L_2 = L_width
         
-        # Determine Condition & Critical Section Geometry
-        if "Interior" in span_type_str:
-            col_cond = "interior"
-            # Critical section dimensions (b1, b2)
-            c1_d = c_col + d_eff_avg
-            c2_d = c_col + d_eff_avg
-            b_o_cal = 2 * (c1_d + c2_d)
+        # --- STEP 1: EFFECTIVE DEPTH (d) ---
+        st.markdown("#### **Step 1: Effective Depth ($d$)**")
+        st.write("ความลึกประสิทธิผลเฉลี่ย (Average $d$) ของเหล็กเสริมสองทิศทาง")
+        
+        # d = h - cover - bar_diameter_avg (approx 1.6 cm for DB12-DB20 layers)
+        d_avg = h_slab_val - cover_val - 1.6 
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.latex(r"d = h - C_{cover} - \phi_{avg}")
+        with col2:
+            st.latex(f"d = {h_slab_val} - {cover_val} - 1.6 = \\mathbf{{{d_avg:.2f}}} \\; \\text{{cm}}")
+
+        # --- STEP 2: CRITICAL SECTION PROPS (bo, Jc, Gamma) ---
+        st.markdown("#### **Step 2: Critical Section Properties ($b_o, J_c, \gamma_v$)**")
+        
+        is_edge_col = "Interior" not in span_type_str
+        
+        if not is_edge_col:
+            # =========================================
+            # CASE A: INTERIOR COLUMN (4 Sides)
+            # =========================================
+            st.info("📍 **Condition:** Interior Column (Critical section has 4 sides)")
             
-            # Gamma_v for Interior (Square) is typically 0.40
-            # Formula: 1 - 1/(1 + 2/3 * sqrt(b1/b2))
-            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (c1_d / c2_d)**0.5)
-            gamma_v = 1.0 - gamma_f
+            # 2.1 Critical Perimeter (bo)
+            b1 = c_para_val + d_avg # c1 + d
+            b2 = c_perp_val + d_avg # c2 + d
+            bo = 2 * (b1 + b2)
             
-            M_unbal_cal = 0.0 # Interior usually assumes balanced for DDM unless specified
+            st.markdown("**2.1 Critical Perimeter ($b_o$)** - วัดระยะ $d/2$ จากผิวเสาทุกด้าน")
+            st.latex(r"b_1 = c_1 + d = " + f"{c_para_val} + {d_avg:.2f} = {b1:.2f} \\; \\text{{cm}}")
+            st.latex(r"b_2 = c_2 + d = " + f"{c_perp_val} + {d_avg:.2f} = {b2:.2f} \\; \\text{{cm}}")
+            st.latex(r"b_o = 2(b_1 + b_2) = 2(" + f"{b1:.2f} + {b2:.2f}) = \\mathbf{{{bo:.2f}}} \\; \\text{{cm}}")
+            
+            # 2.2 Polar Moment of Inertia (Jc)
+            st.markdown("**2.2 Polar Moment of Inertia ($J_c$)** - สำหรับหน้าตัดปิด 4 ด้าน")
+            # Formula for Interior Box Section
+            term1 = (d_avg * b1**3) / 6
+            term2 = (d_avg**3 * b1) / 6
+            term3 = (d_avg * b2 * b1**2) / 2
+            J_c = term1 + term2 + term3
+            c_center = b1 / 2 # Centroid distance
+            
+            st.latex(r"J_c = \frac{db_1^3}{6} + \frac{d^3b_1}{6} + \frac{db_2 b_1^2}{2}")
+            st.latex(f"J_c = \\frac{{{d_avg:.2f}({b1:.2f})^3}}{{6}} + ... = \\mathbf{{{J_c:,.0f}}} \\; \\text{{cm}}^4")
+            
+            # 2.3 Gamma v
+            st.markdown("**2.3 Unbalanced Moment Factor ($\gamma_v$)**")
+            gamma_f = 1 / (1 + (2/3) * (b1/b2)**0.5)
+            gamma_v = 1 - gamma_f
+            
+            st.latex(r"\gamma_v = 1 - \frac{1}{1 + \frac{2}{3}\sqrt{b_1/b_2}} = " + f"1 - {gamma_f:.3f} = \\mathbf{{{gamma_v:.3f}}}")
+            
+            M_unbal = 0 # Normally balanced for interior DDM unless specified
+            
         else:
-            col_cond = "edge"
-            # Critical section for Edge (3 sides)
-            c1_d = c_col + (d_eff_avg / 2.0) # Perpendicular to edge
-            c2_d = c_col + d_eff_avg         # Parallel to edge
-            b_o_cal = (2 * c1_d) + c2_d
+            # =========================================
+            # CASE B: EDGE COLUMN (3 Sides)
+            # =========================================
+            st.info("📍 **Condition:** Edge Column (Critical section has 3 sides - U Shape)")
             
-            # Gamma_v Calculation (ACI 318)
-            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (c1_d / c2_d)**0.5)
-            gamma_v = 1.0 - gamma_f
+
+            # 2.1 Critical Perimeter (bo)
+            # b1 (perp to edge) = c1 + d/2
+            # b2 (para to edge) = c2 + d
+            b1 = c_para_val + (d_avg / 2)
+            b2 = c_perp_val + d_avg
+            bo = (2 * b1) + b2
             
-            M_unbal_cal = m_vals.get('M_unbal', 0)
+            st.markdown("**2.1 Critical Perimeter ($b_o$)** - ด้านติดขอบอาคารไม่มีเนื้อปูน")
+            st.latex(r"b_1 (\text{perp}) = c_1 + \frac{d}{2} = " + f"{c_para_val} + \\frac{{{d_avg:.2f}}}{{2}} = {b1:.2f} \\; \\text{{cm}}")
+            st.latex(r"b_2 (\text{para}) = c_2 + d = " + f"{c_perp_val} + {d_avg:.2f} = {b2:.2f} \\; \\text{{cm}}")
+            st.latex(r"b_o = 2b_1 + b_2 = 2(" + f"{b1:.2f}) + {b2:.2f} = \\mathbf{{{bo:.2f}}} \\; \\text{{cm}}")
+            
+            # 2.2 Centroid & Jc
+            st.markdown("**2.2 Centroid & Inertia ($c_{AB}, J_c$)**")
+            # Centroid from inner face (Geometric Center of Shear Perimeter)
+            # Moment of Area / Total Area. 
+            # Area = bo * d.
+            # Moment about inner line: Only the two side legs (length b1) contribute.
+            # Side legs area = 2 * (b1 * d). Their centroid is at b1/2.
+            # Moment = 2 * (b1 * d) * (b1/2) = b1^2 * d
+            c_AB = (b1**2 * d_avg) / (bo * d_avg) 
+            c_center = c_AB # Distance c for Mc/J
+            
+            # Jc Calculation (Parallel Axis Theorem)
+            # I_b1 (Side legs) = d*b1^3/12 + Area*(dist)^2. Dist to Centroid = (b1/2 - c_AB)
+            I_b1_own = (d_avg * b1**3) / 12
+            I_b1_shift = (b1 * d_avg) * (b1/2 - c_AB)**2
+            I_b1_total = 2 * (I_b1_own + I_b1_shift) # 2 legs
+            
+            # I_b2 (Front face) = b2*d^3/12 (thin) + Area*(dist)^2. Dist = c_AB
+            I_b2_own = (b2 * d_avg**3) / 12 # often negligible but included
+            I_b2_shift = (b2 * d_avg) * (c_AB)**2
+            I_b2_total = I_b2_own + I_b2_shift
+            
+            J_c = I_b1_total + I_b2_total
+            
+            st.write(f"ระยะเยื้องศูนย์ ($c_{{AB}}$) วัดจากผิวเสาด้านใน = {c_AB:.2f} cm")
+            st.latex(f"J_c = \\sum (I_{{own}} + Ad^2) = \\mathbf{{{J_c:,.0f}}} \\; \\text{{cm}}^4")
+            
+            # 2.3 Gamma v
+            st.markdown("**2.3 Unbalanced Moment Factor ($\gamma_v$)**")
+            gamma_f = 1 / (1 + (2/3) * (b1/b2)**0.5)
+            gamma_v = 1 - gamma_f
+            st.latex(f"\\gamma_v = 1 - \\frac{{1}}{{1 + \\frac{{2}}{{3}}\\sqrt{{{b1:.2f}/{b2:.2f}}}}} = \\mathbf{{{gamma_v:.3f}}}")
+            
+            M_unbal = m_vals.get('M_unbal', 0)
 
-        # Calculate Shear Demand (Vu)
-        # Vu = Wu * (Panel Area - Column Area)
-        area_panel = (L_span * L_width)
-        area_col = (c_col/100.0)**2
-        Vu_val = float(w_u) * (area_panel - area_col)
-
-        # --- 2.2 Perform Calculation ---
-        # Calling backend function
-        ps_res = calc.check_punching_shear(
-            Vu=Vu_val,        
-            fc=float(fc),
-            c1=c_col,            
-            c2=c_col,            
-            d=d_eff_avg,                
-            col_type=col_cond,
-            open_w=mat_props.get('open_w', 0),
-            open_dist=mat_props.get('open_dist', 0),
-            phi=phi_shear 
-        )
+        # --- STEP 3: SHEAR & MOMENT LOADS ---
+        st.markdown("#### **Step 3: Loads ($V_u, M_{sc}$)**")
         
-        # --- 2.3 Visualization & Key Metrics ---
-        c_p1, c_p2 = st.columns([1, 2])
+        # Vu Calculation
+        area_panel = (L_1 * L_2)
+        area_col = (c_para_val/100) * (c_perp_val/100)
+        Vu = w_u_val * (area_panel - area_col)
         
-        with c_p1:
-            # Show Plot (Geometry)
-            if HAS_PLOTS:
-                st.pyplot(ddm_plots.plot_punching_shear_geometry(
-                    c_col, c_col, ps_res['d'], ps_res['bo'], ps_res['status'], ps_res['ratio']
-                ))
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.write("**Factored Shear Force ($V_u$)**")
+            st.latex(r"V_u = w_u (A_{panel} - A_{col})")
+            st.latex(f"V_u = {w_u_val:,.0f}({area_panel:.2f} - {area_col:.2f})")
+            st.latex(f"V_u = \\mathbf{{{Vu:,.0f}}} \\; \\text{{kg}}")
+        
+        with col_v2:
+            st.write("**Unbalanced Moment ($M_{sc}$)**")
+            if M_unbal > 0:
+                st.write("จากผลวิเคราะห์ DDM (Moment Transfer):")
+                st.latex(f"M_{{unbal}} = {M_unbal:,.0f} \\; \\text{{kg-m}}")
+                st.latex(f"M_{{sc}} = {M_unbal:,.0f} \\times 100 = \\mathbf{{{M_unbal*100:,.0f}}} \\; \\text{{kg-cm}}")
             else:
-                st.info("Visual module unavailable")
+                st.info("Interior Column: Assume Balanced Moment ($M_{sc} \\approx 0$)")
+                M_unbal = 0
 
-        with c_p2:
-            # Result Header
-            status_color = "green" if ps_res['status'] == "OK" else "red"
-            st.markdown(f"#### Status: :{status_color}[{ps_res['status']}] (Ratio: {ps_res['ratio']:.2f})")
+        # --- STEP 4: STRESS CALCULATION ---
+        st.markdown("#### **Step 4: Shear Stress Calculation ($v_u$)**")
+        st.latex(r"v_u = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c}")
+        
+        # 4.1 Load Term
+        v_load = Vu / (bo * d_avg)
+        # 4.2 Moment Term
+        v_mom = (gamma_v * (M_unbal * 100) * c_center) / J_c if J_c > 0 else 0
+        v_total = v_load + v_mom
+        
+        st.write("แทนค่าลงในสูตร:")
+        st.latex(f"v_{{load}} = \\frac{{{Vu:,.0f}}}{{{bo:.2f} \\cdot {d_avg:.2f}}} = {v_load:.2f} \\; \\text{{ksc}}")
+        
+        if v_mom > 0:
+            st.latex(f"v_{{mom}} = \\frac{{{gamma_v:.3f} \\cdot {M_unbal*100:,.0f} \\cdot {c_center:.2f}}}{{{J_c:,.0f}}} = {v_mom:.2f} \\; \\text{{ksc}}")
+        else:
+            st.latex(r"v_{mom} = 0 \; \text{ksc}")
             
-            # Progress Bar
-            ratio_display = min(ps_res['ratio'], 1.5) / 1.5
-            st.progress(min(ratio_display, 1.0), text=f"Utilization: {ps_res['ratio']*100:.1f}%")
+        st.latex(f"v_{{u,max}} = {v_load:.2f} + {v_mom:.2f} = \\mathbf{{{v_total:.2f}}} \\; \\text{{ksc}}")
 
-            # --- STRESS BREAKDOWN (The "Pro" Part) ---
-            # 1. Direct Shear Stress (v_u1 = Vu / bo*d)
-            v_direct = ps_res['Vu'] / (ps_res['bo'] * ps_res['d'])
+        # --- STEP 5: CAPACITY CHECK ---
+        st.markdown("#### **Step 5: Capacity Check**")
+        
+        # Capacity Formula (ACI Metric: 1.06 sqrt(fc))
+        # Note: 0.33 sqrt(fc_MPa) is approx 1.06 sqrt(fc_ksc)
+        vc_formula = 1.06 * (fc**0.5) 
+        phi_vc = phi_shear * vc_formula
+        
+        c_res1, c_res2 = st.columns(2)
+        with c_res1:
+            st.write("Nominal Strength ($v_c$):")
+            st.latex(r"v_c = 1.06\sqrt{f'_c}")
+            st.latex(f"v_c = 1.06\\sqrt{{{fc}}} = {vc_formula:.2f} \\; \\text{{ksc}}")
             
-            # 2. Total Stress allowed (v_n = v_c) and Demand
-            # We derive v_total from the ratio: Ratio = v_total / (phi * v_c)
-            # So v_total = Ratio * phi * v_c
-            # *Note: ps_res['phi_Vc'] is Capacity in kg force, not stress.
-            # Stress Capacity (phi_vn_stress)
-            phi_vn_stress = ps_res['phi_Vc'] / (ps_res['bo'] * ps_res['d'])
-            v_total_stress = ps_res['ratio'] * phi_vn_stress
+        with c_res2:
+            st.write("Design Strength ($\\phi v_c$):")
+            st.latex(f"\\phi v_c = {phi_shear} \\times {vc_formula:.2f}")
+            st.latex(f"\\phi v_c = \\mathbf{{{phi_vc:.2f}}} \\; \\text{{ksc}}")
             
-            # 3. Moment Stress (v_u2 = gamma * M / J)
-            # Calculate as difference
-            v_moment = max(0.0, v_total_stress - v_direct)
+        # --- CONCLUSION ---
+        st.markdown("---")
+        ratio = v_total / phi_vc
+        
+        if v_total <= phi_vc:
+            st.success(f"✅ **PASS** (Ratio = {ratio:.2f})")
+            st.write(f"Section is adequate. ($v_u$ {v_total:.2f} $\le$ $\phi v_c$ {phi_vc:.2f})")
+        else:
+            st.error(f"❌ **FAIL** (Ratio = {ratio:.2f})")
+            st.write(f"Section is insufficient. ($v_u$ {v_total:.2f} > $\phi v_c$ {phi_vc:.2f})")
             
-            # Display Metrics
-            c_s1, c_s2, c_s3 = st.columns(3)
-            with c_s1:
-                st.metric("Direct Shear ($v_{u,load}$)", f"{v_direct:.2f} ksc", help="Stress from Vertical Load")
-            with c_s2:
-                st.metric("Moment Shear ($v_{u,mom}$)", f"{v_moment:.2f} ksc", help="Stress from Unbalanced Moment")
-            with c_s3:
-                st.metric("Capacity ($\\phi v_c$)", f"{phi_vn_stress:.2f} ksc", help="Design Shear Strength")
-
-        # --- 2.4 Deep Dive & Auto-Fix ---
-        with st.expander("🔍 Deep Dive & Suggestions", expanded=(ps_res['status'] != "OK")):
+            # Suggestion
+            req_d = d_avg * (ratio**0.5)
+            req_h = req_d + cover_val + 1.6
+            st.info(f"💡 **Recommendation:** Increase thickness to at least **{req_h:.1f} cm**")
             
-            # A. Geometric Properties
-            st.markdown("##### 📐 Calculation Parameters")
-            c_g1, c_g2, c_g3, c_g4 = st.columns(4)
-            c_g1.write(f"**$b_o$ (Perim):** {ps_res['bo']:.1f} cm")
-            c_g2.write(f"**$d$ (Depth):** {ps_res['d']:.1f} cm")
-            c_g3.write(f"**$\\gamma_v$ (Factor):** {gamma_v:.2f}")
-            c_g4.write(f"**$M_{{sc}}$:** {M_unbal_cal:,.0f} kg-m")
-
-            st.divider()
-
-            # B. The Formula
-            st.markdown("##### 🧮 ACI 318 Stress Check")
-            st.latex(r"v_{u} = \frac{V_u}{b_o d} + \frac{\gamma_v M_{sc} c}{J_c} \le \phi v_c")
-            
-            # C. Diagnosis & Fix
-            if ps_res['status'] != "OK":
-                st.error(f"❌ **Analysis:** Section FAILED by {((ps_res['ratio']-1)*100):.1f}%")
-                
-                # Diagnosis
-                if v_moment > v_direct:
-                    cause = "Unbalanced Moment ($M_{sc}$)"
-                    rec = "Consider Drop Panel or Edge Beam."
-                else:
-                    cause = "Vertical Shear ($V_u$)"
-                    rec = "Increase Slab Thickness."
-                
-                st.write(f"👉 **Primary Cause:** High Stress from **{cause}**")
-                
-                # Auto-Fix Calculation
-                # Estimate required d to match capacity (Linear approx for shear perim)
-                # This is an approximation: New_d = Old_d * sqrt(Ratio)
-                req_d = d_eff_avg * (ps_res['ratio'] ** 0.5)
-                req_h = req_d + cover_val + 1.6 # Add cover + bar size
-                
-                # Round up to nearest 0.5 cm
-                req_h = ((req_h * 2) // 1 + 1) / 2 
-                
-                st.info(f"💡 **Suggestion:** Increase slab thickness to **{req_h:.1f} cm** (Current: {h_slab} cm)")
-                st.caption(f"*{rec}*")
-                
-            else:
-                st.success("✅ **Analysis:** Section is adequate. Stress is within limits.")
     # -----------------------------------------------------
     # SECTION 3: SERVICEABILITY (DEFLECTION)
     # -----------------------------------------------------
