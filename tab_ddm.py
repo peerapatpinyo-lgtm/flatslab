@@ -626,120 +626,118 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 def draw_span_schematic(span_type):
     """
     วาดรูปตัดขวาง (Schematic Section) แสดง Boundary Condition
-    เวอร์ชันปรับปรุง: เพิ่มลายตัดคอนกรีต, เส้น Break line, และรายละเอียดทางวิศวกรรม
+    Updated: ปรับปรุงกราฟิกให้สื่อความหมายทางวิศวกรรมชัดเจนที่สุด
     """
-    fig, ax = plt.subplots(figsize=(7, 2.5)) # เพิ่มความสูงนิดหน่อย
+    fig, ax = plt.subplots(figsize=(7, 3.0)) # เพิ่มความสูงพื้นที่วาด
     ax.set_xlim(-1.5, 11.5)
-    ax.set_ylim(-0.5, 4)
+    ax.set_ylim(-1.0, 4.5) # เพิ่มพื้นที่ด้านบนสำหรับ Text
     ax.axis('off')
 
-    # --- Styles ---
-    concrete_style = {'facecolor': '#f0f0f0', 'edgecolor': '#333333', 'linewidth': 1.2, 'hatch': '///'}
-    support_style = {'facecolor': '#555555', 'edgecolor': 'black'}
-    center_line_style = {'linestyle': '-.', 'linewidth': 0.5, 'color': 'gray'}
+    # --- Colors & Styles ---
+    concrete_color = '#e0e0e0'  # สีเนื้อคอนกรีต
+    hatch_style = '///'         # ลายคอนกรีต
+    line_color = '#404040'      # สีเส้นขอบ
     
-    # --- Geometry Parameters ---
-    slab_y = 2.0
-    slab_h = 0.8
-    col_w = 0.8
-    beam_h = 1.5 # ความลึกคานขอบ
+    # Style Dictionary
+    slab_style = {'facecolor': concrete_color, 'edgecolor': line_color, 'linewidth': 1.5, 'hatch': hatch_style}
+    col_style = {'facecolor': '#606060', 'edgecolor': 'black', 'zorder': 5} # เสาสีเข้ม อยู่ layer บน
+    beam_phantom_style = {'facecolor': 'none', 'edgecolor': 'red', 'linestyle': '--', 'linewidth': 1, 'alpha': 0.6}
 
-    # Helper to draw a standard column
-    def draw_column(x_center):
-        # Column body
-        ax.add_patch(patches.Rectangle((x_center - col_w/2, 0), col_w, slab_y, **support_style))
-        # Center line
-        ax.plot([x_center, x_center], [-0.2, slab_y + slab_h + 0.5], **center_line_style)
+    # --- Geometry Config ---
+    slab_y = 2.0         # ระดับท้องพื้น
+    slab_h = 0.6         # ความหนาพื้น (สมมติเพื่อการแสดงผล)
+    col_w = 0.8          # ความกว้างเสา
+    beam_depth = 1.2     # ความลึกคาน (สำหรับกรณีมีคาน)
 
-    # Helper to draw break lines (แสดงความต่อเนื่อง)
-    def draw_break_line(x_pos):
-        y_vals = np.linspace(slab_y - 0.2, slab_y + slab_h + 0.2, 10)
-        x_vals = x_pos + 0.1 * np.sin(y_vals * np.pi * 4) # Zig-zag pattern
-        ax.plot(x_vals, y_vals, color='black', linewidth=1)
+    # ---------------- Helper Functions ----------------
+    def draw_col(x, is_edge=False):
+        # วาดเสา
+        rect = patches.Rectangle((x - col_w/2, 0), col_w, slab_y, **col_style)
+        ax.add_patch(rect)
+        # เส้น Center Line
+        ax.plot([x, x], [-0.5, slab_y + slab_h + 0.5], color='gray', linestyle='-.', linewidth=0.5, alpha=0.7)
 
-    # --- Main Drawing Logic ---
+    def draw_break(x):
+        # วาดเส้นหยัก (Break Line) แสดงความต่อเนื่อง
+        y = np.linspace(slab_y, slab_y + slab_h, 10)
+        x_zig = x + 0.15 * np.sin((y - slab_y) * np.pi * 4 / slab_h)
+        ax.plot(x_zig, y, color='black', linewidth=1.5)
+
+    # ---------------- Drawing Logic ----------------
     if "Interior" in span_type:
-        # ==================== Interior Span ====================
-        st.caption("👉 **Interior Span:** พื้นมีความต่อเนื่องทั้งสองฝั่ง โมเมนต์ลบถ่ายเทไปช่วงถัดไปได้เต็มที่")
+        # === กรณี 1: Interior Span (พื้นต่อเนื่อง) ===
+        draw_col(0)
+        draw_col(10)
         
-        # Draw Columns
-        draw_column(0)
-        draw_column(10)
+        # พื้นยาวทะลุซ้ายขวา
+        ax.add_patch(patches.Rectangle((-1.5, slab_y), 13, slab_h, **slab_style))
         
-        # Draw main slab (extending past supports)
-        ax.add_patch(patches.Rectangle((-1, slab_y), 12, slab_h, **concrete_style))
-        
-        # Draw Break lines
-        draw_break_line(-1)
-        draw_break_line(11)
+        # Break Line 2 ฝั่ง
+        draw_break(-1.0)
+        draw_break(11.0)
         
         # Annotations
-        ax.annotate('Continuous\nSupport', xy=(0, slab_y+slab_h), xytext=(-1.5, 3.5),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=.2"), ha='center', fontsize=8)
-        ax.annotate('Continuous\nSupport', xy=(10, slab_y+slab_h), xytext=(11.5, 3.5),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-.2"), ha='center', fontsize=8)
-
-        # Moment Coeff Markers
-        ax.text(0, slab_y+slab_h+0.2, "M-\n(0.65)", ha='center', color='red', fontsize=9, weight='bold')
-        ax.text(5, slab_y+slab_h+0.2, "M+\n(0.35)", ha='center', color='blue', fontsize=9, weight='bold')
-        ax.text(10, slab_y+slab_h+0.2, "M-\n(0.65)", ha='center', color='red', fontsize=9, weight='bold')
+        ax.text(5, 3.5, "INTERIOR SPAN", ha='center', weight='bold', fontsize=10, color='#004080')
+        ax.text(5, 3.1, "(Continuous Both Ends)", ha='center', fontsize=8, color='#004080')
+        
+        # Coefficients
+        ax.text(0.5, slab_y+slab_h+0.3, "M- (0.65)", color='red', fontsize=8, weight='bold')
+        ax.text(5.0, slab_y+slab_h+0.3, "M+ (0.35)", color='blue', fontsize=8, weight='bold')
+        ax.text(9.5, slab_y+slab_h+0.3, "M- (0.65)", color='red', fontsize=8, weight='bold')
 
     elif "Edge Beam" in span_type:
-        # ==================== End Span w/ Edge Beam ====================
-        st.caption("👉 **Edge Beam:** มีคานขอบขนาดใหญ่ ช่วยต้านทานการบิด (Stiff) ทำให้เกิดโมเมนต์ลบที่ขอบนอกพอสมควร")
-
-        # Draw Columns
-        draw_column(0)  # Edge Col
-        draw_column(10) # Interior Col
+        # === กรณี 2: End Span + Edge Beam (มีคานขอบ) ===
+        draw_col(0, is_edge=True)
+        draw_col(10)
         
-        # Draw Slab (Stops at exterior edge, continuous at interior)
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 11.5, slab_h, **concrete_style))
-
-        # Draw Edge Beam (Deeper section)
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_h), col_w*1.5, beam_h, **concrete_style))
+        # พื้นเริ่มที่ขอบเสาซ้าย -> ยาวไปขวา
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 11.5 + col_w/2, slab_h, **slab_style))
         
-        # Draw Break line (Right side only)
-        draw_break_line(11)
+        # **คานขอบ (Edge Beam)**: สี่เหลี่ยมห้อยลงมา
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_depth), col_w*1.5, beam_depth, **slab_style))
+        
+        draw_break(11.0)
 
         # Annotations
-        ax.annotate('Stiff Edge Beam\n(Torsional Restraint)', xy=(0, slab_y - beam_h/2), xytext=(-2, 0.5),
-                    arrowprops=dict(arrowstyle="->", color='red'), ha='center', color='red', fontsize=9, weight='bold')
-        ax.annotate('Continuous\nInterior', xy=(10, slab_y+slab_h), xytext=(11, 3.5),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-.2"), ha='center', fontsize=8)
+        ax.text(5, 3.5, "END SPAN - EDGE BEAM", ha='center', weight='bold', fontsize=10, color='#004080')
+        ax.text(0, 1.0, "Stiff Beam", color='black', fontsize=8, weight='bold', ha='center', rotation=90)
         
-        # Moment Coeff Markers
-        ax.text(0, slab_y+slab_h+0.2, "M- Ext\n(0.30)", ha='center', color='red', fontsize=9, weight='bold')
-        ax.text(5, slab_y+slab_h+0.2, "M+\n(0.50)", ha='center', color='blue', fontsize=9, weight='bold')
-        ax.text(10, slab_y+slab_h+0.2, "M- Int\n(0.70)", ha='center', color='red', fontsize=9, weight='bold')
+        # Coefficients
+        ax.text(0.5, slab_y+slab_h+0.3, "M- Ext\n(0.30)", color='red', fontsize=8, weight='bold', ha='center')
+        ax.text(5.0, slab_y+slab_h+0.3, "M+ (0.50)", color='blue', fontsize=8, weight='bold', ha='center')
+        ax.text(9.5, slab_y+slab_h+0.3, "M- Int\n(0.70)", color='red', fontsize=8, weight='bold', ha='center')
 
     elif "No Beam" in span_type:
-        # ==================== End Span (Flat Plate) ====================
-        st.caption("👉 **Flat Plate:** ไม่มีคานขอบ พื้นนั่งอยู่บนเสาโดยตรง จุดเชื่อมต่อมีความอ่อนตัว (Flexible) โมเมนต์ลบที่ขอบนอกจึงน้อย")
+        # === กรณี 3: End Span - No Beam (Flat Plate) ===
+        draw_col(0, is_edge=True)
+        draw_col(10)
 
-        # Draw Columns
-        draw_column(0)  # Edge Col
-        draw_column(10) # Interior Col
+        # พื้นเริ่มที่ขอบเสาซ้าย -> ยาวไปขวา (ท้องเรียบ!)
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 11.5 + col_w/2, slab_h, **slab_style))
         
-        # Draw Slab (Stops at exterior edge, continuous at interior)
-        ax.add_patch(patches.Rectangle((-col_w/2, slab_y), 11.5, slab_h, **concrete_style))
+        # **Phantom Beam**: วาดเส้นประสีแดง เพื่อบอกว่า "ไม่มีคานนะ"
+        ax.add_patch(patches.Rectangle((-col_w/2, slab_y - beam_depth), col_w, beam_depth, **beam_phantom_style))
         
-        # Draw Break line (Right side only)
-        draw_break_line(11)
+        draw_break(11.0)
 
         # Annotations
-        ax.annotate('Flat Plate Joint\n(Flexible Edge)', xy=(0, slab_y+slab_h/2), xytext=(-2, 2.5),
-                    arrowprops=dict(arrowstyle="->", color='blue'), ha='center', color='blue', fontsize=9)
-        ax.annotate('Continuous\nInterior', xy=(10, slab_y+slab_h), xytext=(11, 3.5),
-                    arrowprops=dict(arrowstyle="->", connectionstyle="arc3,rad=-.2"), ha='center', fontsize=8)
+        ax.text(5, 3.5, "END SPAN - FLAT PLATE", ha='center', weight='bold', fontsize=10, color='#004080')
+        ax.text(5, 3.1, "(No Edge Beam / Flexible Edge)", ha='center', fontsize=8, color='#004080')
+        
+        # ชี้บอกว่าไม่มีคาน
+        ax.annotate('No Beam\n(Flat Soffit)', xy=(0, slab_y), xytext=(1.5, 0.5),
+                    arrowprops=dict(arrowstyle="->", color='red', connectionstyle="arc3,rad=.2"),
+                    color='red', fontsize=9, weight='bold')
 
-        # Moment Coeff Markers
-        ax.text(0, slab_y+slab_h+0.2, "M- Ext\n(0.26)", ha='center', color='red', fontsize=9, weight='bold')
-        ax.text(5, slab_y+slab_h+0.2, "M+\n(0.52)", ha='center', color='blue', fontsize=9, weight='bold')
-        ax.text(10, slab_y+slab_h+0.2, "M- Int\n(0.70)", ha='center', color='red', fontsize=9, weight='bold')
+        # Coefficients (สังเกต M- Ext น้อยมาก)
+        ax.text(0.5, slab_y+slab_h+0.3, "M- Ext\n(0.26)", color='red', fontsize=8, weight='bold', ha='center')
+        ax.text(5.0, slab_y+slab_h+0.3, "M+ (0.52)", color='blue', fontsize=8, weight='bold', ha='center')
+        ax.text(9.5, slab_y+slab_h+0.3, "M- Int\n(0.70)", color='red', fontsize=8, weight='bold', ha='center')
 
-    # Final Touches
-    ax.text(5, -0.5, "Span Length L", ha='center', fontsize=10, fontstyle='italic')
-    
+    # แกนวาดรูป (Dimension Line)
+    ax.annotate('', xy=(0, -0.2), xytext=(10, -0.2), arrowprops=dict(arrowstyle='<->', linewidth=0.8))
+    ax.text(5, -0.6, "Span Length (L)", ha='center', fontsize=9)
+
     return fig
 # ========================================================
 # MAIN ENTRY POINT
