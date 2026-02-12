@@ -625,16 +625,16 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
 # HELPER: ENGINEERING SCHEMATIC + COEFFICIENTS (FINAL)
 # ========================================================
 
-
 def draw_span_schematic(span_type):
     """
-    Final Refined Schematic:
+    Final Refined Schematic (Fixed Font Weight):
+    - Replaced 'extrabold' with 'bold' to prevent ValueError on Cloud environments.
     - Perfect alignment of text and colored strips.
     - Visually demonstrates Moment Apportionment (Total -> CS -> MS).
     """
     fig, ax = plt.subplots(figsize=(10, 6)) 
     ax.set_xlim(-2.5, 12.5)
-    ax.set_ylim(-1.5, 7.5) 
+    ax.set_ylim(-1.5, 8.0) # Increased top margin slightly
     ax.axis('off')
 
     # --- Color Palette ---
@@ -722,7 +722,8 @@ def draw_span_schematic(span_type):
         draw_data_column(5, 0.35, True, 'pos')
         draw_data_column(10, 0.65, True, 'neg')
         
-        ax.text(5, 7.6, "INTERIOR SPAN DISTRIBUTION", ha='center', fontsize=12, weight='extrabold')
+        # Changed 'extrabold' to 'bold'
+        ax.text(5, 7.6, "INTERIOR SPAN DISTRIBUTION", ha='center', fontsize=12, weight='bold')
 
     elif "Edge Beam" in span_type:
         # === END SPAN WITH BEAM ===
@@ -737,7 +738,8 @@ def draw_span_schematic(span_type):
         draw_data_column(5, 0.50, False, 'pos')
         draw_data_column(10, 0.70, False, 'neg')
         
-        ax.text(5, 7.6, "END SPAN - EDGE BEAM DISTRIBUTION", ha='center', fontsize=12, weight='extrabold')
+        # Changed 'extrabold' to 'bold'
+        ax.text(5, 7.6, "END SPAN - EDGE BEAM DISTRIBUTION", ha='center', fontsize=12, weight='bold')
         ax.annotate('Stiff Edge Beam', xy=(0.8, slab_y-beam_d/2), xytext=(3, 0),
                     arrowprops=dict(arrowstyle="->", color='#d32f2f'), color='#d32f2f', weight='bold')
 
@@ -755,7 +757,8 @@ def draw_span_schematic(span_type):
         draw_data_column(5, 0.52, True, 'pos')
         draw_data_column(10, 0.70, True, 'neg')
         
-        ax.text(5, 7.6, "END SPAN - FLAT PLATE DISTRIBUTION", ha='center', fontsize=12, weight='extrabold')
+        # Changed 'extrabold' to 'bold'
+        ax.text(5, 7.6, "END SPAN - FLAT PLATE DISTRIBUTION", ha='center', fontsize=12, weight='bold')
         ax.annotate('No Beam (Flexible)', xy=(0.5, slab_y), xytext=(3, 0.5),
                     arrowprops=dict(arrowstyle="->", color='#d32f2f'), color='#d32f2f', weight='bold')
 
