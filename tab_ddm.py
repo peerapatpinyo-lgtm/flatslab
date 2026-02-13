@@ -431,8 +431,6 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 # ========================================================
 # 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
 # ========================================================
-import streamlit as st
-import math
 
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_m, cy_m):
     """
@@ -920,6 +918,14 @@ def render_dual(data_x, data_y, mat_props, w_u):
     st.markdown("## 🏗️ RC Slab Design (DDM Analysis)")
     
     # ------------------------------------------------------------------
+    # [NEW] 1. รับค่าขนาดเสา (Column Dimensions)
+    # ------------------------------------------------------------------
+    # ดึงค่า cx, cy ที่ User กรอกไว้หน้าแรก (หน่วยเมตร)
+    # ใช้ .get() เพื่อป้องกัน Error กรณีหาไม่เจอ (Default = 0.30m)
+    cx_input = mat_props.get('cx', 0.30)
+    cy_input = mat_props.get('cy', 0.30)
+
+    # ------------------------------------------------------------------
     # ส่วนแก้ไข: Span Continuity Settings พร้อมรูปภาพประกอบ
     # ------------------------------------------------------------------
     with st.expander("⚙️ Span Continuity Settings & Diagrams", expanded=True):
@@ -937,12 +943,14 @@ def render_dual(data_x, data_y, mat_props, w_u):
                 key="sx",
                 help="Interior: ต่อเนื่อง 2 ฝั่ง / End Span: อยู่ริมอาคาร"
             )
-            # อัปเดตข้อมูลโมเมนต์ทันที
-            data_x = update_moments_based_on_config(data_x, type_x)
+            # อัปเดตข้อมูลโมเมนต์ทันที (สมมติว่ามีฟังก์ชันนี้อยู่แล้ว)
+            if 'update_moments_based_on_config' in globals():
+                data_x = update_moments_based_on_config(data_x, type_x)
             
         with c2_x:
-            # แสดงรูป Schematic ทันที
-            st.pyplot(draw_span_schematic(type_x), use_container_width=False)
+            # แสดงรูป Schematic ทันที (สมมติว่ามีฟังก์ชันนี้อยู่แล้ว)
+            if 'draw_span_schematic' in globals():
+                st.pyplot(draw_span_schematic(type_x), use_container_width=False)
 
         st.markdown("---") # เส้นคั่นแนวนอน
 
@@ -956,18 +964,24 @@ def render_dual(data_x, data_y, mat_props, w_u):
                 ["Interior Span", "End Span - Edge Beam", "End Span - No Beam"], 
                 key="sy"
             )
-            data_y = update_moments_based_on_config(data_y, type_y)
+            if 'update_moments_based_on_config' in globals():
+                data_y = update_moments_based_on_config(data_y, type_y)
             
         with c2_y:
-            st.pyplot(draw_span_schematic(type_y), use_container_width=False)
+            if 'draw_span_schematic' in globals():
+                st.pyplot(draw_span_schematic(type_y), use_container_width=False)
             
     # ------------------------------------------------------------------
-    # จบส่วนแก้ไข
+    # จบส่วนแก้ไข UI
     # ------------------------------------------------------------------
 
+    # แสดงผลการคำนวณแยก Tabs
     tab_x, tab_y = st.tabs(["➡️ X-Direction Check", "⬆️ Y-Direction Check"])
     
     with tab_x:
-        render_interactive_direction(data_x, mat_props, "X", w_u, True)
+        # [NEW] ส่งค่า cx_input, cy_input เข้าไปด้วย
+        render_interactive_direction(data_x, mat_props, "X", w_u, True, cx_input, cy_input)
+        
     with tab_y:
-        render_interactive_direction(data_y, mat_props, "Y", w_u, False)
+        # [NEW] ส่งค่า cx_input, cy_input เข้าไปด้วย
+        render_interactive_direction(data_y, mat_props, "Y", w_u, False, cx_input, cy_input)
