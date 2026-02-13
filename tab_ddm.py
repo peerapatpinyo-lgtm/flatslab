@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt     
+import matplotlib.pyplot as plt      
 import matplotlib.patches as patches
 import math
 from typing import Dict, Any, Tuple, Optional
@@ -453,13 +453,20 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_
     fc = float(mat_props['fc'])           # ksc
     fy = float(mat_props['fy'])           # ksc
     phi_shear = mat_props.get('phi_shear', 0.85) 
+    phi_bend = mat_props.get('phi_bend', 0.90) # Added for Section 4
     
     # Analysis Data
     L_span = data['L_span'] # m
     L_width = data.get('L_width', L_span) # m
     Mo_analysis = data['Mo'] # kg-m (จาก FEM หรือ Coeff)
+    Mo = Mo_analysis # Alias for Section 4
     m_vals = data['M_vals'] 
     span_type_str = data.get('span_type_str', 'Interior')
+
+    # Calculate Strip Widths for Section 4
+    l_min = min(L_span, L_width)
+    w_cs = l_min / 2.0  # Column Strip Width (Total)
+    w_ms = L_width - w_cs # Middle Strip Width
 
     # [FIX] Handle missing 'cfg' (Reinforcement Config)
     # ถ้าไม่มีการส่งค่า cfg มา ให้ใช้ค่า Default (DB12 @ 20) กัน Error
@@ -486,6 +493,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_
         c2 = Cx_cm
         span_sym, width_sym = ("L_y", "L_x")
         col_orient_text = f"Parallel ($c_1$) = {c1:.0f} cm | Perp ($c_2$) = {c2:.0f} cm"
+    
+    c_para = c1 # Alias for Section 4 plots
 
     # คำนวณ Clear Span (ln) หน่วยเมตร
     ln_val = L_span - (c1 / 100.0)
