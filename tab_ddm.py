@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt     
 import matplotlib.patches as patches
+import math
 from typing import Dict, Any, Tuple, Optional
 
 # ========================================================
@@ -437,169 +438,224 @@ import math
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_input, cy_input):
     """
     Render logic for slab analysis and punching shear check.
-    [CORRECTED for CM INPUT]
-    - cx_input, cy_input: Assumed to be in CENTIMETERS (e.g., 30, 40).
+    COMPLETE VERSION:
+    - Handles 'cfg' error with default values.
+    - Shows DETAILED equations (Substitution -> Result).
+    - Correct unit handling (Input cm -> Calc).
     """
     
     # -----------------------------------------------------
-    # 0. SETUP & UNPACKING
+    # 0. SETUP & DATA RETRIEVAL
     # -----------------------------------------------------
-    h_slab = float(mat_props['h_slab'])  # cm
-    cover = float(mat_props['cover'])    # cm
-    fc = float(mat_props['fc'])          # ksc
+    # Material Props
+    h_slab = float(mat_props['h_slab'])   # cm
+    cover = float(mat_props['cover'])     # cm
+    fc = float(mat_props['fc'])           # ksc
+    fy = float(mat_props['fy'])           # ksc
     phi_shear = mat_props.get('phi_shear', 0.85) 
     
-    # Geometry Data
-    L_span = data['L_span'] # Meter
-    L_width = data.get('L_width', L_span) # Meter
-    Mo = data['Mo']         # kg-m
-    m_vals = data['M_vals'] # kg-m
+    # Analysis Data
+    L_span = data['L_span'] # m
+    L_width = data.get('L_width', L_span) # m
+    Mo_analysis = data['Mo'] # kg-m (จาก FEM หรือ Coeff)
+    m_vals = data['M_vals'] 
     span_type_str = data.get('span_type_str', 'Interior')
-    
-    # --- [CRITICAL FIX: UNIT HANDLING] ---
-    # กรณี Input เป็น cm (เช่น 30, 40) -> ใช้ค่าได้เลย ไม่ต้องคูณ 100
-    Cx_cm = float(cx_input) 
-    Cy_cm = float(cy_input)
-    
-    # จัดแกน (Orientation)
-    if axis_id == "X":
-        # วิเคราะห์ทิศ X: หน้าตัดเสาด้านขนานคือ Cx
-        c1 = Cx_cm  # cm
-        c2 = Cy_cm  # cm
-        span_sym, width_sym = ("L_x", "L_y")
-    else:
-        # วิเคราะห์ทิศ Y: หน้าตัดเสาด้านขนานคือ Cy
-        c1 = Cy_cm  # cm
-        c2 = Cx_cm  # cm
-        span_sym, width_sym = ("L_y", "L_x")
 
-    # [Engineering Check 1] Clear Span for Moment (ln) ต้องเป็นหน่วย "เมตร"
-    # L_span (m) - c1 (cm -> m)
-    ln_val = L_span - (c1 / 100.0)
+    # [FIX] Handle missing 'cfg' (Reinforcement Config)
+    # ถ้าไม่มีการส่งค่า cfg มา ให้ใช้ค่า Default (DB12 @ 20) กัน Error
+    cfg = data.get('cfg', {}) 
+    db_flex = cfg.get('db_main', 12) # mm
     
     # -----------------------------------------------------
-    # SECTION 1: ANALYSIS & LOAD
+    # 1. GEOMETRY & UNIT CONVERSION
+    # -----------------------------------------------------
+    # Input รับมาเป็น cm (เช่น 30, 40)
+    Cx_cm = float(cx_input)
+    Cy_cm = float(cy_input)
+    
+    # กำหนด c1 (ขนานช่วงคาน) และ c2 (ตั้งฉาก)
+    if axis_id == "X":
+        # Span X: c1 คือด้าน X
+        c1 = Cx_cm
+        c2 = Cy_cm
+        span_sym, width_sym = ("L_x", "L_y")
+        col_orient_text = f"Parallel ($c_1$) = {c1:.0f} cm | Perp ($c_2$) = {c2:.0f} cm"
+    else:
+        # Span Y: c1 คือด้าน Y
+        c1 = Cy_cm
+        c2 = Cx_cm
+        span_sym, width_sym = ("L_y", "L_x")
+        col_orient_text = f"Parallel ($c_1$) = {c1:.0f} cm | Perp ($c_2$) = {c2:.0f} cm"
+
+    # คำนวณ Clear Span (ln) หน่วยเมตร
+    ln_val = L_span - (c1 / 100.0)
+
+    # -----------------------------------------------------
+    # 2. STATIC MOMENT CHECK (SHOW EQUATIONS)
     # -----------------------------------------------------
     st.markdown(f"### 1️⃣ Analysis: {axis_id}-Direction")
     
-    with st.expander(f"📊 Load & Moment Distribution ({axis_id})", expanded=True):
-        c_an1, c_an2 = st.columns([1, 1.2])
+    with st.expander(f"📘 Calculation Details: Static Moment ($M_o$)", expanded=True):
+        col_info, col_calc = st.columns([1, 1.5])
         
-        with c_an1:
-            st.info(f"**Span Condition:** {span_type_str}")
-            st.markdown(f"""
-            - **Span {span_sym}:** {L_span:.2f} m | **$l_n$:** {ln_val:.2f} m
-            - **Column $c_1$ (||):** {c1:.0f} cm
-            - **Column $c_2$ (⊥):** {c2:.0f} cm
-            """)
+        with col_info:
+            st.info(f"**Condition:** {span_type_str}")
+            st.write(f"- Span {span_sym}: **{L_span:.2f} m**")
+            st.write(f"- Width {width_sym}: **{L_width:.2f} m**")
+            st.write(f"- Column: {col_orient_text}")
+            st.write(f"- Load ($w_u$): **{w_u:,.0f} kg/m²**")
+
+        with col_calc:
+            st.markdown("#### **Step 1: Clear Span ($l_n$)**")
+            st.latex(f"l_n = L_{{span}} - \\frac{{c_1}}{{100}} = {L_span:.2f} - \\frac{{{c1:.0f}}}{{100}} = \\mathbf{{{ln_val:.3f}}} \\; m")
             
-        with c_an2:
-            # Re-calculate Mo check (เผื่อค่า ln เปลี่ยน)
-            # Mo = w * L2 * ln^2 / 8
-            Mo_check = (w_u * L_width * (ln_val**2)) / 8.0
+            st.markdown("#### **Step 2: Total Static Moment ($M_o$)**")
+            st.markdown("ตรวจสอบค่าโมเมนต์สถิตรวม (ACI 318):")
             
-            st.write(f"**Calculated $M_o$:** {Mo_check:,.0f} kg-m")
+            # คำนวณ Mo Check
+            Mo_cal = (w_u * L_width * (ln_val**2)) / 8.0
             
-            M_sc = m_vals.get('M_unbal', 0.0)
-            if M_sc > 0:
-                st.warning(f"⚠️ Unbalanced Moment ($M_{{sc}}$): {M_sc:,.0f} kg-m")
-            else:
-                st.success("✅ Balanced Span ($M_{sc} \\approx 0$)")
+            st.latex(r"M_o = \frac{w_u l_2 l_n^2}{8}")
+            st.latex(f"M_o = \\frac{{{w_u:,.0f} \\cdot {L_width:.2f} \\cdot {ln_val:.3f}^2}}{{8}} = \\mathbf{{{Mo_cal:,.0f}}} \\; kg\\cdot m")
+            
+            if abs(Mo_cal - Mo_analysis) > 1000:
+                st.caption(f"*Note: ค่าจากตารางสัมประสิทธิ์ ({Mo_analysis:,.0f}) อาจต่างจากสูตร Mo เล็กน้อยเนื่องจากวิธีการคำนวณ*")
 
     # -----------------------------------------------------
-    # SECTION 2: PUNCHING SHEAR CHECK
+    # 3. PUNCHING SHEAR (DETAILED)
     # -----------------------------------------------------
     if data.get('check_punching', True):
         st.markdown("---")
-        st.markdown("### 2️⃣ Punching Shear Check")
-
-        # --- A. Effective Depth (d) ---
-        # h_slab (cm) - cover (cm) - bar_dia (approx 1.6 cm) -> Unit: cm
-        d_avg = h_slab - cover - 1.6 
+        st.markdown("### 2️⃣ Punching Shear Check (ACI 318)")
         
-        # --- B. Critical Section Properties (Ac, Jc) ---
-        # ใช้หน่วย cm ทั้งหมดในการคำนวณ Section properties -> ถูกต้อง
+        # --- A. Effective Depth ---
+        d_avg = h_slab - cover - (db_flex/10.0) # cm (ลบ cover และเหล็กคร่าวๆ)
         
-        is_edge_calc = "Edge" in span_type_str or "Corner" in span_type_str
+        # --- B. Geometry Logic ---
+        is_edge = "Edge" in span_type_str or "Corner" in span_type_str
         
-        if not is_edge_calc:
-            # Interior Column
+        # เตรียมตัวแปรสำหรับ Report
+        calc_steps = [] # เก็บข้อความ Latex
+        
+        if not is_edge:
+            # === INTERIOR COLUMN ===
+            col_type = "Interior Column (4-Sided)"
+            
+            # Dimensions
             b1 = c1 + d_avg
             b2 = c2 + d_avg
             bo = 2 * (b1 + b2)
             Ac = bo * d_avg
             
-            # Polar Moment of Inertia (cm^4)
+            # Jc (Polar Inertia)
             term1 = (d_avg * b1**3) / 6.0
             term2 = (d_avg**3 * b1) / 6.0
             term3 = (d_avg * b2 * b1**2) / 2.0
             J_c = term1 + term2 + term3
             
-            gamma_v = 1.0 - (1.0 / (1.0 + (2.0/3.0) * (b1/b2)**0.5))
-            c_AB = b1 / 2.0
+            # Gamma
+            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (b1/b2)**0.5)
+            gamma_v = 1.0 - gamma_f
+            c_AB = b1 / 2.0 # Symmetric
+            
+            # LaTeX Strings
+            calc_steps.append(rf"b_1 = c_1 + d = {c1:.0f} + {d_avg:.1f} = {b1:.1f} \; cm")
+            calc_steps.append(rf"b_o = 2(b_1 + b_2) = 2({b1:.1f} + {b2:.1f}) = \mathbf{{{bo:.1f}}} \; cm")
             
         else:
-            # Edge Column (simplified U-shape)
-            L1 = c1 + (d_avg / 2.0)
-            L2 = c2 + d_avg
+            # === EDGE COLUMN (U-SHAPE) ===
+            col_type = "Edge Column (3-Sided / U-Shape)"
+            
+            # Dimensions
+            L1 = c1 + (d_avg / 2.0) # Legs
+            L2 = c2 + d_avg         # Front
             bo = (2 * L1) + L2
             Ac = bo * d_avg
             
-            # Centroid & Jc (Approximate for Edge)
-            # Note: การคำนวณ Jc ของ Edge ละเอียดมาก ในที่นี้ใช้สูตรมาตรฐาน ACI
-            # หา Centroid จาก Inner Face
-            moment_area = (2 * L1 * d_avg) * (L1 / 2.0) # Moment of legs about face
-            c_AB = moment_area / Ac # Distance from face to centroid
+            # Centroid (c_AB)
+            moment_area = (2 * L1 * d_avg) * (-L1 / 2.0)
+            c_AB = abs(moment_area / Ac) # From Inner Face
             
-            # Jc calculation (Parallel axis theorem)
+            # Jc (Approx)
             I_legs = 2 * ((d_avg * L1**3)/12.0 + (L1*d_avg)*(L1/2.0 - c_AB)**2)
             I_front = (L2 * d_avg**3)/12.0 + (L2*d_avg)*(c_AB)**2
             J_c = I_legs + I_front
             
-            gamma_v = 1.0 - (1.0 / (1.0 + (2.0/3.0) * (L1/L2)**0.5))
+            # Gamma
+            gamma_f = 1.0 / (1.0 + (2.0/3.0) * (L1/L2)**0.5)
+            gamma_v = 1.0 - gamma_f
+            
+            # LaTeX Strings
+            calc_steps.append(rf"L_1 (\text{{Legs}}) = c_1 + d/2 = {c1:.0f} + {d_avg/2:.1f} = {L1:.1f} \; cm")
+            calc_steps.append(rf"b_o = 2L_1 + L_2 = 2({L1:.1f}) + {L2:.1f} = \mathbf{{{bo:.1f}}} \; cm")
+            calc_steps.append(rf"c_{{AB}} (\text{{Centroid}}) \approx {c_AB:.2f} \; cm")
 
-        # --- C. Stress Analysis (Unit Check) ---
-        
-        # 1. Shear Force (Vu)
-        # w_u [kg/m^2] * Area [m^2] -> kg (ถูกต้อง)
-        # ต้องแปลง c1, c2 เป็นเมตร เพื่อหาพื้นที่หักลบ
-        area_col_m2 = (c1/100.0) * (c2/100.0)
-        Vu = w_u * ((L_span * L_width) - area_col_m2)
-        
-        # 2. Shear Stress (v_u) -> ksc (kg/cm^2)
-        # v_direct = Vu [kg] / Ac [cm^2] -> ksc (ถูกต้อง)
-        v_direct = Vu / Ac
-        
-        # 3. Moment Stress (v_moment) -> ksc
-        # M_sc [kg-m] -> ต้องแปลงเป็น kg-cm โดยคูณ 100
-        # c_AB [cm]
-        # J_c [cm^4]
-        # Unit: (kg-cm * cm) / cm^4 = kg/cm^2 -> ksc (ถูกต้อง)
-        if M_sc > 0:
-            M_sc_cm = M_sc * 100.0 
-            v_moment = (gamma_v * M_sc_cm * c_AB) / J_c
-            sign_op = "+"
-        else:
-            v_moment = 0.0
-            sign_op = ""
+        # --- C. Display Calculation ---
+        with st.expander("📐 Step 1: Geometry & Section Properties", expanded=True):
+            st.info(f"**Type:** {col_type}")
+            st.write(f"Effective Depth ($d$) ≈ **{d_avg:.1f} cm**")
             
-        v_total = v_direct + v_moment
-        
-        # --- D. Display ---
-        c1_res, c2_res = st.columns(2)
-        with c1_res:
-            st.write(f"**$V_u$:** {Vu:,.0f} kg")
-            st.write(f"**$b_o$:** {bo:.2f} cm | **$d$:** {d_avg:.2f} cm")
-            st.write(f"**$J_c$:** {J_c:,.0e} cm$^4$")
-        with c2_res:
-            st.metric("Max Shear Stress", f"{v_total:.2f} ksc")
-            vc_allow = phi_shear * 1.06 * (fc**0.5) # ACI Formula for ksc
+            # Show Geometry Calc
+            for step in calc_steps:
+                st.latex(step)
+                
+            st.latex(rf"A_c = b_o \cdot d = {bo:.1f} \cdot {d_avg:.1f} = \mathbf{{{Ac:,.0f}}} \; cm^2")
+            st.latex(rf"J_c (\text{{Polar Inertia}}) = \mathbf{{{J_c:,.0e}}} \; cm^4")
+            st.latex(rf"\gamma_v = 1 - \frac{{1}}{{1 + \frac{{2}}{{3}}\sqrt{{b_1/b_2}}}} = \mathbf{{{gamma_v:.3f}}}")
+
+        # --- D. Stress Calculation ---
+        with st.expander("⚖️ Step 2: Shear Stress Check", expanded=True):
+            # 1. Vu Calculation
+            # Area_load = (L_span * L_width) - (c1*c2)/10000
+            area_slab = (L_span * L_width)
+            area_col = (c1/100.0) * (c2/100.0)
+            Vu = w_u * (area_slab - area_col)
             
-            if v_total <= vc_allow:
-                st.success(f"PASS (Ratio: {v_total/vc_allow:.2f})")
+            st.markdown("#### **2.1 Factored Shear Load ($V_u$)**")
+            st.latex(rf"V_u = w_u (A_{{slab}} - A_{{col}}) = {w_u:,.0f}({area_slab:.1f} - {area_col:.2f})")
+            st.latex(rf"V_u = \mathbf{{{Vu:,.0f}}} \; kg")
+            
+            # 2. Stress Components
+            v_direct = Vu / Ac
+            
+            # Moment Transfer
+            M_sc = m_vals.get('M_unbal', 0.0)
+            M_sc_cm = M_sc * 100.0 # Convert to kg-cm
+            
+            if M_sc > 0:
+                v_moment = (gamma_v * M_sc_cm * c_AB) / J_c
+                sign_text = f"+ {v_moment:.2f}"
             else:
-                st.error(f"FAIL (Allow: {vc_allow:.2f} ksc)")
-
+                v_moment = 0.0
+                sign_text = ""
+                
+            v_total = v_direct + v_moment
+            
+            st.markdown("#### **2.2 Maximum Shear Stress ($v_{max}$)**")
+            st.latex(r"v_{max} = \frac{V_u}{A_c} + \frac{\gamma_v M_{sc} c}{J_c}")
+            st.latex(rf"v_{{direct}} = \frac{{{Vu:,.0f}}}{{{Ac:,.0f}}} = {v_direct:.2f} \; ksc")
+            
+            if M_sc > 0:
+                st.latex(rf"v_{{moment}} = \frac{{{gamma_v:.3f} \cdot {M_sc*100:,.0f} \cdot {c_AB:.1f}}}{{{J_c:,.0e}}} = {v_moment:.2f} \; ksc")
+            
+            st.latex(rf"v_{{total}} = {v_direct:.2f} {sign_text} = \mathbf{{{v_total:.2f}}} \; ksc")
+            
+            # 3. Capacity Check
+            vc_allow = phi_shear * 1.06 * (fc**0.5)
+            
+            st.markdown("#### **2.3 Conclusion**")
+            st.write(f"Allowable Shear ($\\phi v_c$):")
+            st.latex(rf"\phi v_c = {phi_shear} \times 1.06 \sqrt{{f'_c}} = {phi_shear} \times 1.06 \sqrt{{{fc}}} = \mathbf{{{vc_allow:.2f}}} \; ksc")
+            
+            ratio = v_total / vc_allow
+            if v_total <= vc_allow:
+                st.success(f"✅ **PASS** (Ratio: {ratio:.2f})")
+                st.progress(min(ratio, 1.0))
+            else:
+                st.error(f"❌ **FAIL** (Ratio: {ratio:.2f})")
+                st.progress(min(ratio, 1.0))
+                req_h = d_avg * math.sqrt(ratio) + cover + 1.6
+                st.warning(f"💡 Suggestion: Increase thickness to > {req_h:.0f} cm")
             
     # -----------------------------------------------------
     # SECTION 3: SERVICEABILITY (DEFLECTION)
