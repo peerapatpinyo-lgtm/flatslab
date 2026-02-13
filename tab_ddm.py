@@ -723,6 +723,8 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir):
                 st.success(f"✅ **{val:.2f} cm** (Limit L/240 = {lim:.2f} cm)")
             else:
                 st.warning(f"⚠️ **{val:.2f} cm** (Exceeds Limit {lim:.2f} cm)")
+
+
     # -----------------------------------------------------
     # SECTION 4: REINFORCEMENT DESIGN
     # -----------------------------------------------------
