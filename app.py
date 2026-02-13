@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -34,21 +33,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Import Modules with Error Handling
+# --- IMPORT MODULES ---
+# 1. Calculation Engine (ต้องมีไฟล์ calculations.py)
 try:
     from calculations import FlatSlabDesign
 except ImportError:
     st.error("🚨 CRITICAL ERROR: ไม่พบไฟล์ 'calculations.py' กรุณาตรวจสอบไฟล์ในโฟลเดอร์")
     st.stop()
-    
-# Import Tabs (Assuming these exist)
+
+# 2. UI Modules (DDM_Tab คือไฟล์ใหม่ที่เราเพิ่งสร้าง)
 try:
-    import tab_ddm  
-    import tab_drawings 
-    import tab_efm
-    import tab_calc
+    import DDM_Tab       # <--- แก้ชื่อ Import ให้ตรงกับไฟล์ใหม่
+    import tab_drawings  # (ถ้ามี)
+    import tab_efm       # (ถ้ามี)
+    import tab_calc      # (ถ้ามี)
 except ImportError as e:
-    st.warning(f"⚠️ Warning: Module not found - {e}")
+    # ถ้าไม่มีไฟล์อื่น แสดง Warning แต่ไม่ให้โปรแกรมพัง
+    if "DDM_Tab" in str(e):
+        st.error(f"⚠️ Error: ไม่พบไฟล์ DDM_Tab.py ({e})")
+    else:
+        st.warning(f"⚠️ Note: Module '{e.name}' not found. Some tabs might be empty.")
 
 # =========================================================
 # 2. SIDEBAR INPUTS (ENGINEERING CONTROL)
@@ -136,11 +140,14 @@ with st.sidebar.expander("3. Loads & Factors", expanded=False):
     phi_shear = c_phi1.number_input("φ Shear", value=0.85)
     phi_bend = c_phi2.number_input("φ Bending", value=0.90)
 
-
 # --- Section 4: Reinforcement ---
 with st.sidebar.expander("4. Reinforcement", expanded=False):
     st.markdown("### 🛠️ Rebar Configuration")
     use_detailed_rebar = st.checkbox("🔧 Advanced/Zone Control", value=False)
+
+    # Initialize Defaults
+    rebar_cfg = {}
+    rebar_db = 12 # Default fallback
 
     if not use_detailed_rebar:
         st.caption("🔹 Global Settings (Apply to All)")
@@ -148,7 +155,6 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
         base_spa = st.number_input("Typical Spacing (cm)", value=20.0, step=5.0)
 
         rebar_db = base_db 
-
         rebar_cfg = {
             'cs_top_db': base_db, 'cs_top_spa': base_spa,
             'cs_bot_db': base_db, 'cs_bot_spa': base_spa,
@@ -182,15 +188,13 @@ with st.sidebar.expander("4. Reinforcement", expanded=False):
             ms_bot_db = st.selectbox("Dia.", [10, 12, 16, 20, 25], index=1, key="ms_b_d")
             ms_bot_spa = st.number_input("Spa.", value=25.0, step=2.5, key="ms_b_s")
 
-        rebar_db = cs_top_db 
-
+        rebar_db = cs_top_db # Use CS Top as representative
         rebar_cfg = {
             'cs_top_db': cs_top_db, 'cs_top_spa': cs_top_spa,
             'cs_bot_db': cs_bot_db, 'cs_bot_spa': cs_bot_spa,
             'ms_top_db': ms_top_db, 'ms_top_spa': ms_top_spa,
             'ms_bot_db': ms_bot_db, 'ms_bot_spa': ms_bot_spa
         }
-
 
 # =========================================================
 # 3. CONTROLLER & ANALYSIS
@@ -234,7 +238,7 @@ try:
     check_res = results.get('checks', {})
     ddm_res = results.get('ddm', {'x': {}, 'y': {}})
     
-    # [FIX] Define wu explicitly here to prevent NameError in tabs
+    # Define wu explicitly to prevent NameError
     wu = loads_res.get('w_u', 0)
 
 except Exception as e:
@@ -270,7 +274,7 @@ with t1:
             col_type=col_type
         )
     else:
-        st.info("Module 'tab_drawings' loaded (Placeholder)")
+        st.info("Module 'tab_drawings' not loaded. (Drawing Placeholder)")
 
 with t2:
     if 'tab_calc' in globals():
@@ -281,15 +285,20 @@ with t2:
             loads=loads_res,
             Lx=Lx, Ly=Ly
         )
+    else:
+         st.info("Module 'tab_calc' not loaded.")
 
 with t3:
-    if 'tab_ddm' in globals():
-        tab_ddm.render_dual(
-            data_x=ddm_res['x'],
-            data_y=ddm_res['y'],
+    # เรียกใช้ DDM_Tab ที่เราเพิ่งสร้าง
+    if 'DDM_Tab' in globals():
+        DDM_Tab.render_dual(
+            data_x=ddm_res.get('x', {}),
+            data_y=ddm_res.get('y', {}),
             mat_props=user_inputs,
             w_u=wu
         )
+    else:
+        st.error("ไม่พบโมดูล DDM_Tab")
 
 with t4:
     if 'tab_efm' in globals():
@@ -302,3 +311,5 @@ with t4:
             drop_w=drop_w/100 if has_drop else 0,
             drop_l=drop_l/100 if has_drop else 0
         )
+    else:
+        st.info("Module 'tab_efm' not loaded. (EFM Placeholder)")
