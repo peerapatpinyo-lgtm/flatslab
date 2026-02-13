@@ -432,6 +432,9 @@ def show_detailed_calculation(zone_name, res, inputs, coeff_pct, Mo_val):
 # 4. INTERACTIVE DIRECTION CHECK (TAB CONTENT)
 # ========================================================
 
+import streamlit as st
+import math
+
 def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_m, cy_m):
     """
     Render logic for slab analysis and punching shear check.
@@ -639,7 +642,10 @@ def render_interactive_direction(data, mat_props, axis_id, w_u, is_main_dir, cx_
                 
         with col_res2:
             st.markdown("**Capacity Check:**")
-            st.latex(f"v_{{max}} = {v_direct:.2f} {sign_op} {v_moment:.2f} = \\mathbf{{{v_total:.2f}}} \\; ksc")
+            if M_sc > 0:
+                st.latex(f"v_{{max}} = {v_direct:.2f} {sign_op} {v_moment:.2f} = \\mathbf{{{v_total:.2f}}} \\; ksc")
+            else:
+                st.latex(f"v_{{max}} = {v_direct:.2f} = \\mathbf{{{v_total:.2f}}} \\; ksc")
             
             # Capacity (phi * vc)
             # vc = 1.06 * sqrt(fc) (Approx for ksc)
